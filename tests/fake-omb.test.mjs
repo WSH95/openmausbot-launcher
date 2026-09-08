@@ -180,7 +180,11 @@ test("thread messages: limit bounds, before cursor, hasMore; interrupt needs the
   const before = r.body.messages[0].id;
   r = await j(await fetch(`${f.url}/api/threads/${thread}/messages?limit=10&before=${before}`));
   assert.deepEqual(r.body.messages.map((m) => m.text), ["m0", "m1", "m2"]); assert.equal(r.body.hasMore, false);
-  assert.equal((await fetch(`${f.url}/api/threads/${thread}/messages?limit=201`)).status, 400);
+  // S: index.ts:1937-1946 pageSize() clamps to MESSAGE_PAGE_MAX = 200 and is null only for a non-integer or negative; 8646 turns null into this 400.
+  for (let i = 5; i < 205; i++) await f.control({ op: "leadSay", threadId: thread, text: `m${i}` });
+  r = await j(await fetch(`${f.url}/api/threads/${thread}/messages?limit=201`));
+  assert.equal(r.status, 200); assert.equal(r.body.messages.length, 200); assert.equal(r.body.hasMore, true); assert.equal(r.body.messages.at(-1).text, "m204");
+  for (const bad of ["-1", "1.5", "abc"]) { r = await j(await fetch(`${f.url}/api/threads/${thread}/messages?limit=${bad}`)); assert.equal(r.status, 400, bad); assert.equal(r.body.error, "limit must be a non-negative whole number"); }
   assert.equal((await fetch(`${f.url}/api/threads/${thread}/messages?before=zzz`)).status, 404);
   await f.control({ op: "activity", botId: id, activity: "working" });
   r = await j(await post(`${f.url}/api/bots/${id}/interrupt`, { threadId: "other" }));

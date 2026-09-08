@@ -342,11 +342,12 @@ export async function createFake(opts = {}) {
     broadcast({ kind: "message.patch", threadId, message: msg });
     return json(res, 200, { ok: true, outcome });
   }
-  function threadMessages(res, url, threadId) { // S: index.ts:8639-8663 (limit 0-200 default 50, before cursor)
+  function threadMessages(res, url, threadId) { // S: index.ts:1937-1946 pageSize() (default 50, clamp 200, null for a non-integer or negative), 8646 (the 400), 8639-8663
     const list = messagesFor(threadId);
     const limitRaw = url.searchParams.get("limit");
-    let limit = limitRaw === null ? 50 : Number(limitRaw);
-    if (!Number.isInteger(limit) || limit < 0 || limit > 200) return json(res, 400, { error: "limit must be 0-200" });
+    const size = limitRaw === null ? 50 : Number(limitRaw);
+    if (!Number.isInteger(size) || size < 0) return json(res, 400, { error: "limit must be a non-negative whole number" });
+    const limit = Math.min(size, 200);
     const before = url.searchParams.get("before");
     let end = list.length;
     if (before !== null) { const i = list.findIndex((m) => m.id === before); if (i < 0) return json(res, 404, { error: "no such message" }); end = i; }

@@ -26,7 +26,7 @@ they are named where they are used.
 | Bot description | ≤ 4000 chars | `shared/bot-profile.ts:5`, `bot-profile.ts:50` | The `Project facts` block lives inside it; `facts` refuses at 4000 before sending. |
 | Package limits | tagline ≤ 160, agent description ≤ 4000, playbook instructions ≤ 24000 | `bot-package.ts:47,68,118` | A long tagline is a 400 at import, not a truncation. The rendered playbook mount is also capped at 24000 (`installed-playbooks.ts:4`). |
 | Delegation receipts | 100 entries, pruned after 48 h | `delegations.ts:98-99,113-129` | Fleet-wide and lossy: accumulate the ids seen rather than recounting the file. |
-| Message page | `limit` 0-200, default 50 | `index.ts:1937-1946` | A long thread needs `before` paging. |
+| Message page | `limit` default 50, clamped to 200; a non-integer or negative value is a 400 | `index.ts:1937-1946,8646` | A long thread needs `before` paging; asking for more than 200 silently returns 200. |
 | Event replay | 500 frames, heartbeat 15 s | `index.ts:2014,2016-2020` | A cursor older than the buffer gets `resumed:false`, which means hydrate. |
 
 ## Dead question cards
