@@ -1,4 +1,6 @@
 // status (and, in later steps, task, send, answer, interrupt, watch).
+import fs from "node:fs";
+import path from "node:path";
 import { verb, EXIT, Fail, VERBS } from "../cli.mjs";
 import { resolveConfig } from "../config.mjs";
 import { createClient } from "../http.mjs";
@@ -291,5 +293,84 @@ verb("watch", {
       result: { state, outcome: r.outcome, reasons: r.ev.reasons, hint: r.ev.hint, changes: r.changes, lead: r.snap.leadText, lastUser: r.snap.lastUser, pending: r.snap.pending, outcomes: r.snap.outcomes.length, busy: r.ev.busy, inflight: r.ev.inflight, quietFor: r.ev.quietFor, cursor: r.cursor, elapsedSec: r.elapsedSec, pollingOnly: r.pollingOnly, nudged: r.nudged, complete: r.snap.complete, incomplete: r.snap.incomplete, brief: line, ...(unchanged ? { silent: true } : {}) },
       brief: unchanged ? "" : state === "timeout" ? `${line} · watch timed out after ${r.elapsedSec}s, call again` : line,
     };
+  },
+});
+
+// ── report ──
+import { readNdjson, turnsFromEvents, nativeCalls, check042, beadStatus, commitsSince, runTests, renderMarkdown } from "../report.mjs";
+import { reconcileCheck as rootCheck, git as gitRun } from "../git.mjs";
+import * as srvInfo from "../server.mjs";
+
+verb("report", {
+  options: { md: { type: "boolean" }, "check-042": { type: "boolean" }, "no-tests": { type: "boolean" }, close: { type: "boolean" }, "no-close": { type: "boolean" } },
+  handler: async ({ flags }) => {
+    const cfg = resolveConfig(flags);
+    if (cfg.mode === "remote" || !cfg.dataDirReadable) throw new Fail(EXIT.PRECONDITION, "report needs the data dir and the project checkout", { hint: cfg.dataDirReadable ? "run it on the server's machine" : `${cfg.dataDir} is not readable: pass --data-dir` });
+    const team = requireTeam(cfg);
+    const task = cfg.state.task && cfg.state.task.status !== "closed" ? cfg.state.task : null;
+    if (!task) throw new Fail(EXIT.PRECONDITION, "no open run to report", { hint: "the last closed runs are in the state's history" });
+    const client = createClient(cfg);
+    const snap = await snapshot(client, { team, task }, { dataDir: cfg.dataDir });
+    let ev = evaluate(snap, task, carriedInputs(task));
+    const last = task.lastEval;
+    const unchanged = last && last.lastLeadMessageId === (snap.leadText?.id ?? null) && (last.outcomes?.length ?? 0) === snap.outcomes.length;
+    if (ev.state === "running" && last && TERMINAL_STATES.has(last.state) && unchanged && !ev.inflight) ev = { ...ev, state: last.state, carried: true };
+    const sinceMs = task.sentAt ?? 0;
+    const threads = Object.entries(task.threads ?? {}).map(([botId, threadId]) => {
+      const bot = team.bots.find((b) => b.id === botId) ?? (botId === team.lead.id ? team.lead : null);
+      const events = readNdjson(path.join(cfg.dataDir, "events", `${threadId}.ndjson`)) ?? [];
+      const t = turnsFromEvents(events, sinceMs);
+      return { bot: bot?.name ?? botId, threadId, turns: t.turns.length, seconds: t.seconds, totals: t.totals, models: [...new Set(t.turns.map((x) => x.model).filter(Boolean))] };
+    });
+    const native = readNdjson(path.join(cfg.dataDir, "native", `${task.leadThreadId}.ndjson`)) ?? [];
+    const commits = commitsSince(cfg.projectDir, task.sentSha);
+    const facts = cfg.state.facts ?? {};
+    const taskLog = facts.taskLog && facts.taskLog !== "none" ? facts.taskLog : null;
+    const taskLogText = taskLog ? (() => { try { return fs.readFileSync(path.join(cfg.projectDir, taskLog), "utf8"); } catch { return null; } })() : null;
+    const recordCommit = commits.find((c) => /^docs\(team\): .* merged as [0-9a-f]{7,}/.test(c.subject) && c.files.length > 0 && c.files.every((f) => f === taskLog || f.startsWith(".beads/")));
+    const taskLogChanged = taskLog ? commits.some((c) => c.files.includes(taskLog)) : null;
+    const bead = beadStatus(task.bead, cfg.projectDir);
+    const record = { taskLog, taskLogChanged, commit: recordCommit?.sha ?? null, commitSubject: recordCommit?.subject ?? null, bead, ok: taskLog ? Boolean(taskLogChanged && recordCommit) && bead.ok !== false : null };
+    const closing = snap.leadText?.text ?? null;
+    const mergedSha = closing ? /merged as ([0-9a-f]{7,40})/i.exec(closing)?.[1] ?? null : null;
+    const reconcile = rootCheck(cfg.projectDir, facts);
+    let ancestor = null;
+    if (mergedSha) { try { gitRun(["merge-base", "--is-ancestor", mergedSha, reconcile.defaultBranch], cfg.projectDir); ancestor = true; } catch { ancestor = false; } }
+    const tests = flags["no-tests"] ? { ran: false, ok: null, detail: "skipped with --no-tests" } : runTests(facts.test, cfg.projectDir);
+    let checks = null;
+    if (flags["check-042"]) {
+      const reviewer = team.bots.find((b) => /plan review/i.test(b.title ?? ""))?.name ?? null;
+      checks = check042({ native, taskLogText, reviewerName: reviewer, sentAt: sinceMs, toolNames: [] });
+      checks.push({ id: "bead-closed", ok: bead.ok, detail: bead.detail });
+      checks.push({ id: "record-commit", ok: Boolean(recordCommit), detail: recordCommit ? `${recordCommit.sha.slice(0, 7)} ${recordCommit.subject} (${recordCommit.files.join(", ")})` : "no docs(team) commit touching only the task log and .beads since the dispatch" });
+      checks.push({ id: "merged-ancestor", ok: ancestor, detail: mergedSha ? `${mergedSha.slice(0, 7)} ${ancestor ? "is" : "is not"} an ancestor of ${reconcile.defaultBranch}` : "the closing report names no merged commit" });
+      checks.push({ id: "task-branch-and-worktree-absent", ok: reconcile.taskBranches.length === 0 && reconcile.worktrees.length === 1, detail: `${reconcile.taskBranches.length} task branch(es), ${reconcile.worktrees.length - 1} extra worktree(s)` });
+      checks.push({ id: "root-clean", ok: reconcile.clean, detail: reconcile.clean ? "clean" : reconcile.problems.join("; ") });
+      checks.push({ id: "tests-pass", ok: tests.ok, detail: tests.ran ? `exit ${tests.status} in ${tests.seconds} s` : tests.detail });
+    }
+    const allChecks = checks ? checks.every((c) => c.ok !== false) : true;
+    let result;
+    if (ev.state === "failed" || tests.ok === false) result = "failed";
+    else if (ev.state === "done" && record.ok !== false && tests.ok !== false && reconcile.clean && allChecks) result = "passed";
+    else result = "incomplete";
+    const terminal = TERMINAL_STATES.has(ev.state);
+    const shouldClose = !flags["no-close"] && (terminal || flags.close);
+    const env = await srvInfo.environment(client);
+    const report = {
+      date: new Date().toISOString().slice(0, 10), runId: task.runId, tag: task.tag, title: task.title, slug: task.slug, project: cfg.projectDir, version: env?.version ?? cfg.state.server?.version ?? null,
+      lead: team.lead.name, leadModel: team.lead.model ?? null, sentAt: task.sentAt ? new Date(task.sentAt).toISOString() : null, sentSha: task.sentSha, state: ev.state, result,
+      threads, outcomes: snap.outcomes, commits, record, tests, reconcile: { clean: reconcile.clean, problems: reconcile.problems, defaultBranch: reconcile.defaultBranch }, mergedSha, ancestor, check042: checks, closing, decisions: null,
+      nativeTools: [...new Set(nativeCalls(native).calls.map((c) => c.name))], durationSec: task.sentAt ? Math.round((Date.now() - task.sentAt) / 1000) : null, closed: false,
+    };
+    if (shouldClose && !cfg.dryRun) {
+      await updateState(cfg.paths, (d) => {
+        if (d.task?.runId !== task.runId) return d;
+        const closedRun = { ...d.task, status: "closed", result, closedAt: new Date().toISOString(), report: { state: ev.state, result, mergedSha, recordCommit: record.commit, tests: tests.ok, durationSec: report.durationSec } };
+        d.history = [...(d.history ?? []), closedRun]; d.task = null; return d;
+      });
+      report.closed = true;
+    }
+    const md = renderMarkdown(report);
+    return { code: result === "failed" ? EXIT.STALLED : EXIT.OK, ok: result !== "failed", result: { ...report, markdown: flags.md ? md : undefined }, brief: flags.md ? md : `report · ${task.title} · ${ev.state} · ${result}${report.closed ? " · run closed" : " · run left open"}${tests.ran ? ` · tests ${tests.ok ? "passed" : "FAILED"}` : ""}` };
   },
 });

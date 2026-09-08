@@ -35,7 +35,7 @@ export async function run(argv) {
   try {
     const out = await def.handler({ flags, positionals: parsed.positionals, verb: name });
     const code = out.code ?? EXIT.OK;
-    if (flags.brief && out.brief !== undefined) return { code, output: out.brief };
+    if ((flags.brief || flags.md) && out.brief !== undefined) return { code, output: out.brief };
     if (out.result?.silent) return { code, output: "" };
     return { code, output: JSON.stringify({ ok: code === EXIT.OK || out.ok === true, verb: name, ...out.result }) };
   } catch (e) {
