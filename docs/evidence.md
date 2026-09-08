@@ -453,3 +453,18 @@ is reached, and it wrote "Sage contact denied" in a turn in which it never
 called `ask_bot`, so a lead's prose is not evidence that a tool ran. Raw logs
 and the structured extraction: session scratchpad `tier3/` and
 [docs/validation/2026-09-08-m1-review.json](validation/2026-09-08-m1-review.json).
+
+Housekeeping (2026-09-08, after the review; finding 19, `oml-nqo.19`): the
+stray `codex-linux-sandbox` pid 426150 that `cleanup --kill` above ignored by
+design (started Tue Sep 8 01:44:38 2026, `/proc/426150/stat` start ticks
+7597750, cwd this repository rather than a `.worktrees/` path, argv
+`codex-linux-sandbox --sandbox-policy-cwd /home/wsh/Documents/openmausbot-launcher …`
+running an old `m1-lock-validation` script whose `for(;;)` SQLITE_BUSY retry
+loop never ended) was killed at the user's decision at 14:23:24Z: all three
+identity facts were re-verified first (alive, start ticks 7597750, that start
+time, that cwd, that argv, and the only `codex-linux-sandbox` process on the
+host), SIGTERM was sent, and the process was gone after 1 s; no SIGKILL was
+needed. No other process was signalled; `pgrep -af codex-linux-sandbox` finds
+nothing afterwards, and no child process of it survives. Its scratch directory
+`/tmp/m1-lock-validation-HHYuW2` (one empty `lock.sqlite`) remains, since the
+script's own cleanup never ran; it is inert and was left for the user.
