@@ -7,6 +7,7 @@ import { createClient } from "../http.mjs";
 import { updateState, identityMatches } from "../state.mjs";
 import { gitAvailable, gitTopLevel } from "../git.mjs";
 import * as srv from "../server.mjs";
+import { scanOrphans } from "../proc.mjs";
 
 const num = (v, d) => (v === undefined ? d : Number(v));
 
@@ -160,6 +161,7 @@ verb("down", {
     const stopped = await srv.stopOwned(server, { timeoutMs: num(flags.timeout, 15) * 1000 });
     if (!stopped) throw new Fail(EXIT.ERROR, "the server did not exit after SIGTERM", { hint: `pids ${server.supervisorPid} and ${server.healthPid} are still alive; see ${server.log}` });
     await updateState(cfg.paths, (doc) => { doc.server = { ...server, owned: false, supervisorPid: null, healthPid: null, supervisorStart: null, healthStart: null, stoppedAt: new Date().toISOString() }; return doc; });
-    return { result: { stopped: true, supervisorPid: server.supervisorPid, healthPid: server.healthPid, url: server.url }, brief: `down · stopped ${server.url}` };
+    const scan = scanOrphans({ pattern: "codex-linux-sandbox", worktreesDir: path.join(cfg.projectDir, ".worktrees") });
+    return { result: { stopped: true, supervisorPid: server.supervisorPid, healthPid: server.healthPid, url: server.url, orphans: scan.orphans }, brief: `down · stopped ${server.url}${scan.orphans.length ? ` · ${scan.orphans.length} orphan(s): run cleanup --kill` : ""}` };
   },
 });
