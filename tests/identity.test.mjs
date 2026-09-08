@@ -7,6 +7,7 @@ import { statePaths, loadState, updateState, withLock, commitState } from "../sk
 import { procInfo, freshDataDir, unreachable } from "../skills/openmausbot-launcher/scripts/lib/server.mjs";
 import { serverIdentity } from "../skills/openmausbot-launcher/scripts/lib/session.mjs";
 import { Fail } from "../skills/openmausbot-launcher/scripts/lib/cli.mjs";
+import { createClient } from "../skills/openmausbot-launcher/scripts/lib/http.mjs";
 
 const PKG = path.join(ROOT, "tests/fixtures/dev-team.package.json");
 async function setup(t) {
@@ -154,4 +155,15 @@ test("unreachable maps the syscall code to the operator's hint", () => {
   assert.equal(unreachable("http://127.0.0.1:1", net("GET /api/health: ECONNREFUSED")).hint, "nothing is listening at http://127.0.0.1:1: run up, or check --url");
   assert.equal(unreachable("http://127.0.0.1:1", net("GET /api/health: no answer within 12 ms")).message, "cannot reach http://127.0.0.1:1: no answer within 12 ms");
   assert.equal(unreachable("http://127.0.0.1:1", net("GET /api/health: no answer within 12 ms")).hint, "the server did not answer within 12 ms");
+});
+
+test("status --remote keeps the binding without /proc: identity has healthStart null, the same url and pid", async (t) => {
+  const { f, run, task } = await setup(t);
+  const identity = await serverIdentity({ mode: "remote", dataDirReadable: false }, createClient({ url: f.url }));
+  assert.equal(identity.healthStart, null); assert.equal(identity.healthPid, process.pid); assert.equal(identity.environmentId, f.environmentId);
+  const r = await run(["status", "--remote", "--url", f.url]);
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.run.runId, task.runId); assert.equal(r.json.receipts.supported, false, "no data dir is read remotely");
+  const other = await startFake(); t.after(() => other.close());
+  const elsewhere = await run(["status", "--remote", "--url", other.url]);
+  assert.equal(elsewhere.code, 3, elsewhere.stdout); assert.match(elsewhere.json.error, /not the one this team was imported on/);
 });
