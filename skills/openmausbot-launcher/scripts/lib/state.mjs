@@ -31,10 +31,15 @@ export function loadState(paths) {
   return doc;
 }
 
+/** Write, fsync, rename, then fsync the directory so the rename is durable; never leave a temp file behind. */
 function writeState(paths, doc) {
   const tmp = `${paths.file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, `${JSON.stringify(doc, null, 2)}\n`, { mode: 0o600 });
-  fs.renameSync(tmp, paths.file);
+  try {
+    const fd = fs.openSync(tmp, "w", 0o600);
+    try { fs.writeFileSync(fd, `${JSON.stringify(doc, null, 2)}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    fs.renameSync(tmp, paths.file);
+  } catch (e) { try { fs.unlinkSync(tmp); } catch {} throw e; }
+  try { const dir = fs.openSync(paths.dir, "r"); try { fs.fsyncSync(dir); } finally { fs.closeSync(dir); } } catch {}
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

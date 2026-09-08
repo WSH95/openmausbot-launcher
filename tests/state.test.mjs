@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawn, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { tmpDir, makeRepo, sleep } from "./helpers.mjs";
-import { statePaths, initState, loadState, updateState, withLock, assertRun, identityMatches, ensureExclude, Fail } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
+import { statePaths, initState, loadState, updateState, withLock, assertRun, identityMatches, ensureExclude, commitState, Fail } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
 
 const STATE_MJS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../skills/openmausbot-launcher/scripts/lib/state.mjs");
 
@@ -213,4 +213,11 @@ test("an overdue retry never enters the callback after its lock deadline", async
     await assert.rejects(withLock(paths, () => { entered = true; }, { waitMs: 40, retryMs: 30 }), /lock/);
     assert.equal(entered, false);
   } finally { clearTimeout(timer); if (!released) db.exec("ROLLBACK"); db.close(); }
+});
+
+test("a failed rename leaves no temp file behind", () => {
+  const paths = statePaths(tmpDir());
+  fs.mkdirSync(paths.file, { recursive: true }); // the target is a directory, so the rename must fail
+  assert.throws(() => commitState(paths, initState("/p")), (e) => e.code === "EISDIR");
+  assert.deepEqual(fs.readdirSync(paths.dir).filter((f) => f.endsWith(".tmp")), []);
 });

@@ -343,8 +343,9 @@ only, never tokens. Chosen over `~/.config` because sandboxed hosts can
 write inside the workspace but often not to the home directory, and over the
 data dir because `--fresh` rotates it.
 
-**Concurrency.** `state.json` remains authoritative, atomically renamed,
-and version 1. A persistent private (0600) `.omb/lock.sqlite` database is
+**Concurrency.** `state.json` remains authoritative and version 1, written
+through a temp file that is fsynced and atomically renamed, the directory
+fsynced after; a failed rename removes the temp. A persistent private (0600) `.omb/lock.sqlite` database is
 used solely as a mutex. Node's built-in SQLite is loaded only for a write.
 `BEGIN IMMEDIATE` uses zero busy timeout; only `SQLITE_BUSY` is retried,
 with asynchronous sleeps and a monotonic deadline (normally 60 s). Rollback
