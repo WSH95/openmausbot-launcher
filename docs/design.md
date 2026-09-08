@@ -59,7 +59,8 @@ Calls made by the agent: generic OMB operator core with the dev-team pack
 conventions in a reference file; driver = dependency-free Node ESM `.mjs`
 (one entry point plus small internal modules, no artificial line cap; Node 24
 where OMB runs, since OMB itself requires it); headless-only (the desktop
-build refuses outside writes, `docs/upstream/0004`); config by env and
+build refuses outside writes, dev pack
+`~/Documents/agent-team-devpack/docs/upstream/0004`); config by env and
 flags; a locked per-project state file so fresh sessions resume; **one task
 at a time per team in v1**; **server lifecycle management (`up`, `down`,
 `cleanup --kill`) is Linux-only in v1** (macOS gets `attached` and reports);
@@ -73,7 +74,8 @@ openmausbot-launcher/
 ├── skills/openmausbot-launcher/         # the installable unit (npx skills add discovers skills/)
 │   ├── SKILL.md                         # ~220 lines: operator model, loop, rules, verbs, hosts
 │   ├── scripts/omb.mjs                  # entry point, #!/usr/bin/env node, chmod +x
-│   ├── scripts/lib/{http,state,server,snapshot,watch,git,report}.mjs
+│   ├── scripts/lib/{cli,config,git,http,proc,report,server,session,snapshot,state,team,watch}.mjs
+│   ├── scripts/lib/verbs/{lifecycle,repo,run,report,state,team}.mjs   # verb handlers, one file per group
 │   ├── agents/openai.yaml               # Codex interface metadata ($openmausbot-launcher)
 │   └── references/
 │       ├── api.md                       # routes, shapes, 409 texts, SSE frames (0.1.56, source lines)
@@ -391,14 +393,25 @@ literally ending in ` (deleted)` is preserved.
                "lastEval": { "state": "running", "cursor": "ab12cd34:4419", "lastLeadMessageId": "…", "lastChangeAt": 0,
                              "outcomes": [ { "id": "…", "at": 0, "kind": "echo" } ],
                              "lastReported": { "leadMessageId": "…", "pending": [], "state": "running" } } },
-  "history": [ { "runId": "…", "slug": "t9", "status": "closed", "result": "passed", "outcomes": 3, "commit": "cbf87c1", "durationSec": 601 } ] }
+  "history": [ { "runId": "…", "slug": "t9", "title": "T9", "tag": "oml:…", "bead": "slg-…", "status": "closed", "result": "passed",
+                 "brief": "…", "sendId": "task-…", "sentAt": 0, "sentSha": "…", "sendReceipt": { "steered": false, "queued": false },
+                 "leadThreadId": "…", "threads": { "<botId>": "<threadId>" }, "freshThreads": true, "nudgedAt": null,
+                 "lastEval": { "state": "done", "cursor": "…", "lastLeadMessageId": "…", "lastChangeAt": 0, "outcomes": [ … ], "lastReported": { … } },
+                 "context": { "server": { "url": "…", "environmentId": "…", "healthPid": 0, "healthStart": 0, "dataDir": "…", "version": "0.1.56" },
+                              "team": { … }, "facts": { … } },
+                 "createdAt": "…", "closedAt": "…",
+                 "report": { "state": "done", "result": "passed", "mergedSha": "cbf87c1", "recordCommit": "…", "tests": true, "durationSec": 601,
+                             "closing": "…", "outcomes": [ … ], "unknown": [], "failedChecks": [] },
+                 "reanalysis": [ { "at": "…", "report": { … } } ] } ] }
 ```
 
 Task status values: `preparing` → `dispatched` → `closed` (by `report`
 with a result, or by `task --abandon`). Writers: `up`/`down` → `server`;
 `import` → `team`; `bind` → `project`, `team.bots[]`; `facts` → `facts`;
 `task` → `task` and its thread checkpoints; `watch` → `task.lastEval`,
-`task.nudgedAt`; `report` → moves `task` to `history` by `runId`.
+`task.nudgedAt`; `report` → moves `task` to `history` by `runId`;
+`report --run <id>` → appends one `reanalysis` entry to that history item and
+never changes its `result`.
 
 ## SKILL.md
 
@@ -587,7 +600,10 @@ Host checks: Claude Code (symlink, triggers on "run T10 through the team",
 `${CLAUDE_SKILL_DIR}` resolves, 100 s and background 570 s watches); Codex
 (`$openmausbot-launcher` listed, loopback HTTP and `up` under the sandbox or
 with escalation, state file writable); Grok (discovered through
-`~/.claude/skills`, one `status` and one `send`).
+`~/.claude/skills`, one `status` and one `send`). All five were evidenced on
+2026-09-08 (`docs/evidence.md`, "M1 review, tier 2" and "tier 3");
+`${CLAUDE_SKILL_DIR}` is substituted into the skill text at load time and is
+not a shell variable.
 
 ## Implementation and validation tracking
 
@@ -615,12 +631,36 @@ cleanup. T12's 8/9 package score and original incomplete report remain
 unchanged. Resolving ListAgents behavior is outside launcher acceptance.
 M1.1 added no paid bot run; the later host checks are recorded separately.
 
+M1 review (2026-09-08). An independent review and test of M1 at `b1a1f77`
+(`docs/review/2026-09-08-m1-review.md`, epic `oml-nqo`) filed 26 findings:
+a specified verb never registered, evidence gaps, a `--check-042` parser
+that read only Claude-SDK logs, and defects only a real server, sandbox or
+port surfaces. Its tiers ran on real OpenMausBot 0.1.56: tier 2 (zero bot
+turns) took the setup path through `import --adopt` and closed every
+unevidenced host check, including the detached-survival spike from Grok
+Build and Codex CLI against the real server and the Codex `workspace-write`
+failure captured as an artifact; tier 3 (5 Sudo turns, 1 Sage turn) ran
+`answer` in both directions on real cards, the `approvePeerComms` peer card,
+`interrupt`, a background watch, and both historical report modes. All 26
+findings were then fixed in one pass, each with a failing test first, and
+the fixed driver ran a full-team task: T13 on the slugkit clone with the
+user's five-model roster (Codex lead; Sonnet, Codex, Opus and Grok
+specialists), 9 turns, incomplete at 8/9 pack checks, watched to `DONE`,
+reported with `--check-042` scored from the Codex lead's native log,
+reconciled, cleaned and shut down. `docs/evidence.md` ("M1 fix pass,
+full-team validation") and `docs/validation/2026-09-08-fix-pass-t13.json`
+hold the record; the devpack gate `atw-07l.27` is met. The suite grew from
+154 to 197 tests.
+
 ## Risks and unknowns
 
-1. Codex sandbox: the recorded configuration blocks listening sockets and
-   blocked loopback HTTP during the native check. The host command sequence
-   passed with per-command escalation; long SSE inside the sandbox remains
-   unverified. Lifecycle commands may need escalation or a user-managed server.
+1. Codex sandbox: `workspace-write` denies listening sockets and loopback
+   HTTP. Evidenced on real OpenMausBot 0.1.56 (M1 review, tier 2): `up`
+   exits 1 with `listen EPERM` in the log and names the sandbox in its hint
+   (finding 24); `status` exits 1 with a network error naming the URL, where
+   before finding 26 it exited 3 with a misleading identity error. The same
+   commands pass under `danger-full-access` or against a user-started server
+   that `up` attaches to. Long SSE inside the sandbox remains unverified.
 2. OpenClaw `--announce` on empty output and the exact allowlist argument
    syntax are documented, not verified (OpenClaw is not installed).
 3. The run marker depends on the lead following the brief's last

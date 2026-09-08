@@ -125,3 +125,13 @@ bug found in the checks is fixed with a regression; the full suite passes
 The exact records and restrictions are in `docs/evidence.md` and
 `docs/validation/2026-09-08-m1-hosts.json`. This does not broaden acceptance
 to the other unverified hosts, long Codex SSE, or the four unused models.
+
+## 0008 — 2026-09-08 — AGENTS.md corrections in the M1 fix pass
+
+At the user's request (M1 review finding 18, `oml-nqo.18`; the diff was
+part of the approved fix plan), two lines of `AGENTS.md` outside the
+managed blocks were corrected: the `scripts/lib` module list now names
+every module and the `verbs/` directory, and the upstream-issue pointer
+names the dev pack's `~/Documents/agent-team-devpack/docs/upstream/`, since
+this repository has no `docs/upstream/`. No policy text changed;
+`CLAUDE.md` was not touched.

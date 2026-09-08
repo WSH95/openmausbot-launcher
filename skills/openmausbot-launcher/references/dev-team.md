@@ -59,7 +59,7 @@ omb bind --default claude/claude-fable-5-1/max --reviewers codex/gpt-6-astra/xhi
 - A model change is refused with 409 while a bot is busy; `bind` runs only on an idle team.
 
 **Historical T12 roster** — the user's instruction for the dev pack's own tests, not general advice
-(`docs/design.md`, "Real run"; `EVIDENCE.md`, pack 0.4.1 validation): Sonnet 5 for the Claude
+(`docs/design.md`, "First real test configuration: dev-team 0.4.2"; `EVIDENCE.md`, pack 0.4.1 validation): Sonnet 5 for the Claude
 bots at the server's default effort, gpt-5.6-luna at high for both Codex reviewers.
 
 ```
@@ -81,6 +81,13 @@ All five selections were read back. Only Sudo answered the three
 operator-authored transport messages, stored by OMB as user messages.
 The other four models and a full delegation workflow were not exercised
 in these checks. Neither roster is a launcher default or a required config.
+
+The M1 fix-pass run T13 (2026-09-08) then ran a full task with this same
+roster and `--approval auto`: all five bots executed (9 turns), Quill's
+seven approval cards — one per tool call — were answered with
+`answer --allow`, and the closing report was scored with `--check-042` from
+the Codex lead's native log. See this repository's `docs/evidence.md`,
+"M1 fix pass, full-team validation".
 
 ## Project facts
 
@@ -231,7 +238,11 @@ substituted for an unknown historical context.
 Recorded validation: T12 on 2026-09-08 exercised 0.4.2 and passed 8/9 checks.
 The lead called both `ListAgents` and `mcp__agents__list_bots`. M1.1's offline
 reanalysis attributes Vale's real approval at 03:10:22.421Z; it preserves
-that pack residual. See this repository's `docs/evidence.md`.
+that pack residual. See this repository's `docs/evidence.md`. T13
+(2026-09-08, the M1 fix pass) then scored 8/9 with a Codex lead — the first
+`--check-042` read from a Codex JSON-RPC native log; the one unknown was
+`worktree-after-approval`, because the reviewer's reply put `approve`
+mid-text and ended on a findings line instead of a final verdict line.
 
 ## Cleanup
 

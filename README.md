@@ -13,12 +13,17 @@ Supply a compatible team package with `omb import <package.json>`. The
 launcher reads its roster and lead from that input; `dev-team.openmaus.json`
 is an external test configuration, with no required package path or roster.
 
-Status: 0.1.0, M1 complete. The driver's fourteen verbs have 154 passing
-tests. Claude Code, Codex CLI, and Grok Build each executed the real
-`doctor`/`status`/`send` checks on OpenMausBot 0.1.56. Those checks delivered
-operator-authored user messages to the leader; all five requested model
-bindings were configured, and only the leader ran. The earlier full-team
-T12 task retains its 8/9 optional package checks. See the
+Status: 0.1.0, M1 complete and reviewed. The driver has sixteen verbs and
+the full `node:test` suite passes (`npm test`). The independent M1 review of
+2026-09-08 ([docs/review/2026-09-08-m1-review.md](docs/review/2026-09-08-m1-review.md))
+filed 26 findings, all fixed in the same pass, and ran real OpenMausBot
+0.1.56 three ways: the setup path and every design host check with zero
+bot turns, a lead-only transport check (approval cards, interrupt, both
+report modes), and a full-team task, T13 on the slugkit clone (incomplete,
+8/9 pack checks), through the fixed driver with a Codex lead and Claude,
+Codex and Grok specialists. Claude Code, Codex CLI, and Grok Build each
+executed the real `doctor`/`status`/`send` checks; the earlier full-team T12
+task retains its 8/9 optional package checks. See the
 [evidence and coverage limits](docs/evidence.md). Package diagnostics do not
 define launcher acceptance. The design is [docs/design.md](docs/design.md).
 

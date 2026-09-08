@@ -37,7 +37,8 @@ afterwards through `POST /api/threads/:id/respond` returns
 card answered so it stops owning the composer, and the decision reaches
 nothing (`index.ts:2116-2126`). The sanctioned answer path is an ordinary
 chat message on the bot's thread — the dev pack's rules forbid the tool
-outright (`docs/upstream/0005-question-cards-outlive-the-turn.md`).
+outright (dev pack
+`~/Documents/agent-team-devpack/docs/upstream/0005-question-cards-outlive-the-turn.md`).
 
 The driver mirrors that: `answer --message` on the lead's run thread falls
 back to `send` when the outcome is `unavailable`, but an unavailable
@@ -70,7 +71,8 @@ than none: the hook fires in a degenerate state (dev pack `HANDOFF.md`,
   sandbox. Measured: 21 s under an explicit `timeout 90s`, then 281 s until
   killed (exit 143) with 927 bytes of output where the first run produced
   9,676 — and the bot saw no timeout message, so it reasoned from a short,
-  killed run (`docs/upstream/0007-sandboxed-test-run-stalls-in-review-turn.md`).
+  killed run (dev pack
+  `~/Documents/agent-team-devpack/docs/upstream/0007-sandboxed-test-run-stalls-in-review-turn.md`).
   The pack's rule is to escalate and report; no driver can prevent it.
 - Sandboxed test runs outlive their turn. After a run,
   `pgrep -af codex-linux-sandbox` finds groups still running for hours with a
@@ -89,7 +91,10 @@ than none: the hook fires in a degenerate state (dev pack `HANDOFF.md`,
   approved escalation, or start the server elsewhere and let `up` report
   `attached`. The same sandbox can block outbound loopback connections; the
   driver then exits 1 `cannot reach http://127.0.0.1:<port>: EPERM` with the
-  escalation hint, never exit 3 "identity could not be verified".
+  escalation hint, never exit 3 "identity could not be verified". Loopback
+  HTTP is blocked there too: `status` exits 1 with a network error naming the
+  URL (M1 review, tier 2); an exit 1 from a sandboxed Codex is the sandbox,
+  not the server.
 - The record step (`bd`, `git commit`) runs inside the lead's CLI sandbox. A
   failure there leaves the root dirty, and the next task's `reconcile`
   is what reports it.

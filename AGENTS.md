@@ -22,8 +22,10 @@ Stack: JavaScript (Node 24, ESM, no dependencies, `node:test`).
 
 - `skills/openmausbot-launcher/`: the installable unit. `SKILL.md` (the
   operator's instructions, under 500 lines), `scripts/omb.mjs` (the entry
-  point, invoked by path) and `scripts/lib/*.mjs` (one module per concern:
-  `http`, `state`, `server`, `snapshot`, `watch`, `git`, `report`),
+  point, invoked by path), `scripts/lib/*.mjs` (one module per concern:
+  `cli`, `config`, `git`, `http`, `proc`, `report`, `server`, `session`,
+  `snapshot`, `state`, `team`, `watch`) and `scripts/lib/verbs/*.mjs` (the
+  verb handlers: `lifecycle`, `repo`, `run`, `report`, `state`, `team`),
   `references/*.md` (loaded on demand), `agents/openai.yaml` (Codex
   metadata). Nothing outside this directory is installed on a host.
 - `tests/*.test.mjs`: `node:test` with `node:assert/strict`;
@@ -39,7 +41,9 @@ Stack: JavaScript (Node 24, ESM, no dependencies, `node:test`).
   from the pinned OpenMausBot source (`~/.cache/agent-team/openmausbot-src`,
   0.1.56) with a `file:line` comment; never from memory.
 - Never fork or patch OpenMausBot; the driver uses only its HTTP API, CLI,
-  and data-dir files. An upstream change is an issue in `docs/upstream/`.
+  and data-dir files. An upstream change is an issue in the dev pack's
+  `~/Documents/agent-team-devpack/docs/upstream/` (this repository has no
+  such directory).
 - No dependencies: Node built-ins only. One executable entry point; small
   internal modules; no artificial length caps. Every sentence in
   `SKILL.md` and the references serves a purpose.

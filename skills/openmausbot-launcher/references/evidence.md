@@ -71,7 +71,11 @@ to the logs. Plain past tense, no adjectives, numbers instead of impressions.
 - **This repository's `docs/evidence.md`**, one `##` section per run, appended in run order (the devpack's `EVIDENCE.md` is ordered the same way). Heading: `## <date> — <what was tested>` with the bead id when a bead drove it.
 - **A pointer section in `~/Documents/agent-team-devpack/EVIDENCE.md`** when the run validates the pack — a 0.4.2 validation does. Keep it short: the release, the repository, the roster, the result, and the path to the full record here. The detail lives in one place.
 - The dev pack's evidence file is the precedent for both: `~/Documents/agent-team-devpack/EVIDENCE.md`, section "2026-09-07: pack 0.4.1 validation", which pairs a per-task timeline table with a rule-by-rule table and a deviations list.
-- The launcher's planned validation run is described in `docs/design.md`, "Real run = the 0.4.2 pack validation" (bead `atw-yyd.9`); its record is the first entry that will carry a `0.4.2 checks` block.
+- The launcher's first validation run is described in `docs/design.md`, "First real test configuration: dev-team 0.4.2" (bead `atw-yyd.9`); its record, T12, is the first entry carrying a `0.4.2 checks` block.
 
-Unverified: no `report --md` section has been written from a real run yet, so the rendered
-shape above comes from the renderer's source, not from a published entry.
+Published examples of the rendered shape, in `docs/evidence.md`: "2026-09-08 — T12 (incomplete)"
+(the first `0.4.2 checks` block, from the full-team T12 run), "2026-09-08 — transport-check (passed)"
+under "M1 review, tier 3" (a lead-only run with no record step), and "2026-09-08 — T13 (incomplete)"
+under "M1 fix pass, full-team validation" (the second full-team run, produced by the fixed driver
+with a Codex lead). The renderer prints a `##` heading; paste the block as a `###` subsection
+under the run's own `##` section.

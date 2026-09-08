@@ -146,7 +146,7 @@ SQLite serialization and conservative monitoring passed their focused regression
 ### 2026-09-08 — M1.1 implementation started
 User approved the revised review plan. Repairs are tracked in Beads epic `oml-t8u`. SQLite replaces the unsafe directory lock; dry-run, monitoring, card, identity, cleanup, and report regressions follow. No paid bot runs. The active session hook forbids Git operations, so changes remain uncommitted. A source baseline for independent comparison is `/tmp/oml-m1-baseline-tzs2tgl8`.
 
-### 2026-09-08T03:31:16Z — cli
+### 2026-09-08T03:31:16Z — cli (superseded: see the M1 review entries above)
 M1 complete: driver with 14 verbs and 62 tests against a contract fake; SKILL.md, five references, host checks on Claude Code, Codex, Grok; first real run T12 through dev-team 0.4.2 in 23 min (8/9 0.4.2 checks; ListAgents residual is the pack's). Next: the v2 beads (OpenClaw, Hermes, DSH verification; pair; macOS; request types; parallel runs; long SSE inside Codex's sandbox).
 
 ### 2026-09-08T02:56:15Z — cli
