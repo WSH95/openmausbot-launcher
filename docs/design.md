@@ -552,11 +552,19 @@ for the lead, planner and implementer; gpt-5.6-luna at high for both
 reviewers, as in `EVIDENCE.md:807`); `doctor`, `up --fresh --port 8899`,
 `doctor --server`, `import`, `bind`, `facts`, `task`, `watch` loops,
 `report --md --check-042`, `cleanup --kill`, `down`. `--check-042` verifies
-from the native and runtime events and the repository: the plan approval
-precedes `git worktree add`; the record entry is first in the task log and
-its heading time equals the `date -u +%FT%TZ` output captured in the lead's
-events; no host `ListAgents` call appears in the lead's events while
-`list_bots` does; the bead is closed; the record commit touches only the
+from the lead's native log, the runtime events and the repository. The native
+log is read for either engine, entry by entry, because a thread rebound
+between engines mixes both shapes in one file: Claude SDK messages
+(`server/drivers/claude.ts:1043`) carry `tool_use`/`tool_result` blocks, and
+Codex app-server notifications (`server/drivers/codex.ts:903`) carry
+`item/started`/`item/completed` items whose `commandExecution` becomes a
+`Bash` call and whose `mcpToolCall` becomes `mcp__<server>__<tool>`. The
+checks: the plan approval precedes `git worktree add`; the record entry is
+first in the task log and its heading time equals the `date -u +%FT%TZ`
+output captured in the lead's events; no host `ListAgents` call appears in
+the lead's events while `list_bots` does (`ListAgents` is a Claude Code
+built-in, `claude.ts:777-781`, so a Codex lead satisfies this with
+`list_bots` alone); the bead is closed; the record commit touches only the
 task log and `.beads`; the merged commit named in the closing report is an
 ancestor of the default branch (`git merge-base --is-ancestor <sha>
 <default>`; the task branch is deleted by the cleanup gate,

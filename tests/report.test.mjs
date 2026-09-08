@@ -246,3 +246,82 @@ for (const preamble of [
   const ask = toolCall(1000, "ask", "mcp__agents__ask_bot", { bot_id: "vale" });
   assert.equal(reviewCheck([ask, toolReply(2000, "ask", `${preamble}\nVerdict: approved.`), worktree]).ok, null);
 });
+
+const CODEX_LOG = path.join(ROOT, "tests", "fixtures", "native", "codex-lead.ndjson");
+const CODEX_STAMP = "2026-09-08T11:13:54Z"; // what the fixture's `date -u +%FT%TZ` printed
+// Real 0.1.56 codex.app-server records (native/712f8a5f-7b2d-4023-9f3b-8fc0ce218efa.ndjson, the T9 lead
+// thread, trimmed; the date -u pair is from native/aec43e24-af2b-413d-95a6-32cec24e2e1e.ndjson).
+const codexEntries = () => fs.readFileSync(CODEX_LOG, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
+
+test("nativeCalls reads a Codex lead's app-server items and normalises them like Claude tool blocks", () => {
+  // OpenMausBot 0.1.56 server/drivers/codex.ts:903 logs every incoming app-server line; only
+  // item/started and item/completed carry tool items, keyed by the same item.id.
+  const n = nativeCalls(codexEntries());
+  assert.deepEqual(n.calls.map((c) => c.name), ["mcp__agents__list_bots", "mcp__agents__ask_bot", "Bash", "Bash"]);
+  const ask = n.calls.find((c) => c.name === "mcp__agents__ask_bot");
+  assert.equal(ask.id, "exec-a2aaa8f8-2cc3-455e-857b-b16f47e3a440"); assert.equal(ask.at, "2026-09-07T11:52:02.239Z"); assert.equal(ask.input.bot_id, "f6826a89-d501-41f0-95e7-86f26f1d5208");
+  const reply = n.results.get(ask.id);
+  assert.equal(reply.ok, true); assert.equal(reply.at, "2026-09-07T11:53:33.771Z"); assert.match(reply.content, /^Vale replied:\n/); assert.match(reply.content, /\*\*Verdict: approve\*\*$/);
+  const [worktree, date] = n.calls.filter((c) => c.name === "Bash");
+  assert.equal(worktree.input.command, "/bin/bash -lc 'git worktree add -b task/t9-unique-slug-predicate .worktrees/t9-unique-slug-predicate main'");
+  assert.equal(worktree.at, "2026-09-07T11:54:14.966Z", "a command is dated by its item/started");
+  assert.equal(n.results.get(worktree.id).ok, true);
+  assert.equal(n.results.get(date.id).content, `${CODEX_STAMP}\n`, "aggregatedOutput is the tool result");
+  assert.deepEqual(n.texts.map((x) => x.role), ["user", "assistant"]);
+  assert.match(n.texts[1].text, /^Vale approved the plan/); assert.equal(n.texts[1].at, "2026-09-07T11:53:55.589Z", "agentMessage text comes from item/completed only");
+  // A denied MCP call (verbatim from a real log): status failed, result null, error message.
+  const denied = { at: "2026-09-08T11:18:55.662Z", dir: "in", source: "codex.app-server", msg: { method: "item/completed", params: { item: { type: "mcpToolCall", id: "exec-65871e7f-cd07-4f8e-9102-78207ba0ccae", server: "agents", tool: "ask_bot", status: "failed", arguments: { bot_id: "fe2bbf47-7765-40eb-824f-efd32daba949", message: "Reply with the single word PONG" }, appContext: null, pluginId: null, readOnlyHint: null, result: null, error: { message: "user rejected MCP tool call" }, durationMs: 0 }, threadId: "01a080b9-488f-77f0-b09b-c003d5b45871", turnId: "01a080bd-a718-7a42-8d0d-4eb5c34fddf0", completedAtMs: 1788866335655 }, emittedAtMs: 1788866335661 } };
+  const d = nativeCalls([denied]);
+  assert.equal(d.calls.length, 1, "a completed item whose started line is missing still counts as a call");
+  assert.deepEqual(d.results.get("exec-65871e7f-cd07-4f8e-9102-78207ba0ccae"), { at: denied.at, ok: false, content: "" });
+  // One thread file can mix engines after a rebind: dispatch is per entry.
+  const claude = { at: "2026-09-07T11:27:49.160Z", dir: "in", source: "claude.sdk.message", msg: { type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: "toolu_01WBh48HhYE4eKkziFiF1VAZ", name: "ListAgents", input: {} }] } } };
+  assert.deepEqual(nativeCalls([claude, ...codexEntries()]).calls.map((c) => c.name), ["ListAgents", "mcp__agents__list_bots", "mcp__agents__ask_bot", "Bash", "Bash"]);
+});
+
+test("check042 on the Codex lead fixture: approval before the worktree, the date -u stamp, list_bots without ListAgents", () => {
+  const native = codexEntries();
+  const sentAt = Date.parse("2026-09-07T11:47:36.502Z");
+  const reviewer = { id: "f6826a89-d501-41f0-95e7-86f26f1d5208", name: "Vale" };
+  const by = Object.fromEntries(check042({ native, taskLogText: `# Progress\n\n### ${CODEX_STAMP} — Sudo\nT9 merged.\n`, reviewer, sentAt }).map((c) => [c.id, c]));
+  assert.equal(by["worktree-after-approval"].ok, true, by["worktree-after-approval"].detail);
+  assert.match(by["worktree-after-approval"].detail, /reply at 2026-09-07T11:53:33\.771Z: approved; git worktree add at 2026-09-07T11:54:14\.966Z/);
+  assert.equal(by["record-time-from-date-u"].ok, true, by["record-time-from-date-u"].detail);
+  assert.equal(by["no-host-listagents"].ok, true, by["no-host-listagents"].detail);
+  assert.equal(check042({ native, taskLogText: "### 2026-09-08T11:00:00Z — Sudo", reviewer, sentAt }).find((c) => c.id === "record-time-from-date-u").ok, false);
+  assert.equal(check042({ native, taskLogText: null, reviewer: { id: "someone-else", name: "Nova" }, sentAt }).find((c) => c.id === "worktree-after-approval").ok, null);
+});
+
+test("report --check-042 reads a Codex lead's native log through the fake", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const { dir, git } = makeRepo();
+  const env = { OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir };
+  fs.writeFileSync(path.join(dir, "PROGRESS.md"), "# Progress log\n\n### 2026-09-01T00:00:00Z — seed\nSeed entry.\n");
+  git("add", "-A"); git("commit", "-q", "-m", "seed");
+  assert.equal((await runOmb(["import", PKG, "--project", dir, "--url", f.url], { env })).code, 0);
+  assert.equal((await runOmb(["bind", "--project", dir, "--default", "codex/gpt-6-astra/xhigh"], { env })).code, 0);
+  assert.equal((await runOmb(["facts", "--project", dir, "--test", "node -e 'process.exit(0)'", "--task-log", "PROGRESS.md"], { env })).code, 0);
+  const run = await runOmb(["task", "--todo", "T9", "--project", dir], { env });
+  assert.equal(run.code, 0, run.stdout);
+  const st = loadState(statePaths(dir)); const lt = run.json.leadThreadId;
+  const vale = st.team.bots.find((b) => /plan review/i.test(b.title));
+  // The fixture re-timed into this run: same relative order, first entry one second after dispatch, ask_bot aimed at this team's reviewer.
+  const entries = codexEntries(); const base = Date.parse(entries[0].at);
+  const native = entries.map((e) => { const item = e.msg.params.item; if (item.arguments?.bot_id) item.arguments.bot_id = vale.id; return { ...e, at: iso(run.json.sentAt + 1000 + Date.parse(e.at) - base) }; });
+  fs.mkdirSync(path.join(f.dataDir, "native"), { recursive: true });
+  fs.writeFileSync(path.join(f.dataDir, "native", `${lt}.ndjson`), native.map((e) => JSON.stringify(e)).join("\n") + "\n");
+  fs.writeFileSync(path.join(dir, "feature.txt"), "done\n"); git("add", "-A"); git("commit", "-q", "-m", "feat: T9");
+  const merged = git("rev-parse", "HEAD").trim();
+  fs.writeFileSync(path.join(dir, "PROGRESS.md"), `# Progress log\n\n### ${CODEX_STAMP} — Sudo\nT9 merged as ${merged.slice(0, 7)}.\n\n### 2026-09-01T00:00:00Z — seed\nSeed entry.\n`);
+  git("add", "-A"); git("commit", "-q", "-m", `docs(team): T9 merged as ${merged.slice(0, 7)}`);
+  await f.control({ op: "leadSay", threadId: lt, text: `Closing report: T9 merged as ${merged}.\n\nDONE ${run.json.tag}` });
+  assert.equal((await runOmb(["watch", "--project", dir, "--max-seconds", "10", "--quiet-seconds", "1", "--poll", "1"], { env })).json.state, "done");
+  const r = await runOmb(["report", "--project", dir, "--check-042"], { env });
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  const by = Object.fromEntries(r.json.check042.map((c) => [c.id, c]));
+  assert.equal(by["worktree-after-approval"].ok, true, by["worktree-after-approval"].detail);
+  assert.equal(by["record-time-from-date-u"].ok, true, by["record-time-from-date-u"].detail);
+  assert.equal(by["no-host-listagents"].ok, true, by["no-host-listagents"].detail);
+  assert.equal(by["merged-ancestor"].ok, true); assert.equal(by["record-commit"].ok, true);
+  assert.deepEqual([...r.json.nativeTools].sort(), ["Bash", "mcp__agents__ask_bot", "mcp__agents__list_bots"]);
+});

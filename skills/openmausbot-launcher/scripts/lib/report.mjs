@@ -32,21 +32,60 @@ export function turnsFromEvents(events, sinceMs = 0) {
   return { turns: list, totals, seconds: list.reduce((s, t) => s + (t.startedAt && t.completedAt ? (Date.parse(t.completedAt) - Date.parse(t.startedAt)) / 1000 : 0), 0) };
 }
 
-/** Tool calls, tool results, and texts from a Claude-SDK native log (entries {at, dir, msg}). */
+/** Tool calls, tool results, and texts from the lead's native log. One record
+ * per line, {at, dir, source, msg} (0.1.56 server/drivers/native.ts:11-25,
+ * server/thread-events.ts:18-24). A thread rebound between engines mixes both
+ * shapes in one file, so every entry is classified on its own: Claude SDK
+ * messages (source claude.sdk.message; claude.ts:1043 in, :664-668 out) and
+ * Codex app-server notifications (source codex.app-server; codex.ts:903 in,
+ * :596-604 out). */
 export function nativeCalls(native) {
-  const calls = []; const results = new Map(); const texts = [];
+  const acc = { calls: [], results: new Map(), texts: [], seen: new Set() };
   for (const e of native ?? []) {
-    const m = e.msg; if (!m) continue;
-    const content = m.message?.content;
-    if (typeof content === "string") { texts.push({ at: e.at, role: m.message?.role ?? m.type, text: content }); continue; }
-    if (!Array.isArray(content)) continue;
-    for (const c of content) {
-      if (c.type === "tool_use") calls.push({ at: e.at, id: c.id, name: c.name, input: c.input ?? {} });
-      else if (c.type === "tool_result") results.set(c.tool_use_id, { at: e.at, ok: c.is_error !== true, content: typeof c.content === "string" ? c.content : Array.isArray(c.content) ? c.content.map((x) => x.text ?? "").join("\n") : "" });
-      else if (c.type === "text" && c.text) texts.push({ at: e.at, role: m.message?.role ?? m.type, text: c.text });
-    }
+    if (!e?.msg) continue;
+    if (isCodexEntry(e)) codexEntry(e, acc); else claudeEntry(e, acc);
   }
-  return { calls, results, texts };
+  return { calls: acc.calls, results: acc.results, texts: acc.texts };
+}
+
+const isCodexEntry = (e) => e.source === "codex.app-server" || (typeof e.msg?.method === "string" && typeof e.msg?.params?.item?.type === "string");
+
+/** Claude: content blocks tool_use {id,name,input}, tool_result {tool_use_id,is_error,content}, text. */
+function claudeEntry(e, acc) {
+  const m = e.msg;
+  const content = m.message?.content;
+  if (typeof content === "string") { acc.texts.push({ at: e.at, role: m.message?.role ?? m.type, text: content }); return; }
+  if (!Array.isArray(content)) return;
+  for (const c of content) {
+    if (c.type === "tool_use") acc.calls.push({ at: e.at, id: c.id, name: c.name, input: c.input ?? {} });
+    else if (c.type === "tool_result") acc.results.set(c.tool_use_id, { at: e.at, ok: c.is_error !== true, content: typeof c.content === "string" ? c.content : Array.isArray(c.content) ? c.content.map((x) => x.text ?? "").join("\n") : "" });
+    else if (c.type === "text" && c.text) acc.texts.push({ at: e.at, role: m.message?.role ?? m.type, text: c.text });
+  }
+}
+
+const joinedText = (content) => (Array.isArray(content) ? content.map((x) => x.text ?? "").join("\n") : "");
+
+/** Codex: only item/started and item/completed carry tool items, with the same
+ * item.id on both (an interrupted item has no completed). commandExecution is a
+ * Bash call whose command is the verbatim "/bin/bash -lc '…'" string and whose
+ * result is aggregatedOutput; mcpToolCall is mcp__<server>__<tool> (server is the
+ * bare mount name, codex.ts:532) with `arguments` as input and result.content[].text
+ * as the reply; ok follows codex.ts:831 (neither failed nor declined) plus a null
+ * error (a denial is status failed, result null, error.message). agentMessage text
+ * is "" on started and complete on completed; userMessage carries content[].text.
+ * reasoning, fileChange, webSearch and the rest are not tool calls here. */
+function codexEntry(e, acc) {
+  const m = e.msg; const item = m.params?.item;
+  if (!item?.id || (m.method !== "item/started" && m.method !== "item/completed")) return;
+  const completed = m.method === "item/completed";
+  let call = null; let content = "";
+  if (item.type === "commandExecution") { call = { name: "Bash", input: { command: item.command } }; content = item.aggregatedOutput ?? ""; }
+  else if (item.type === "mcpToolCall") { call = { name: `mcp__${item.server}__${item.tool}`, input: item.arguments ?? {} }; content = joinedText(item.result?.content); }
+  else if (completed && item.type === "agentMessage" && item.text) acc.texts.push({ at: e.at, role: "assistant", text: item.text });
+  else if (completed && item.type === "userMessage" && joinedText(item.content)) acc.texts.push({ at: e.at, role: "user", text: joinedText(item.content) });
+  if (!call) return;
+  if (!acc.seen.has(item.id)) { acc.seen.add(item.id); acc.calls.push({ at: e.at, id: item.id, ...call }); }
+  if (completed) acc.results.set(item.id, { at: e.at, ok: item.status !== "failed" && item.status !== "declined" && !item.error, content });
 }
 
 const commandOf = (call) => (typeof call.input?.command === "string" ? call.input.command : JSON.stringify(call.input));
@@ -128,6 +167,8 @@ export function check042({ native, messages = [], leadThreadId, taskLogText, rev
     const firstHeading = taskLogText.split("\n").find((l) => /^#{2,4} /.test(l)) ?? "";
     put("record-time-from-date-u", firstHeading.includes(stamp), `date -u returned ${stamp}; the task log's first entry heading is "${firstHeading.trim()}"`);
   }
+  // ListAgents is a Claude Code built-in (0.1.56 claude.ts:777-781); a Codex lead has no
+  // equivalent, so for Codex this check reduces to "the lead called mcp__agents__list_bots".
   const names = new Set(calls.map((c) => c.name).concat(toolNames ?? []));
   put("no-host-listagents", names.has("ListAgents") ? false : names.has("mcp__agents__list_bots") && native?.length ? true : null, `tools used: ${[...names].filter((n) => /list_bots|ListAgents/i.test(n)).join(", ") || "neither list_bots nor ListAgents"}`);
   return checks;

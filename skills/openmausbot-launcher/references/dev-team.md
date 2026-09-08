@@ -195,13 +195,26 @@ validation (`EVIDENCE.md`, "Deviations and findings").
 |---|---|
 | `worktree-after-approval` | The last attributable reviewer reply before the first `git worktree add` explicitly approves. Correlate `ask_bot.bot_id` and its tool result id, or a server-authored delegation echo's `from.botId`; the lead's paraphrase is not evidence. Negative, conditional, contradictory, or ambiguous verdicts cannot pass |
 | `record-time-from-date-u` | the task log's first heading carries the timestamp the lead's last `date -u` returned — 0.4.1's T11 entry went to the bottom of the file with an invented time |
-| `no-host-listagents` | no host `ListAgents` among the lead's tool calls, and `list_bots` present — 0.4.1's lead called `ListAgents` first, nine times across two tasks |
+| `no-host-listagents` | no host `ListAgents` among the lead's tool calls, and `list_bots` present — 0.4.1's lead called `ListAgents` first, nine times across two tasks. `ListAgents` is a Claude Code built-in (`server/drivers/claude.ts:777-781`); a Codex lead cannot call it, so for Codex the check is `list_bots` present |
 | `bead-closed` | the brief's bead is closed |
 | `record-commit` | the `docs(team)` commit exists and touched only the task log and `.beads` |
 | `merged-ancestor` | the sha the closing report names as merged is an ancestor of the default branch (the task branch is gone by then, so the check uses the commit id) |
 | `task-branch-and-worktree-absent` | the cleanup gate ran: no `task/*` branch, exactly one worktree |
 | `root-clean` | after tests, the root is on the default branch with nothing modified or untracked |
 | `tests-pass` | the Project facts test command passes when `report` runs it itself |
+
+The first three checks read the lead's native log, `native/<leadThreadId>.ndjson`
+(`server/drivers/native.ts:11-25` writes one `{at, dir, source, msg}` record per
+line, `server/thread-events.ts:18-24`), for either engine, entry by entry, since a
+thread rebound between engines mixes both shapes in one file. Claude entries
+(`source: claude.sdk.message`, `claude.ts:1043`) carry `tool_use` and `tool_result`
+content blocks. Codex entries (`source: codex.app-server`, `codex.ts:903`) carry
+`item/started` and `item/completed` notifications: a `commandExecution` item is
+read as a `Bash` call whose command is the verbatim `/bin/bash -lc '…'` string and
+whose result is `aggregatedOutput`; an `mcpToolCall` item is read as
+`mcp__<server>__<tool>` (`codex.ts:532`) with `arguments` as the input and
+`result.content[].text` as the reply, failed when `status` is `failed` or
+`declined` or `error` is set (`codex.ts:831`).
 
 Result: `passed` requires every applicable check to be `true`. Missing or
 skipped tests and unavailable evidence remain unknown; inspect `unknown`
