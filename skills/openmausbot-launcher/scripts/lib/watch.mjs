@@ -63,6 +63,13 @@ export const signatureOf = (snap, ev) => ({
 const sameEvidence = (a, b) => Boolean(a?.evidence && b?.evidence) && JSON.stringify(a.evidence) === JSON.stringify(b.evidence);
 const sameSig = (a, b) => Boolean(a && b) && a.state === b.state && sameEvidence(a, b);
 
+/** The record a watch checkpoint writes: its watermarks over the existing one, never losing a `lastChangeAt` another writer (send, nudge) advanced meanwhile, nor fields the watch does not own. */
+export function mergeCheckpoint(existing, watermarks) {
+  const prior = existing ?? {};
+  const stamps = [prior.lastChangeAt, watermarks.lastChangeAt].filter((v) => Number.isFinite(v));
+  return { ...prior, ...watermarks, lastChangeAt: stamps.length ? Math.max(...stamps) : null };
+}
+
 /** Watch uses one monotonic observation deadline, including every invalidation
  * drain. Only complete snapshots advance the cursor covered by REST truth. */
 export async function watchRun({ client, team, task, dataDir = null, maxSeconds = 100, until = "settled", pollMs = 30_000, quietMs = DEFAULTS.quietMs, dropMs = DEFAULTS.dropMs, stallMs = DEFAULTS.stallMs, idleMs = 45_000, coalesceMs = 2_000, nudge = null, log = () => {}, deadline = performance.now() + maxSeconds * 1000 }) {

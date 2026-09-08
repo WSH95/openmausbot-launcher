@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { startFake, makeRepo, runOmb, ROOT } from "./helpers.mjs";
-import { statePaths, loadState, updateState, ensureExclude } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
+import { startFake, makeRepo, runOmb, ROOT, sleep } from "./helpers.mjs";
+import { statePaths, loadState, updateState, ensureExclude, withLock } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
 import { createClient } from "../skills/openmausbot-launcher/scripts/lib/http.mjs";
 
 const PKG = path.join(ROOT, "tests", "fixtures", "dev-team.package.json");
@@ -190,4 +190,18 @@ test("skill and routine requests refuse every response mode before posting", asy
     }
   }
   assert.deepEqual(posts, [], "even a rejected response POST is forbidden for unsupported requests");
+});
+
+test("interrupt takes no state lock: it succeeds while another launcher holds it", async (t) => {
+  const { f, dir, lead } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  assert.equal(run.code, 0, run.stdout);
+  await f.control({ op: "activity", botId: lead.id, activity: "working" });
+  let release; const held = withLock(statePaths(dir), () => new Promise((r) => { release = r; }));
+  while (!release) await sleep(5);
+  t.after(async () => { release(); await held; });
+  const r = await runOmb(["interrupt", "--project", dir], { env: { ...env, OMB_LOCK_WAIT_MS: "300" } });
+  assert.equal(r.code, 0, r.stdout);
+  assert.equal(r.json.interrupted, true);
+  assert.equal((await fleet(f)).find((b) => b.id === lead.id).busy, false);
 });

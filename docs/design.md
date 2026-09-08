@@ -146,7 +146,7 @@ is needed; 6 stalled or failed.
 | `answer` | `--allow\|--deny\|--message "<text>" [--request ID]` or `"<text>"` | typed requests: ordinary question and approval cards (`card.requestId`, unanswered, undismissed) are answered on the owning thread with outcomes `allowed-once\|rejected\|answered\|unavailable` reported as is; an `unavailable` **textual** answer on the lead's run thread falls back to `send`; an unavailable allow or deny is never turned into chat; `--request` required when more than one card is pending; connector, credential, skill (reviewed-hash) and routine requests are **reported with their type and route, exit 5, unsupported in v1**; bare text = `send` | `POST /api/threads/:id/respond` |
 | `status` | `[--bots] [--tail N]` | one snapshot plus the evaluation; without an open task, returns `run: null`, roster, latest leader/user messages and the requested tail without a task verdict; never blocks | snapshot routes |
 | `watch` | `--max-seconds N` (default 100) `--until settled\|change\|question` `[--poll 30] [--stall-minutes 40] [--nudge] [--quiet-if-unchanged]` | see below | `/api/events`, snapshot routes, receipts file |
-| `interrupt` | `[--bot]` | stops the run's turn only: always sends `{threadId: <run thread>}`; a 409 (the bot is busy in a room or routine, `index.ts:11044`) is reported, never overridden | `POST /api/bots/:id/interrupt` |
+| `interrupt` | `[--bot]` | stops the run's turn only: always sends `{threadId: <run thread>}`; a 409 (the bot is busy in a room or routine, `index.ts:11044`) is reported, never overridden; takes no state lock, since it writes nothing | `POST /api/bots/:id/interrupt` |
 | `reconcile` | `[--check]` (default) `[--remove <slug>]…` | exactly one worktree, no `task/*` branch, clean `git status --porcelain --untracked-files=normal`, on the default branch; `--remove` = `git worktree remove` then `git branch -D`, explicit slugs only | git |
 | `cleanup` | `[--kill] [--pattern codex-linux-sandbox] [--down]` | processes matching the pattern whose cwd is under `<project>/.worktrees/` and deleted; never a pid recorded as the owned server; identity (pid, start time, cwd) rechecked before SIGTERM and again before SIGKILL (5 s later); Linux only, macOS reports | `/proc`, `pgrep` |
 | `report` | `[--md] [--check-042] [--run last\|ID] [--no-tests] [--close\|--no-close]` | turns and tokens from **every run thread's** `events/<thread>.ndjson`, outcomes for the run, lead text, decisions, `git log <sentSha>..HEAD`, worktree list; verifies the record step; runs the project test command independently; `--check-042` adds the pack-validation checks (below); `--md` renders the evidence section; **closes the run**: moves `task` to `history` by `runId` with a result of `passed`, `incomplete`, or `failed` | data dir, git, `bd show` |
@@ -283,9 +283,10 @@ Notifications are wake-ups only (a bot's notifications can be off,
    lead's last own message id, the outcome list, or the pending set changed,
    or at the deadline with `timeout` (exit 4).
 6. Each non-dry return attempts a checkpoint with at most a one-second
-   lock wait. It writes `task.lastEval {state, cursor, lastLeadMessageId,
-   lastChangeAt, outcomes, evidence, lastReported}` only for the same open
-   run and binding. Lock timeout or a replaced run returns
+   lock wait. It merges `task.lastEval {state, cursor, lastLeadMessageId,
+   lastChangeAt, outcomes, evidence, lastReported}` over the existing
+   record, keeping the newer `lastChangeAt` when a `send` advanced it during
+   the watch, only for the same open run and binding. Lock timeout or a replaced run returns
    `checkpointed:false`; other state errors propagate. `watch` never
    changes `task.status`.
 
@@ -358,7 +359,8 @@ removing only that legacy path. No automatic reclaim or state-format bump.
 Mutating commands acquire the mutex before preflights and hold it through
 their associated effects. They re-read and reject a changed `rev`; run
 resume/abandon and report closure verify the intended run. Watch locks only
-for a nudge or final checkpoint. Read-only commands never initialize SQLite.
+for a nudge or final checkpoint; `interrupt` and read-only commands never
+take the lock or initialize SQLite.
 
 Every live command verifies the environment id, URL, health pid, and on
 local Linux the process start ticks. Missing identity fails closed.

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { startFake, makeRepo, runOmb, ROOT, sleep } from "./helpers.mjs";
 import { statePaths, loadState, updateState } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
-import { relevantFrame } from "../skills/openmausbot-launcher/scripts/lib/watch.mjs";
+import { relevantFrame, mergeCheckpoint } from "../skills/openmausbot-launcher/scripts/lib/watch.mjs";
 
 const PKG = path.join(ROOT, "tests", "fixtures", "dev-team.package.json");
 let env = { OMB_TOKEN: "" };
@@ -141,4 +141,28 @@ test("watch refuses without a dispatched run and never writes watermarks for ano
   await updateState(statePaths(dir), (d) => { d.task = null; return d; });
   r = await runOmb(["watch", "--project", dir, "--max-seconds", "2", ...fast], { env });
   assert.equal(r.code, 3); assert.match(r.json.error, /no open run/);
+});
+
+test("mergeCheckpoint takes the watch's watermarks but keeps a newer lastChangeAt and fields watch does not own", () => {
+  const prior = { state: "running", lastChangeAt: 2_000, cursor: "s:1", marker: "keep", outcomes: [{ id: "old", at: 1 }] };
+  const merged = mergeCheckpoint(prior, { state: "done", lastChangeAt: 1_000, cursor: "s:9", outcomes: [], evidence: { version: 1 } });
+  assert.equal(merged.lastChangeAt, 2_000, "a send during the watch bumped it");
+  assert.equal(merged.state, "done"); assert.equal(merged.cursor, "s:9"); assert.deepEqual(merged.outcomes, []); assert.equal(merged.marker, "keep");
+  assert.equal(mergeCheckpoint(prior, { lastChangeAt: 3_000 }).lastChangeAt, 3_000);
+  assert.equal(mergeCheckpoint(null, { lastChangeAt: 5 }).lastChangeAt, 5);
+  assert.equal(mergeCheckpoint({ lastChangeAt: 7 }, { lastChangeAt: null }).lastChangeAt, 7);
+  assert.equal(mergeCheckpoint({}, {}).lastChangeAt, null);
+});
+
+test("the watch checkpoint keeps a lastChangeAt another writer advanced", async (t) => {
+  const { f, dir, lt } = await setup(t);
+  const paths = statePaths(dir);
+  const bumped = Date.now() + 60_000;
+  await updateState(paths, (d) => { d.task.lastEval = { ...d.task.lastEval, lastChangeAt: bumped }; return d; });
+  const p = runOmb(["watch", "--project", dir, "--max-seconds", "2", ...fast], { env });
+  await sleep(400);
+  await f.control({ op: "leadSay", threadId: lt, text: "Planning now." });
+  const r = await p;
+  assert.equal(r.json.checkpointed, true, r.stdout);
+  assert.equal(loadState(paths).task.lastEval.lastChangeAt, bumped);
 });

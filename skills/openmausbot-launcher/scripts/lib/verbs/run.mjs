@@ -264,11 +264,11 @@ verb("interrupt", {
     if (!threadId) throw new Fail(EXIT.PRECONDITION, `no run thread is recorded for ${bot.name}`, { hint: "interrupt only stops the run's own turn" });
     try { await client.post(`/api/bots/${bot.id}/interrupt`, { threadId }); } catch (e) { throw precondition(e, "the bot is busy somewhere else (a room or a routine); it was not interrupted"); }
     return { result: { bot: bot.name, threadId, interrupted: true }, brief: `interrupt · ${bot.name}` };
-  }),
+  }, { lockWhen: () => false }),
 });
 
 // ── watch ──
-import { watchRun } from "../watch.mjs";
+import { watchRun, mergeCheckpoint } from "../watch.mjs";
 import { brief as briefLine, EXIT_FOR, TERMINAL as TERMINAL_STATES } from "../snapshot.mjs";
 
 verb("watch", {
@@ -306,7 +306,7 @@ verb("watch", {
           const doc = loadState(cfg.paths);
           if (doc?.task?.runId !== task.runId || doc.task.status === "closed") return;
           if (JSON.stringify(doc.server) !== JSON.stringify(cfg.state.server) || doc.team?.lead?.id !== team.lead.id) throw new Fail(EXIT.PRECONDITION, "the server binding changed before the watch checkpoint", { hint: "re-read the state" });
-          doc.task.lastEval = r.watermarks;
+          doc.task.lastEval = mergeCheckpoint(doc.task.lastEval, r.watermarks);
           if (r.nudged && !doc.task.nudgedAt) doc.task.nudgedAt = new Date().toISOString();
           commitState(cfg.paths, doc); checkpointed = true;
         }, { waitMs: 1000 });
