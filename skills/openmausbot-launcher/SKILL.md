@@ -57,7 +57,9 @@ omb facts --project <dir> --test "npm test" --setup none --merge auto --task-log
 `up` starts the server detached, strips the provider API keys so bots use
 subscriptions, proves the listener is its own child, and records it;
 `down` stops only what `up` started. If the port already answers, `up`
-attaches without owning. A `doctor` failure named `stop-hook` means the
+attaches without owning. A server takes two consecutive ports (the API and
+its webhook receiver), so `up` refuses a port whose neighbour is busy; space
+servers two apart. A `doctor` failure named `stop-hook` means the
 project's Project Steward Stop hook would replace a Claude bot's report:
 set `auto_handoff_mode = "off"` in its `config.toml` and exclude
 `.project-steward/runtime/` before any task. `bind` sets the working

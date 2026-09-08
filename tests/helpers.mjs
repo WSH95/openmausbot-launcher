@@ -20,6 +20,15 @@ export function freePort() {
   });
 }
 
+/** A port whose neighbour is free too: OpenMausBot binds port+1 for its webhook receiver (server/index.ts:320). */
+export async function freePortPair() {
+  for (;;) {
+    const port = await freePort();
+    const ok = await new Promise((resolve) => { const s = net.createServer(); s.once("error", () => resolve(false)); s.listen(port + 1, "127.0.0.1", () => s.close(() => resolve(true))); });
+    if (ok) return port;
+  }
+}
+
 export function tmpDir(prefix = "oml-") { return fs.mkdtempSync(path.join(os.tmpdir(), prefix)); }
 
 /** A fake OpenMausBot with a fast heartbeat and a fresh data dir. */

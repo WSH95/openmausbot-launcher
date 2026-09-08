@@ -126,12 +126,14 @@ verb("up", {
     const bin = resolveBinary(cfg.env);
     if (!bin.command) throw new Fail(EXIT.PRECONDITION, bin.error);
     const askTimeoutMs = num(flags["ask-timeout-ms"], 600_000);
+    // The server takes two consecutive ports (server/index.ts:319-320, cli.ts:438); refuse before any spawn or directory.
+    if (!cfg.dryRun && !(await srv.portFree(port + 1))) throw new Fail(EXIT.PRECONDITION, `port ${port + 1} is in use; OpenMausBot binds ${port}+1 for its webhook receiver (server/index.ts:320, cli.ts:438)`, { hint: "choose a port whose neighbour is free" });
     if (flags.fresh && !cfg.dryRun) dataDir = srv.freshDataDir(baseDataDir);
     const log = srv.serveLogPath(dataDir);
     const timeoutMs = num(flags.timeout, 60) * 1000;
     if (cfg.dryRun) {
       const args = [...bin.command, "serve", "--port", String(port), "--data-dir", dataDir, "--no-pair", ...(flags.label ? ["--label", flags.label] : [])];
-      return { result: { dryRun: true, command: args, url, dataDir, log, strippedEnv: srv.STRIPPED_ENV, askTimeoutMs }, brief: `up · dry run · ${args.join(" ")}` };
+      return { result: { dryRun: true, command: args, url, ports: [port, port + 1], dataDir, log, strippedEnv: srv.STRIPPED_ENV, askTimeoutMs }, brief: `up · dry run · ${args.join(" ")}` };
     }
     const sp = srv.spawnServer({ command: bin.command, port, dataDir, label: flags.label, askTimeoutMs, log, env: cfg.env });
     const healthy = await srv.waitHealthy(client, timeoutMs, sp.isDead);
@@ -145,7 +147,7 @@ verb("up", {
     }
     const server = await srv.proveOwnership({ supervisorPid: sp.pid, client, dataDir, url, version: bin.version, askTimeoutMs, log });
     await save( (doc) => { doc.server = server; return doc; });
-    return { result: { status: "owned", changed: true, ...server }, brief: `up · started · ${url} · pid ${server.healthPid} · data ${dataDir}` };
+    return { result: { status: "owned", changed: true, ports: [port, port + 1], ...server }, brief: `up · started · ${url} · pid ${server.healthPid} · data ${dataDir}` };
   }),
 });
 

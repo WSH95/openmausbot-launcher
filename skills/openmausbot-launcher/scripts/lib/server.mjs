@@ -4,6 +4,7 @@
 // rows). The real CLI spawns the server as a child (server/cli.ts:455) and
 // /api/health answers with the child's pid (server/index.ts:11363).
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { EXIT, Fail } from "./cli.mjs";
@@ -48,17 +49,35 @@ export function unreachable(url, err) {
   return new Fail(EXIT.ERROR, `cannot reach ${url}: ${cause}`, hint ? { hint } : {});
 }
 
+/** OpenMausBot binds port+1 for its webhook receiver (server/index.ts:319-320, cli.ts:438) and keeps running without it (index.ts:4874-4880), so `up` refuses a port whose neighbour is taken rather than start a half-server. */
+export function portFree(port, host = "127.0.0.1") {
+  return new Promise((resolve) => {
+    const s = net.createServer();
+    s.once("error", () => resolve(false));
+    s.listen(port, host, () => s.close(() => resolve(true)));
+  });
+}
+
+/** The error for a failed non-network probe: a webhook receiver answers everything but /health with 404 `Unknown webhook endpoint` (webhook-ingress.ts:98) and is named with its API port; anything else is the HttpError itself. */
+export function refusal(url, p) {
+  if (p.status === 404 && /webhook/i.test(p.body?.error ?? "")) {
+    const port = Number(new URL(url).port);
+    return new Fail(EXIT.PRECONDITION, `${url} is an OpenMausBot webhook receiver; its API is on port ${port - 1}`, { hint: "servers occupy two consecutive ports; space them two apart" });
+  }
+  return p.error;
+}
+
 export async function health(client, opts = {}) {
   const p = await probe(client, "/api/health", opts);
   if (p.ok) return p.body && p.body.app === "openmausbot" ? p.body : null;
   if (p.network) return null;
-  throw p.error;
+  throw refusal(client.url, p);
 }
 export async function environment(client, opts = {}) {
   const p = await probe(client, "/.well-known/openmausbot/environment", opts);
   if (p.ok) return p.body;
   if (p.network) return null;
-  throw p.error;
+  throw refusal(client.url, p);
 }
 
 export async function waitHealthy(client, timeoutMs, isDead) {

@@ -49,6 +49,7 @@ paired device` (`request-auth.ts:293-309,364-370`); reads still work.
 | `PATCH /api/bots/:id/model` | `{instanceId, model, effort?}` | 200 `{bot}` (`index.ts:9919-9953`) | 409 `the bot is working — stop it before changing models` — only when the selection actually changes (`1050-1057`); 409 `wait for the approval-level change to finish before changing models` (`9930-9932`); 400 `unsupported model field: …`; 400 `effort "…" is not recognized`; admin only |
 | `PATCH /api/groups/:id` | `{cwd\|name\|memberIds\|…}` | 200 `{group}` (`index.ts:9493-9595`) | 409 `the room's working folder is fixed after its first turn` once `pinnedCwd` is set — **even when the new `cwd` equals the old one** (`9564-9568`); 400 `direct-message channels cannot have a working folder` |
 | `GET /api/decisions` | `limit` (default 200) | 200 `{decisions}`, read back from the data dir (`index.ts:11398-11405`) | 400 on a non-positive limit. This is a log of resolved requests, never a pending queue |
+| `GET /health` on `port + 1` | — | `{app:"openmausbot-webhooks", ready:true}` (`webhook-ingress.ts:94-96`): the webhook receiver that `serve` binds next to the API port, loopback only (`index.ts:319-320`, `cli.ts:438`, `webhook-ingress.ts:161-186`) | every other path, `/api/health` included, is 404 `Unknown webhook endpoint` (`webhook-ingress.ts:98`); a taken `port + 1` is logged `openmausbot webhook receiver unavailable` and the server keeps running (`index.ts:4874-4880`) |
 
 ## Receipts and the `sendId` rule
 

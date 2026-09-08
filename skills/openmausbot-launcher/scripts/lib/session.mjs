@@ -4,7 +4,7 @@ import path from "node:path";
 import { EXIT, Fail } from "./cli.mjs";
 import { resolveConfig } from "./config.mjs";
 import { withLock, loadState, initState, commitState } from "./state.mjs";
-import { probe, unreachable, hasProc, procInfo, verifyOwned } from "./server.mjs";
+import { probe, unreachable, refusal, hasProc, procInfo, verifyOwned } from "./server.mjs";
 import { createClient } from "./http.mjs";
 
 /** Serialize a mutating command from its preflight through its side effects.
@@ -55,7 +55,7 @@ export async function serverIdentity(cfg, client, opts = {}) {
   const [envP, hP] = await Promise.all([probe(client, "/.well-known/openmausbot/environment", request), probe(client, "/api/health", request)]);
   // A blocked or absent network is a network story (exit 1), never "identity could not be verified".
   if (envP.network && hP.network) throw unreachable(client.url, hP.network);
-  for (const p of [hP, envP]) if (!p.ok && !p.network) throw p.error;
+  for (const p of [hP, envP]) if (!p.ok && !p.network) throw refusal(client.url, p);
   const env = envP.ok ? envP.body : null;
   const h = hP.ok && hP.body?.app === "openmausbot" ? hP.body : null;
   if (!env?.environmentId || !Number.isInteger(h?.pid) || h.pid <= 0) throw new Fail(EXIT.PRECONDITION, "the server identity could not be verified", { hint: "check the URL and server, then import --adopt or re-import" });

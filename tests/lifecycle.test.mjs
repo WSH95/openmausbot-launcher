@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { startFake, freePort, tmpDir, makeRepo, runOmb, sleep, FAKE } from "./helpers.mjs";
+import { startFake, freePort, freePortPair, tmpDir, makeRepo, runOmb, sleep, FAKE } from "./helpers.mjs";
 import net from "node:net";
 import { statePaths, loadState, updateState } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
 import { procInfo, verifyOwned, proveOwnership } from "../skills/openmausbot-launcher/scripts/lib/server.mjs";
@@ -76,15 +76,16 @@ test("doctor: the Project Steward stop-hook check and the loopback token warning
 
 test("up starts a detached server that outlives the driver, proves ownership, and down stops it", { skip: !linux && "needs /proc" }, async (t) => {
   const { dir } = makeRepo();
-  const port = await freePort();
+  const port = await freePortPair();
   const dataDir = path.join(tmpDir("oml-updata-"), "data");
   const env = { OMB_BIN: FAKE, OMB_TOKEN: "", ANTHROPIC_API_KEY: "sk-test-should-be-stripped" };
   const dry = await runOmb(["up", "--project", dir, "--port", String(port), "--data-dir", dataDir, "--dry-run"], { env });
   assert.equal(dry.code, 0); assert.equal(dry.json.dryRun, true); assert.ok(dry.json.command.includes("serve")); assert.equal(await healthOk(`http://127.0.0.1:${port}`), false);
+  assert.deepEqual(dry.json.ports, [port, port + 1]);
   const up = await runOmb(["up", "--project", dir, "--port", String(port), "--data-dir", dataDir, "--ask-timeout-ms", "1234"], { env });
   t.after(async () => { const s = loadState(statePaths(dir))?.server; for (const pid of [s?.healthPid, s?.supervisorPid]) if (pid) { try { process.kill(pid, "SIGKILL"); } catch {} } });
   assert.equal(up.code, 0, up.stdout + up.stderr);
-  assert.equal(up.json.status, "owned"); assert.equal(up.json.changed, true);
+  assert.equal(up.json.status, "owned"); assert.equal(up.json.changed, true); assert.deepEqual(up.json.ports, [port, port + 1]);
   assert.notEqual(up.json.supervisorPid, up.json.healthPid);
   assert.equal(procInfo(up.json.healthPid).ppid, up.json.supervisorPid);
   assert.ok(up.json.environmentId); assert.equal(up.json.dataDir, dataDir); assert.equal(up.json.askTimeoutMs, 1234);
@@ -161,7 +162,7 @@ test("down refuses stale or reused identities", { skip: !linux && "needs /proc" 
 
 test("up reports a server that dies at startup with the log tail and a sandbox hint", { skip: !linux && "needs /proc" }, async (t) => {
   const { dir } = makeRepo();
-  const port = await freePort();
+  const port = await freePortPair();
   const blocker = net.createServer(); await new Promise((r) => blocker.listen(port, "127.0.0.1", r)); t.after(() => blocker.close());
   const dataDir = path.join(tmpDir("oml-dead-"), "data");
   const r = await runOmb(["up", "--project", dir, "--port", String(port), "--data-dir", dataDir, "--timeout", "10"], { env: { OMB_BIN: FAKE, OMB_TOKEN: "" } });
@@ -174,7 +175,7 @@ test("up reports a server that dies at startup with the log tail and a sandbox h
 
 test("up names the sandbox cause from anywhere in serve.log, not only its 12-line tail", { skip: !linux && "needs /proc" }, async (t) => {
   const { dir } = makeRepo();
-  const port = await freePort();
+  const port = await freePortPair();
   const blocker = net.createServer(); await new Promise((r) => blocker.listen(port, "127.0.0.1", r)); t.after(() => blocker.close());
   const dataDir = path.join(tmpDir("oml-sandbox-"), "data");
   fs.mkdirSync(dataDir, { recursive: true });
@@ -185,4 +186,24 @@ test("up names the sandbox cause from anywhere in serve.log, not only its 12-lin
   assert.doesNotMatch(r.json.log, /EPERM/, "the signature sits above the tail");
   assert.match(r.json.hint, /sandbox blocks listening sockets/);
   assert.match(r.json.hint, /serve\.log: openmausbot webhook receiver unavailable: listen EPERM: operation not permitted 127\.0\.0\.1:8906\)/, "the first matching line is named");
+});
+
+test("up refuses a port whose neighbour is taken before spawning, and names a webhook receiver's API port", { skip: !linux && "needs /proc" }, async (t) => {
+  const { dir } = makeRepo();
+  const port = await freePortPair();
+  const blocker = net.createServer(); await new Promise((r) => blocker.listen(port + 1, "127.0.0.1", r));
+  const dataDir = path.join(tmpDir("oml-neighbour-"), "data");
+  let r = await runOmb(["up", "--project", dir, "--port", String(port), "--data-dir", dataDir], { env: { OMB_BIN: FAKE, OMB_TOKEN: "" } });
+  assert.equal(r.code, 3, r.stdout);
+  assert.equal(r.json.error, `port ${port + 1} is in use; OpenMausBot binds ${port}+1 for its webhook receiver (server/index.ts:320, cli.ts:438)`);
+  assert.equal(r.json.hint, "choose a port whose neighbour is free");
+  assert.equal(fs.existsSync(dataDir), false, "refused before the spawn: no data dir, no serve.log");
+  assert.equal(loadState(statePaths(dir)), null);
+  await new Promise((r) => blocker.close(r));
+  const f = await startFake({ port, webhookPort: port + 1 }); t.after(() => f.close());
+  r = await runOmb(["up", "--project", dir, "--port", String(port + 1)], { env: { OMB_BIN: FAKE, OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir } });
+  assert.equal(r.code, 3, r.stdout);
+  assert.equal(r.json.error, `http://127.0.0.1:${port + 1} is an OpenMausBot webhook receiver; its API is on port ${port}`);
+  assert.equal(r.json.hint, "servers occupy two consecutive ports; space them two apart");
+  assert.equal(loadState(statePaths(dir)), null);
 });

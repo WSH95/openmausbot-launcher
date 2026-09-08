@@ -5,7 +5,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { startFake, freePort, tmpDir, readSse, sleep, FAKE } from "./helpers.mjs";
+import net from "node:net";
+import { startFake, freePort, freePortPair, tmpDir, readSse, sleep, FAKE } from "./helpers.mjs";
 
 const PKG = {
   format: "openmaus.package", version: 1,
@@ -326,7 +327,7 @@ test("notifications can be off per bot; delayed responses; new environment id", 
 });
 
 test("serve spawns a child that answers health with its own pid; SIGTERM to the supervisor stops both", async (t) => {
-  const port = await freePort();
+  const port = await freePortPair();
   const dataDir = tmpDir("oml-serve-");
   const sup = spawn(process.execPath, [FAKE, "serve", "--port", String(port), "--data-dir", dataDir, "--no-pair"], { stdio: ["ignore", "pipe", "pipe"] });
   t.after(() => { try { sup.kill("SIGKILL"); } catch {} });
@@ -336,6 +337,8 @@ test("serve spawns a child that answers health with its own pid; SIGTERM to the 
   assert.match(out, /OpenMausBot is running on http:\/\/127\.0\.0\.1:\d+/);
   const h = await (await fetch(`http://127.0.0.1:${port}/api/health`)).json();
   assert.notEqual(h.pid, sup.pid, "health reports the child, not the supervisor");
+  assert.deepEqual(await (await fetch(`http://127.0.0.1:${port + 1}/health`)).json(), { app: "openmausbot-webhooks", ready: true }, "serve binds port+1 like cli.ts:438");
+  assert.match(out, new RegExp(`openmausbot webhook receiver on http://127\\.0\\.0\\.1:${port + 1}`));
   if (process.platform === "linux") {
     const status = fs.readFileSync(`/proc/${h.pid}/status`, "utf8");
     assert.match(status, new RegExp(`^PPid:\\s+${sup.pid}$`, "m"), "the child's parent is the supervisor");
@@ -379,4 +382,19 @@ test("real cards use options messages and typed payloads instead of card.kind", 
   r = await j(await post(`${f.url}/api/threads/${threadId}/respond`, { requestId: "routine", behavior: "allow" }));
   assert.equal(r.body.outcome, "allowed-once");
   assert.equal(r.body.routineAction, "create"); assert.equal(typeof r.body.resultId, "string");
+});
+
+test("the webhook receiver on port+1: /health answers, everything else is a 404, a taken port is logged and not fatal", async (t) => {
+  const webhookPort = await freePort();
+  const f = await startFake({ webhookPort }); t.after(() => f.close());
+  assert.equal(f.webhookPort, webhookPort);
+  let r = await j(await fetch(`http://127.0.0.1:${webhookPort}/health`));
+  assert.equal(r.status, 200); assert.deepEqual(r.body, { app: "openmausbot-webhooks", ready: true });
+  r = await j(await fetch(`http://127.0.0.1:${webhookPort}/api/health`));
+  assert.equal(r.status, 404); assert.deepEqual(r.body, { error: "Unknown webhook endpoint" });
+  const taken = await freePort();
+  const blocker = net.createServer(); await new Promise((res) => blocker.listen(taken, "127.0.0.1", res)); t.after(() => blocker.close());
+  const g = await startFake({ webhookPort: taken }); t.after(() => g.close());
+  assert.equal(g.webhookPort, null, "the API still serves when the receiver cannot bind (index.ts:4877-4879)");
+  assert.equal((await fetch(`${g.url}/api/health`)).status, 200);
 });

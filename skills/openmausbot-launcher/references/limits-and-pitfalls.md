@@ -113,6 +113,14 @@ than none: the hook fires in a degenerate state (dev pack `HANDOFF.md`,
 
 ## Driver rules restated
 
+### Two ports per server
+
+OpenMausBot takes `--port` for the API and `port + 1` for its webhook
+receiver (`index.ts:319-320`, `cli.ts:438`). `up --port N` refuses (exit 3)
+when `N + 1` is taken, and a live verb pointed at a receiver port reports
+`<url> is an OpenMausBot webhook receiver; its API is on port N-1` instead of
+a bare 404. Space servers two ports apart: 8893 and 8895, never 8893 and 8894.
+
 ### State lock upgrades and recovery
 
 Writers use Node 24's built-in SQLite support and a persistent

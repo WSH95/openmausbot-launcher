@@ -476,18 +476,36 @@ export async function createFake(opts = {}) {
     }
   }
 
+  // The real server binds a second listener on port+1 for its webhook
+  // receiver before the API port (S: index.ts:319-320, 4874; cli.ts:438 passes
+  // OMB_WEBHOOK_PORT || port + 1), loopback only (S: webhook-ingress.ts:161-186).
+  // It answers GET /health and nothing else (S: webhook-ingress.ts:94-98); a
+  // taken port is logged, not fatal (S: index.ts:4877-4879).
+  let webhook = null;
+  if (opts.webhookPort) {
+    const w = http.createServer((req, res) => {
+      const u = new URL(req.url, "http://127.0.0.1");
+      if (req.method === "GET" && u.pathname === "/health") return json(res, 200, { app: "openmausbot-webhooks", ready: true });
+      return json(res, 404, { error: "Unknown webhook endpoint" });
+    });
+    try {
+      await new Promise((resolve, reject) => { w.once("error", reject); w.listen(opts.webhookPort, "127.0.0.1", () => { w.off("error", reject); resolve(); }); });
+      webhook = w;
+    } catch (e) { console.error(`openmausbot webhook receiver unavailable: ${e.message}`); }
+  }
+
   const server = http.createServer((req, res) => { handle(req, res).catch((e) => { try { json(res, e.status ?? 500, { error: e.message }); } catch {} }); });
   server.keepAliveTimeout = 5000;
   await new Promise((resolve) => server.listen(opts.port ?? 0, "127.0.0.1", resolve));
   const port = server.address().port;
   const url = `http://127.0.0.1:${port}`;
   return {
-    url, port, dataDir, server,
+    url, port, dataDir, server, webhookPort: webhook ? opts.webhookPort : null,
     get environmentId() { return environmentId; },
     apply: (op) => apply(op),
     control: async (op) => { const r = await fetch(`${url}/__fake`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(op) }); const b = await r.json(); if (!r.ok) throw new Error(b.error); return b; },
     snapshot: async () => (await fetch(`${url}/__fake/state`)).json(),
-    close: () => new Promise((resolve) => { for (const c of [...sse]) { try { c.res.end(); } catch {} } server.close(() => resolve()); server.closeAllConnections?.(); }),
+    close: () => new Promise((resolve) => { for (const c of [...sse]) { try { c.res.end(); } catch {} } webhook?.close(); webhook?.closeAllConnections?.(); server.close(() => resolve()); server.closeAllConnections?.(); }),
   };
 }
 
@@ -515,12 +533,13 @@ function parseCli(argv) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const o = parseCli(process.argv.slice(2));
   if (o.command === "child") {
-    const f = await createFake({ port: o.port, dataDir: o.dataDir });
+    const f = await createFake({ port: o.port, dataDir: o.dataDir, webhookPort: Number(process.env.OMB_WEBHOOK_PORT || o.port + 1) }); // S: index.ts:320
     const stop = () => { f.close().then(() => process.exit(0)); };
     process.on("SIGTERM", stop); process.on("SIGINT", stop);
     console.log(`child listening on ${f.url}`);
+    if (f.webhookPort) console.log(`openmausbot webhook receiver on http://127.0.0.1:${f.webhookPort}`); // S: index.ts:4876
   } else if (o.command === "serve") {
-    const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "child", "--port", String(o.port), "--data-dir", o.dataDir], { env: { ...process.env, OMB_DATA_DIR: o.dataDir, OMB_PORT: String(o.port) }, stdio: ["ignore", "inherit", "inherit"] });
+    const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "child", "--port", String(o.port), "--data-dir", o.dataDir], { env: { ...process.env, OMB_DATA_DIR: o.dataDir, OMB_PORT: String(o.port), OMB_WEBHOOK_PORT: process.env.OMB_WEBHOOK_PORT || String(o.port + 1) }, stdio: ["ignore", "inherit", "inherit"] }); // S: cli.ts:438
     let exited = null;
     child.on("exit", (code) => { exited = code ?? 1; });
     const stop = () => { if (exited === null) child.kill("SIGTERM"); };
