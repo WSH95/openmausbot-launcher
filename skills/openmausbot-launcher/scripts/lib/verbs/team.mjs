@@ -92,21 +92,29 @@ function pickLead(bots, leadRef, chiefName) {
 }
 
 verb("bind", {
-  options: { default: { type: "string" }, reviewers: { type: "string" }, model: { type: "string", multiple: true }, approval: { type: "string" }, "no-room": { type: "boolean" } },
+  options: { default: { type: "string" }, reviewers: { type: "string" }, model: { type: "string", multiple: true }, approval: { type: "string" }, "approval-for": { type: "string", multiple: true }, "peer-approval": { type: "string", multiple: true }, "no-room": { type: "boolean" } },
   handler: stateCommand(async ({ flags, cfg, save }) => {
     if (cfg.mode === "remote") throw new Fail(EXIT.PRECONDITION, "bind needs the project checkout on the server's machine");
     requireDataDir(cfg, "bind");
     const team = requireTeam(cfg);
     const approval = flags.approval ?? "auto";
     if (!["auto", "ask"].includes(approval)) throw new Fail(EXIT.USAGE, `--approval must be auto or ask`);
-    const overrides = new Map();
-    for (const spec of flags.model ?? []) {
-      const eq = spec.indexOf("=");
-      if (eq < 0) throw new Fail(EXIT.USAGE, `--model wants <bot>=<engine>/<model>[/<effort>], got "${spec}"`);
-      const bot = findBot(team, spec.slice(0, eq));
-      if (!bot) throw new Fail(EXIT.USAGE, `no team bot named ${spec.slice(0, eq)}`, { hint: `bots: ${team.bots.map((b) => b.name).join(", ")}` });
-      overrides.set(bot.id, parseEngineSpec(spec.slice(eq + 1)));
-    }
+    const perBot = (list, flag, { form, value }) => {
+      const map = new Map();
+      for (const spec of list ?? []) {
+        const eq = spec.indexOf("=");
+        if (eq < 0) throw new Fail(EXIT.USAGE, `${flag} wants <bot>=${form}, got "${spec}"`);
+        const bot = findBot(team, spec.slice(0, eq));
+        if (!bot) throw new Fail(EXIT.USAGE, `no team bot named ${spec.slice(0, eq)}`, { hint: `bots: ${team.bots.map((b) => b.name).join(", ")}` });
+        const v = value(spec.slice(eq + 1));
+        if (v === undefined) throw new Fail(EXIT.USAGE, `${flag} wants <bot>=${form}, got "${spec}"`);
+        map.set(bot.id, v);
+      }
+      return map;
+    };
+    const overrides = perBot(flags.model, "--model", { form: "<engine>/<model>[/<effort>]", value: parseEngineSpec });
+    const approvalFor = perBot(flags["approval-for"], "--approval-for", { form: "ask|auto", value: (v) => (["ask", "auto"].includes(v) ? v : undefined) });
+    const peerApproval = perBot(flags["peer-approval"], "--peer-approval", { form: "on|off", value: (v) => (v === "on" ? true : v === "off" ? false : undefined) });
     const defaultSpec = flags.default ? parseEngineSpec(flags.default) : null;
     const reviewerSpec = flags.reviewers ? parseEngineSpec(flags.reviewers) : null;
     const client = createClient(cfg);
@@ -137,9 +145,18 @@ verb("bind", {
         let selection = bot.modelSelection;
         if (wanted && !sameSelection(wanted, bot.modelSelection)) { const r = await client.patch(`/api/bots/${bot.id}/model`, wanted); selection = r?.bot?.modelSelection ?? wanted; entry.changes.push(`model ${specString(wanted)}`); }
         entry.model = specString(selection);
-        if (selection?.instanceId === "grok" && approval === "auto") { results.skipped.push({ bot: bot.name, why: "a grok bot has no auto approval level; it stays on ask" }); entry.approvalMode = bot.approvalMode; }
-        else if (bot.approvalMode !== approval) { await client.patch(`/api/bots/${bot.id}`, { approvalMode: approval }); entry.changes.push(`approval ${approval}`); entry.approvalMode = approval; }
+        const level = approvalFor.get(bot.id) ?? approval;
+        if (selection?.instanceId === "grok" && level === "auto") {
+          results.skipped.push({ bot: bot.name, why: "a grok bot has no auto approval level; it stays on ask" });
+          // A never-PATCHed bot has no approvalMode field (store.ts:1303-1335) and runs as ask (shared/approval-mode.ts:32-43); write it so state and roster can say so (index.ts:10145-10168 accepts it for a grok bot).
+          if (bot.approvalMode == null) { await client.patch(`/api/bots/${bot.id}`, { approvalMode: "ask" }); entry.changes.push("approval ask"); }
+          entry.approvalMode = bot.approvalMode ?? "ask";
+        } else if (bot.approvalMode !== level) { await client.patch(`/api/bots/${bot.id}`, { approvalMode: level }); entry.changes.push(`approval ${level}`); entry.approvalMode = level; }
         else entry.approvalMode = bot.approvalMode;
+        // approvePeerComms gates ask_bot, post_to_room and delegate_bot behind a "@X wants to contact @Y" card (index.ts:7842-7851, 8113-8123; delegations.ts:514; peer-approval.ts:95-119); the PATCH takes a boolean only (index.ts:10212-10217).
+        const peer = peerApproval.get(bot.id);
+        if (peer !== undefined && (bot.approvePeerComms === true) !== peer) { await client.patch(`/api/bots/${bot.id}`, { approvePeerComms: peer }); entry.changes.push(`peer-approval ${peer ? "on" : "off"}`); }
+        entry.approvePeerComms = peer ?? (bot.approvePeerComms === true);
       } catch (e) {
         if (e instanceof HttpError) { results.conflicts.push({ bot: bot.name, status: e.status, error: e.body?.error ?? e.message, after: entry.changes }); }
         else throw e;
@@ -156,7 +173,7 @@ verb("bind", {
       });
     }
     const code = results.conflicts.length ? EXIT.PRECONDITION : EXIT.OK;
-    return { code, ok: code === EXIT.OK, result: { project: projectDir, dryRun: cfg.dryRun, ...results, roster: results.bots.map((b) => `${b.bot}: ${b.model} (${b.approvalMode})`) },
+    return { code, ok: code === EXIT.OK, result: { project: projectDir, dryRun: cfg.dryRun, ...results, roster: results.bots.map((b) => `${b.bot}: ${b.model ?? "unchanged"} (${b.approvalMode ?? "unset"})`) },
       brief: `bind · ${projectDir} · ${results.bots.map((b) => `${b.bot} ${b.model}`).join(", ")}${results.conflicts.length ? ` · ${results.conflicts.length} conflict(s)` : ""}` };
   }),
 });

@@ -53,7 +53,7 @@ omb doctor --project <dir>                       # node, binary, git, project, S
 omb up --project <dir> --port 8899 --data-dir <data dir> [--fresh]
 omb doctor --server --project <dir>              # health, scope, engines, no provider keys
 omb import <package.json> --project <dir>        # or: omb import --adopt "<section>" for a team already on the server
-omb bind --project <dir> --default claude/claude-sonnet-5 --reviewers codex/gpt-6-astra/xhigh [--model Nova=claude/claude-fable-5-1/max] [--approval auto]
+omb bind --project <dir> --default claude/claude-sonnet-5 --reviewers codex/gpt-6-astra/xhigh [--model Nova=claude/claude-fable-5-1/max] [--approval auto] [--approval-for Sage=ask] [--peer-approval Sudo=on]
 omb facts --project <dir> --test "npm test" --setup none --merge auto --task-log .project-steward/PROGRESS.md --tracker beads --plan-review ask
 ```
 
@@ -69,7 +69,11 @@ set `auto_handoff_mode = "off"` in its `config.toml` and exclude
 folder, models, and approval level only where they differ, and refuses
 while a bot works. Both `bind` and a local `import --adopt` add
 `.worktrees/` and `.omb/` to the repository's git exclude file, in a linked
-worktree too. `facts` rewrites the lead's Project facts block; the
+worktree too. `--approval-for <bot>=ask|auto` overrides `--approval` for one
+bot; `--peer-approval <bot>=on|off` sets `approvePeerComms`, which makes that
+bot raise a "@X wants to contact @Y" card before each `ask_bot`,
+`delegate_bot`, or room post — answer it with `answer --allow --request <id>`.
+`facts` rewrites the lead's Project facts block; the
 dev-team pack's fields are in `references/dev-team.md`.
 
 Use Node 24. Local task and report commands need the server's readable,

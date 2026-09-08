@@ -398,3 +398,18 @@ test("the webhook receiver on port+1: /health answers, everything else is a 404,
   assert.equal(g.webhookPort, null, "the API still serves when the receiver cannot bind (index.ts:4877-4879)");
   assert.equal((await fetch(`${g.url}/api/health`)).status, 200);
 });
+
+test("a created bot has no approvalMode until PATCHed; approvePeerComms must be boolean and is read back", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const { bots } = await importTeam(f);
+  const id = bots[0].id;
+  assert.equal(bots[0].approvalMode, undefined, "createBot writes no approvalMode (store.ts:1303-1335)");
+  let r = await j(await patch(`${f.url}/api/bots/${id}`, { approvePeerComms: "yes" }));
+  assert.equal(r.status, 400); assert.equal(r.body.error, "approvePeerComms must be true or false");
+  r = await j(await patch(`${f.url}/api/bots/${id}`, { approvePeerComms: true }));
+  assert.equal(r.status, 200); assert.equal(r.body.bot.approvePeerComms, true);
+  const live = (await j(await fetch(`${f.url}/api/bots?messages=0`))).body.bots.find((b) => b.id === id);
+  assert.equal(live.approvePeerComms, true); assert.equal(live.approvalMode, undefined);
+  r = await j(await patch(`${f.url}/api/bots/${id}`, { approvalMode: "ask" }));
+  assert.equal(r.status, 200); assert.equal(r.body.bot.approvalMode, "ask", "a PATCH materialises the field (index.ts:10145-10168)");
+});

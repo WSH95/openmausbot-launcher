@@ -94,6 +94,8 @@ test("bind sets cwd, models, and approval only where they differ, skips grok aut
   assert.deepEqual(by("nova").modelSelection, { instanceId: "claude", model: "claude-fable-5-1", effort: "max" });
   assert.equal(by("sage").modelSelection.instanceId, "grok"); assert.equal(by("sage").approvalMode, "ask");
   assert.deepEqual(r.json.skipped, [{ bot: "Sage", why: "a grok bot has no auto approval level; it stays on ask" }]);
+  assert.ok(r.json.roster.every((line) => !/undefined/.test(line)), r.json.roster.join("\n"));
+  assert.ok(r.json.bots.find((b) => b.bot === "Sage").changes.includes("approval ask"), "a grok bot with no approvalMode is set to ask so the field exists");
   assert.deepEqual(r.json.exclude, [".worktrees/", ".omb/"]);
   assert.equal(r.json.rooms[0].changed, true);
   const groups = (await (await fetch(`${f.url}/api/bots?messages=0`)).json()).groups;
@@ -139,4 +141,29 @@ test("facts replaces the marker block, keeps unspecified fields, infers the bran
   assert.equal(r.code, 3); assert.match(r.json.error, /no "Project facts" marker/);
   r = await runOmb(["facts", "--project", dir, "--test", "npm test", "--append"], { env });
   assert.equal(r.code, 0); assert.ok((await bots(f)).find((b) => b.name === "Sudo").description.startsWith("no marker here\nProject facts:"));
+});
+
+test("bind --approval-for overrides the team approval per bot; --peer-approval sets approvePeerComms only when it differs", async (t) => {
+  const f = await startFake(); t.after(() => f.close()); env.OMB_DATA_DIR = f.dataDir;
+  const { dir } = makeRepo();
+  assert.equal((await runOmb(["import", PKG, "--project", dir, "--url", f.url], { env })).code, 0);
+  const team = loadState(statePaths(dir)).team;
+  const by = async (k) => (await bots(f)).find((b) => b.id === team.bots.find((x) => x.key === k).id);
+  let r = await runOmb(["bind", "--project", dir, "--approval-for", "nova=ask", "--peer-approval", "sudo=on"], { env });
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.equal((await by("nova")).approvalMode, "ask"); assert.equal((await by("sudo")).approvalMode, "auto"); assert.equal((await by("sudo")).approvePeerComms, true);
+  const sudo = r.json.bots.find((b) => b.bot === "Sudo");
+  assert.ok(sudo.changes.includes("peer-approval on"), JSON.stringify(sudo)); assert.equal(sudo.approvePeerComms, true);
+  assert.deepEqual(r.json.bots.find((b) => b.bot === "Nova").changes.filter((c) => /approval/.test(c)), ["approval ask"]);
+  assert.ok(r.json.roster.includes("Nova: claude/claude-sonnet-5 (ask)"), r.json.roster.join("\n"));
+  r = await runOmb(["bind", "--project", dir, "--approval-for", "nova=ask", "--peer-approval", "sudo=on"], { env });
+  assert.equal(r.code, 0); assert.ok(r.json.bots.every((b) => b.changes.length === 0), "nothing differs on a repeat");
+  r = await runOmb(["bind", "--project", dir, "--peer-approval", "sudo=off"], { env });
+  assert.ok(r.json.bots.find((b) => b.bot === "Sudo").changes.includes("peer-approval off")); assert.equal((await by("sudo")).approvePeerComms, false);
+  r = await runOmb(["bind", "--project", dir, "--peer-approval", "sudo=maybe"], { env });
+  assert.equal(r.code, 2); assert.equal(r.json.error, '--peer-approval wants <bot>=on|off, got "sudo=maybe"');
+  r = await runOmb(["bind", "--project", dir, "--approval-for", "nobody=ask"], { env });
+  assert.equal(r.code, 2); assert.equal(r.json.error, "no team bot named nobody");
+  r = await runOmb(["bind", "--project", dir, "--approval-for", "nova=full"], { env });
+  assert.equal(r.code, 2); assert.equal(r.json.error, '--approval-for wants <bot>=ask|auto, got "nova=full"');
 });

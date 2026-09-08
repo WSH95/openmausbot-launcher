@@ -76,7 +76,8 @@ export async function createFake(opts = {}) {
   const publicBot = (b) => ({
     id: b.id, name: b.name, title: b.title, description: b.description, section: b.section,
     threadId: b.threadId, busy: BUSY.has(b.activity), activity: b.activity, cwd: b.cwd,
-    approvalMode: b.approvalMode, modelSelection: { ...b.modelSelection }, chiefOfStaff: b.chiefOfStaff === true,
+    approvalMode: b.approvalMode, approvePeerComms: b.approvePeerComms, // S: index.ts:1159-1168 wireBot passes both through as stored
+    modelSelection: { ...b.modelSelection }, chiefOfStaff: b.chiefOfStaff === true,
     hidden: b.hidden === true, notifications: b.notifications !== false,
     tasks: b.tasks.map((t) => ({ threadId: t.threadId, title: t.title, createdAt: t.createdAt })),
   });
@@ -105,7 +106,8 @@ export async function createFake(opts = {}) {
   function makeBot(fields) {
     const b = {
       id: newId(), name: fields.name, title: fields.title, description: fields.description ?? "",
-      section: fields.section, activity: "idle", cwd: fields.cwd, approvalMode: fields.approvalMode ?? "ask",
+      section: fields.section, activity: "idle", cwd: fields.cwd,
+      ...(fields.approvalMode !== undefined ? { approvalMode: fields.approvalMode } : {}), // S: store.ts:1303-1335 — createBot never writes approvalMode; it reads as ask until PATCHed (shared/approval-mode.ts:32-43)
       modelSelection: fields.modelSelection ?? { instanceId: "claude", model: "claude-sonnet-5" },
       chiefOfStaff: fields.chiefOfStaff === true, hidden: false, notifications: true, tasks: [],
       approvalGrantPending: false, savingCredential: false, busyElsewhere: null, key: fields.key,
@@ -369,10 +371,11 @@ export async function createFake(opts = {}) {
     if (body.approvalMode !== undefined) {
       if (["full", "custom"].includes(body.approvalMode)) return json(res, 403, { error: "this approval level can only be set from the desktop app" });
       if (!["ask", "auto"].includes(body.approvalMode)) return json(res, 400, { error: "unknown approval level" });
-      if (BUSY.has(bot.activity) && body.approvalMode !== bot.approvalMode) return json(res, 409, { error: "stop this bot's turn before changing its approval level" });
+      if (BUSY.has(bot.activity) && body.approvalMode !== (bot.approvalMode ?? "ask")) return json(res, 409, { error: "stop this bot's turn before changing its approval level" }); // S: index.ts:10157-10163 compares approvalModeFor(existingBot)
       if (bot.approvalGrantPending) return json(res, 409, { error: "wait for the approval-level change to finish" });
       bot.approvalMode = body.approvalMode;
     }
+    if (body.approvePeerComms !== undefined && typeof body.approvePeerComms !== "boolean") return json(res, 400, { error: "approvePeerComms must be true or false" }); // S: index.ts:10212-10217
     for (const k of ["name", "title", "section", "chiefOfStaff", "approvePeerComms", "hidden"]) if (body[k] !== undefined) bot[k] = body[k];
     broadcast({ kind: "bot", bot: publicBot(bot) });
     return json(res, 200, { bot: publicBot(bot) });
