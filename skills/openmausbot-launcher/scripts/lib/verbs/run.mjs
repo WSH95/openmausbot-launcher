@@ -61,7 +61,8 @@ export function composeBrief({ leadName, brief, todo, bead, facts, tag }) {
   let text = brief;
   if (!text) {
     const test = facts?.test && facts.test !== "<fill in>" ? facts.test : null;
-    text = `${leadName}, do ${todo} from TODO.md in this project.${test ? ` Test command: ${test} (run inside the task's worktree).` : ""}${facts?.setup ? ` Setup command: ${facts.setup}.` : ""}${bead ? ` Bead: ${bead}.` : ""}`;
+    const where = test && /worktree/i.test(test) ? "" : " (run inside the task's worktree)";
+    text = `${leadName}, do ${todo} from TODO.md in this project.${test ? ` Test command: ${test}${where}.` : ""}${facts?.setup ? ` Setup command: ${facts.setup}.` : ""}${bead ? ` Bead: ${bead}.` : ""}`;
   } else if (bead && !/\bBead:/.test(text)) text = `${text.trimEnd()} Bead: ${bead}.`;
   return `${text.trimEnd()}\n\nWhen the task is finished, end your closing report with a line containing only \`${markerLine(tag)}\`.`;
 }
@@ -297,21 +298,29 @@ verb("watch", {
 });
 
 // ── report ──
-import { readNdjson, turnsFromEvents, nativeCalls, check042, beadStatus, commitsSince, runTests, renderMarkdown } from "../report.mjs";
+import { readNdjson, turnsFromEvents, nativeCalls, check042, beadStatus, commitsSince, runTests, renderMarkdown, mergedShaFrom } from "../report.mjs";
 import { reconcileCheck as rootCheck, git as gitRun } from "../git.mjs";
 import * as srvInfo from "../server.mjs";
 
 verb("report", {
-  options: { md: { type: "boolean" }, "check-042": { type: "boolean" }, "no-tests": { type: "boolean" }, close: { type: "boolean" }, "no-close": { type: "boolean" } },
+  options: { md: { type: "boolean" }, "check-042": { type: "boolean" }, "no-tests": { type: "boolean" }, close: { type: "boolean" }, "no-close": { type: "boolean" }, run: { type: "string" } },
   handler: async ({ flags }) => {
     const cfg = resolveConfig(flags);
     if (cfg.mode === "remote" || !cfg.dataDirReadable) throw new Fail(EXIT.PRECONDITION, "report needs the data dir and the project checkout", { hint: cfg.dataDirReadable ? "run it on the server's machine" : `${cfg.dataDir} is not readable: pass --data-dir` });
     const team = requireTeam(cfg);
-    const task = cfg.state.task && cfg.state.task.status !== "closed" ? cfg.state.task : null;
-    if (!task) throw new Fail(EXIT.PRECONDITION, "no open run to report", { hint: "the last closed runs are in the state's history" });
+    const open = cfg.state.task && cfg.state.task.status !== "closed" ? cfg.state.task : null;
+    const history = cfg.state.history ?? [];
+    let task = open; let fromHistory = false;
+    if (flags.run) {
+      task = flags.run === "last" ? history.at(-1) ?? null : history.find((h) => h.runId === flags.run || h.runId?.startsWith(flags.run)) ?? null;
+      if (!task) throw new Fail(EXIT.PRECONDITION, `no closed run ${flags.run} in the history`, { hint: history.length ? `known: ${history.map((h) => `${h.runId?.slice(0, 8)} ${h.title}`).join(", ")}` : "the history is empty" });
+      fromHistory = true;
+    }
+    if (!task) throw new Fail(EXIT.PRECONDITION, "no open run to report", { hint: history.length ? "report --run last re-reports the last closed run" : "the history is empty" });
     const client = createClient(cfg);
     const snap = await snapshot(client, { team, task }, { dataDir: cfg.dataDir });
     let ev = evaluate(snap, task, carriedInputs(task));
+    if (fromHistory && !snap.complete && task.report?.state) ev = { ...ev, state: task.report.state, reasons: ["from the closed run's report", ...ev.reasons], carried: true };
     const last = task.lastEval;
     const unchanged = last && last.lastLeadMessageId === (snap.leadText?.id ?? null) && (last.outcomes?.length ?? 0) === snap.outcomes.length;
     if (ev.state === "running" && last && TERMINAL_STATES.has(last.state) && unchanged && !ev.inflight) ev = { ...ev, state: last.state, carried: true };
@@ -331,8 +340,8 @@ verb("report", {
     const taskLogChanged = taskLog ? commits.some((c) => c.files.includes(taskLog)) : null;
     const bead = beadStatus(task.bead, cfg.projectDir);
     const record = { taskLog, taskLogChanged, commit: recordCommit?.sha ?? null, commitSubject: recordCommit?.subject ?? null, bead, ok: taskLog ? Boolean(taskLogChanged && recordCommit) && bead.ok !== false : null };
-    const closing = snap.leadText?.text ?? null;
-    const mergedSha = closing ? /merged as ([0-9a-f]{7,40})/i.exec(closing)?.[1] ?? null : null;
+    const closing = snap.leadText?.text ?? task.report?.closing ?? null;
+    const mergedSha = mergedShaFrom(closing, recordCommit?.subject);
     const reconcile = rootCheck(cfg.projectDir, facts);
     let ancestor = null;
     if (mergedSha) { try { gitRun(["merge-base", "--is-ancestor", mergedSha, reconcile.defaultBranch], cfg.projectDir); ancestor = true; } catch { ancestor = false; } }
@@ -354,7 +363,7 @@ verb("report", {
     else if (ev.state === "done" && record.ok !== false && tests.ok !== false && reconcile.clean && allChecks) result = "passed";
     else result = "incomplete";
     const terminal = TERMINAL_STATES.has(ev.state);
-    const shouldClose = !flags["no-close"] && (terminal || flags.close);
+    const shouldClose = !fromHistory && !flags["no-close"] && (terminal || flags.close);
     const env = await srvInfo.environment(client);
     const report = {
       date: new Date().toISOString().slice(0, 10), runId: task.runId, tag: task.tag, title: task.title, slug: task.slug, project: cfg.projectDir, version: env?.version ?? cfg.state.server?.version ?? null,
@@ -365,10 +374,14 @@ verb("report", {
     if (shouldClose && !cfg.dryRun) {
       await updateState(cfg.paths, (d) => {
         if (d.task?.runId !== task.runId) return d;
-        const closedRun = { ...d.task, status: "closed", result, closedAt: new Date().toISOString(), report: { state: ev.state, result, mergedSha, recordCommit: record.commit, tests: tests.ok, durationSec: report.durationSec } };
+        const closedRun = { ...d.task, status: "closed", result, closedAt: new Date().toISOString(), report: { state: ev.state, result, mergedSha, recordCommit: record.commit, tests: tests.ok, durationSec: report.durationSec, closing } };
         d.history = [...(d.history ?? []), closedRun]; d.task = null; return d;
       });
       report.closed = true;
+    }
+    if (fromHistory && !cfg.dryRun) {
+      await updateState(cfg.paths, (d) => { const i = (d.history ?? []).findIndex((h) => h.runId === task.runId); if (i >= 0) d.history[i] = { ...d.history[i], result, report: { ...(d.history[i].report ?? {}), state: ev.state, result, mergedSha, recordCommit: record.commit, tests: tests.ok, closing, reReportedAt: new Date().toISOString() } }; return d; });
+      report.closed = true; report.reReported = true;
     }
     const md = renderMarkdown(report);
     return { code: result === "failed" ? EXIT.STALLED : EXIT.OK, ok: result !== "failed", result: { ...report, markdown: flags.md ? md : undefined }, brief: flags.md ? md : `report · ${task.title} · ${ev.state} · ${result}${report.closed ? " · run closed" : " · run left open"}${tests.ran ? ` · tests ${tests.ok ? "passed" : "FAILED"}` : ""}` };

@@ -39,6 +39,10 @@ test("task: preconditions, dispatch with fresh tagged threads, the brief and its
   r = await runOmb(["task", "--todo", "T10", "--bead", "slg-a9x", "--project", dir, "--dry-run"], { env });
   assert.equal(r.code, 0, r.stdout); assert.equal(r.json.dryRun, true); assert.match(r.json.brief, /^Sudo, do T10 from TODO\.md in this project\. Test command: npm test \(run inside the task's worktree\)\. Setup command: none\. Bead: slg-a9x\./);
   assert.equal(loadState(statePaths(dir)).task, null);
+  assert.equal((await runOmb(["facts", "--project", dir, "--test", "npm test (run inside the task's worktree)"], { env })).code, 0);
+  r = await runOmb(["task", "--todo", "T10", "--bead", "slg-a9x", "--project", dir, "--dry-run"], { env });
+  assert.match(r.json.brief, /Test command: npm test \(run inside the task's worktree\)\. Setup/, "the parenthetical is not doubled");
+  assert.equal((await runOmb(["facts", "--project", dir, "--test", "npm test"], { env })).code, 0);
   r = await runOmb(["task", "--todo", "T10", "--bead", "slg-a9x", "--project", dir], { env });
   assert.equal(r.code, 0, r.stdout + r.stderr);
   assert.equal(r.json.status, "dispatched"); assert.equal(r.json.title, "T10"); assert.match(r.json.tag, /^oml:[0-9a-f]{8}$/);

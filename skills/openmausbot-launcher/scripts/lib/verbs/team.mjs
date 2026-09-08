@@ -73,7 +73,9 @@ verb("import", {
       const leadBot = pickLead(bots, leadAgent ? leadAgent.name : flags.lead, pkg.package?.chiefOfStaff ? agents.find((a) => a.key === pkg.package.chiefOfStaff)?.name : undefined);
       const lead = mapped.find((m) => m.id === leadBot.id) ?? teamRecord(leadBot, null);
       const groups = res.groups ?? (res.group ? [res.group] : []);
-      team = { package: { path: path.resolve(file), name: pkg.package?.name ?? null, release: pkg.package?.release ?? null }, section: res.name ?? null, environmentId: env?.environmentId ?? null, importedAt: new Date().toISOString(), lead, rooms: groups.map((g) => ({ id: g.id, name: g.name, threadId: g.threadId })), bots: mapped };
+      // The response's `name` is the package name; the bots carry the section, numbered on a repeat import (index.ts:9217-9228, 9322).
+      const section = bots.find((b) => b.section)?.section ?? res.name ?? null;
+      team = { package: { path: path.resolve(file), name: pkg.package?.name ?? null, release: pkg.package?.release ?? null }, section, environmentId: env?.environmentId ?? null, importedAt: new Date().toISOString(), lead, rooms: groups.map((g) => ({ id: g.id, name: g.name, threadId: g.threadId })), bots: mapped };
     }
     await updateState(cfg.paths, (doc) => { doc.team = team; doc.server = doc.server ?? { url: cfg.url, owned: false, environmentId: env?.environmentId ?? null, dataDir: cfg.dataDirReadable ? cfg.dataDir : null }; return doc; });
     return { result: { ...team }, brief: `import · ${team.section} · lead ${team.lead.name} · ${team.bots.length} bots, ${team.rooms.length} room(s)` };

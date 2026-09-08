@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { startFake, makeRepo, runOmb, ROOT } from "./helpers.mjs";
 import { statePaths, loadState, updateState } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
-import { turnsFromEvents, nativeCalls, check042, renderMarkdown } from "../skills/openmausbot-launcher/scripts/lib/report.mjs";
+import { turnsFromEvents, nativeCalls, check042, renderMarkdown, bareCommand, mergedShaFrom } from "../skills/openmausbot-launcher/scripts/lib/report.mjs";
 
 const PKG = path.join(ROOT, "tests", "fixtures", "dev-team.package.json");
 const iso = (ms) => new Date(ms).toISOString();
@@ -111,7 +111,10 @@ test("report: a full synthetic run passes --check-042, renders markdown, and clo
   const md = renderMarkdown(r.json);
   assert.match(md, /^## \d{4}-\d{2}-\d{2} — T10 \(passed\)/); assert.match(md, /\| Sudo \| 2 \|/); assert.match(md, /- merged-ancestor: yes/);
   r = await runOmb(["report", "--project", dir], { env });
-  assert.equal(r.code, 3); assert.match(r.json.error, /no open run/);
+  assert.equal(r.code, 3); assert.match(r.json.error, /no open run/); assert.match(r.json.hint, /--run last/);
+  r = await runOmb(["report", "--project", dir, "--run", "last", "--check-042"], { env });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.reReported, true); assert.equal(r.json.result, "passed"); assert.equal(r.json.runId, run.json.runId);
+  assert.equal(loadState(statePaths(dir)).history.at(-1).report.reReportedAt !== undefined, true);
   // a second run whose suite fails
   const run2 = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
   assert.equal(run2.code, 0, run2.stdout);
@@ -121,4 +124,14 @@ test("report: a full synthetic run passes --check-042, renders markdown, and clo
   r = await runOmb(["report", "--project", dir, "--md"], { env });
   assert.equal(r.code, 6); assert.match(r.stdout, /^## .* — T11 \(failed\)/m); assert.match(r.stdout, /Tests: FAILED \(exit 3\)/);
   assert.equal(loadState(statePaths(dir)).history.at(-1).result, "failed");
+});
+
+test("bareCommand strips a trailing note; mergedShaFrom falls back to the record commit and a range", () => {
+  assert.equal(bareCommand("python3 -m unittest discover -s tests -t . (run inside the task's worktree)"), "python3 -m unittest discover -s tests -t .");
+  assert.equal(bareCommand("npm test"), "npm test");
+  assert.equal(bareCommand("node -e 'process.exit(0)'"), "node -e 'process.exit(0)'");
+  assert.equal(mergedShaFrom("Merged as abc1234.", null), "abc1234");
+  assert.equal(mergedShaFrom("fast-forward into main (2f6d9d5..9127a0a)", "docs(team): T12 merged as 9127a0a"), "9127a0a");
+  assert.equal(mergedShaFrom("fast-forward into main (`2f6d9d5..9127a0a`)", null), "9127a0a");
+  assert.equal(mergedShaFrom("nothing merged", null), null);
 });

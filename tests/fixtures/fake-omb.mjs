@@ -236,7 +236,8 @@ export async function createFake(opts = {}) {
     }
     for (const b of bots) broadcast({ kind: "bot", bot: publicBot(b) });
     for (const g of groups) broadcast({ kind: "group", group: publicGroup(g) });
-    return json(res, 201, { name: section, bots: bots.map(publicBot), group: groups[0] ? publicGroup(groups[0]) : null, groups: groups.map((g) => ({ ...publicGroup(g), messages: [] })), routines: [] });
+    // `name` is the package name, unnumbered (index.ts:9322); the bots carry the numbered section.
+    return json(res, 201, { name: pkg.name ?? "Imported team", bots: bots.map(publicBot), group: groups[0] ? publicGroup(groups[0]) : null, groups: groups.map((g) => ({ ...publicGroup(g), messages: [] })), routines: [] });
   }
   async function patchModel(req, res, id) { // S: index.ts:1050-1057 (409 only when changed while busy), 9930 (pending grant)
     const bot = botById(id); if (!bot) return json(res, 404, { error: "no such bot" });

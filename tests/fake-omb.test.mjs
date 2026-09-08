@@ -57,7 +57,8 @@ test("import is additive with fresh ids, numbered names, chief flag, rooms", asy
   const b = await importTeam(f);
   assert.deepEqual(b.bots.map((x) => x.name), ["Sudo 2", "Sage 2", "Nova 2"]);
   assert.notEqual(b.bots[0].id, a.bots[0].id);
-  assert.equal(b.name, "Dev team 2");
+  assert.equal(b.name, "Dev team", "the response name is the package name, not the numbered section");
+  assert.equal(b.bots[0].section, "Dev team 2");
   const long = structuredClone(PKG); long.package.tagline = "x".repeat(161);
   assert.equal((await post(`${f.url}/api/teams/import?mode=add`, long)).status, 400);
   assert.equal((await post(`${f.url}/api/teams/import?mode=replace`, PKG)).status, 400);

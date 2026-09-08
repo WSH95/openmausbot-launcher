@@ -1,3 +1,189 @@
 # OpenMausBot 0.1.56 API used by the launcher
 
-(Written in step 11 of `docs/design.md`.)
+Every `file:line` below points at the pinned read-only source clone
+(`~/.cache/agent-team/openmausbot-src`, `server/` unless another directory is
+named). The npm package the driver runs is `openmausbot` 0.1.56. A claim
+without a citation is a driver convention or is marked unverified.
+
+## Trust model
+
+On a headless server, a request that arrives on loopback with no proxy header
+and an allowed Origin is the owner: it holds both the `admin` and `client`
+scopes over plain HTTP JSON, with no token
+(`request-auth.ts:29,351-372`). A presented session credential wins over the
+loopback rule, so a bearer token on a loopback URL downgrades the caller to
+that session's scopes (`request-auth.ts:324-326,342-350`) — which is why
+`doctor` warns when `OMB_TOKEN` is set against `127.0.0.1`. Client scope is a
+default-deny allow-list (`request-auth.ts:185-250,252-258`): a client session
+may read `/api/bots`, `/api/team-map`, thread messages and the event stream,
+send messages, interrupt, open tasks, answer cards, and PATCH a bot's or a
+room's *display* fields only (`request-auth.ts:213,230,263-281`); everything
+else needs `admin` — team import, `PATCH /api/bots/:id/model`,
+`GET /api/instances`, `GET /api/decisions`. No route emits any
+`access-control-allow-*` header (no CORS anywhere in `server/`), the server
+binds loopback, and remote reach is `--tailscale`, `--tunnel`, a reverse
+proxy behind `--public-url`, or an SSH tunnel (`cli.ts:113-136`); a proxied
+request without a session is refused 403 (`request-auth.ts:381`). On the
+packaged desktop build every mutating public route from outside the app is
+refused 403 `forbidden: this change must come from the desktop app or a
+paired device` (`request-auth.ts:293-309,364-370`); reads still work.
+
+## Routes the driver uses
+
+| Method and path | Request | Response | Refusals, and when |
+|---|---|---|---|
+| `GET /api/health` | — | `{app:"openmausbot", pid, static}` (`index.ts:11363-11365`) | — |
+| `GET /.well-known/openmausbot/environment` | — (public, no auth: `index.ts:7315`) | `{environmentId, label, platform, version, capabilities{remoteSessions, selfUpdate}}` (`environment.ts:116-128`) | — |
+| `GET /api/auth/session` | — | loopback: `{kind:"loopback", scopes, environmentId}`; paired: `{kind:"session", id, label, scopes, expiresAt, via, environmentId}` (`index.ts:7362-7378`) | — |
+| `GET /api/instances` | — | `{instances:[{instanceId, driverKind, displayName, snapshot, models{default, options}, capabilities{effortLevels}, access}]}` (`index.ts:11408-11414`) | admin only |
+| `GET /api/bots?messages=0` | — | `{bots, groups, computerControl}`; each bot: id, name, title, description, section, threadId, busy, activity, cwd, approvalMode, modelSelection, chiefOfStaff, hidden, notifications, `tasks[]`, plus a message page (`index.ts:8623-8636`, `1456-1461`, `1157-1169`) | 400 `messages must be a non-negative whole number` |
+| `GET /api/team-map` | — | `{collaborations, queued:[{sourceBotId,targetBotId,reason}], running:[{sourceBotId,targetBotId,threadId,groupId?}]}`; hidden bots omitted (`index.ts:8407-8435`) | — |
+| `GET /api/threads/:id/messages` | `limit` 0-200 (default 50), `before` | `{messages, hasMore}` (`index.ts:1937-1946,1957-1964,8639-8661`) | 404 `no such conversation`; 404 `no such message` for an unknown `before`; 400 `limit must be a non-negative whole number`; 400 `before and around cannot be combined` |
+| `GET /api/events` | `screens=off`, `since` | SSE, see below (`index.ts:8553-8619`) | — |
+| `POST /api/teams/import?mode=add` | an `openmaus.package` document | 201 `{name, bots[], group, groups[], routines[]}` (`index.ts:9151-9337`) | 400 on `mode=replace`; 400 on a schema violation; 403 without admin |
+| `POST /api/bots/:id/tasks` | `{title?}` | 201 `{bot, task{threadId,title,createdAt}}` (`index.ts:11105-11119`) | 409 `this bot is working — let it finish before starting a task`; 409 `this bot is securely saving a credential — try again when it finishes` |
+| `POST /api/bots/:id/messages` | `{text, threadId?, sendId?}` | 202 receipt, see below (`index.ts:10738-10870`) | 400 `text required`; 400 `threadId must be a task id`; 409 `the bot switched tasks before it could receive the message` (`10756,10794,10826`); 409 `the target task no longer exists`; 409 `sendId already belongs to another message` (`10767,10782`); 409 `the running turn ended before the steered message could be recorded` — a late steer whose turn settled first (`10832-10835`) |
+| `POST /api/threads/:id/respond` | `{requestId, behavior, message?}` | 200 `{ok:true, outcome}`, outcome ∈ `allowed-once` \| `rejected` \| `answered` \| `unavailable` (`contracts.ts:162`, `index.ts:10972-11033`) | 400 `behavior must be allow, deny, or answer` |
+| `POST /api/bots/:id/interrupt` | `{threadId?}` | 200 `{ok:true}` (`index.ts:11035-11091`) | 409 `this bot is running a routine in another conversation`; 409 `this bot is working in channel <name>`; 409 `the bot switched tasks before it could be interrupted` |
+| `PATCH /api/bots/:id` | `{cwd\|description\|approvalMode\|…}` | 200 `{bot}` (`index.ts:9986-10321`) | 400 `description must be at most 4000 characters` (`bot-profile.ts:50`); 409 `stop this bot's turn before changing its approval level` — busy **and** the level actually changes (`10160-10163`); 403 `This approval-level change can only be made from the packaged desktop app` for `full` or `custom` (`10186-10190`); 409 `wait for the approval-level change to finish before changing this setting` (`10016`); 403 for a client session touching anything but display fields (`9992-9994`). `cwd` has no busy guard (`10127-10131`) |
+| `PATCH /api/bots/:id/model` | `{instanceId, model, effort?}` | 200 `{bot}` (`index.ts:9919-9953`) | 409 `the bot is working — stop it before changing models` — only when the selection actually changes (`1050-1057`); 409 `wait for the approval-level change to finish before changing models` (`9930-9932`); 400 `unsupported model field: …`; 400 `effort "…" is not recognized`; admin only |
+| `PATCH /api/groups/:id` | `{cwd\|name\|memberIds\|…}` | 200 `{group}` (`index.ts:9493-9595`) | 409 `the room's working folder is fixed after its first turn` once `pinnedCwd` is set — **even when the new `cwd` equals the old one** (`9564-9568`); 400 `direct-message channels cannot have a working folder` |
+| `GET /api/decisions` | `limit` (default 200) | 200 `{decisions}`, read back from the data dir (`index.ts:11398-11405`) | 400 on a non-positive limit. This is a log of resolved requests, never a pending queue |
+
+## Receipts and the `sendId` rule
+
+`POST /api/bots/:id/messages` always answers 202 with one of three shapes
+(`index.ts:10763-10871`):
+
+| Shape | Meaning |
+|---|---|
+| `{ok:true, threadId, message}` | a turn started, or the text was appended |
+| `{ok:true, steered:true, threadId, message}` | accepted into the turn already running |
+| `{ok:true, queued:true, queueId, threadId}` | held in the server-side queue for the next turn |
+
+Idempotency is keyed `bot:<botId>:<threadId>:<sendId>` (`index.ts:10761`). A
+repeat with the same text and reply target returns the canonical receipt; a
+repeat with different text is 409 `sendId already belongs to another message`
+(`index.ts:10767,10782`). The driver therefore retries a send by resending
+the identical thread, text and `sendId`, and never rewrites any of the three.
+
+## The event stream
+
+- `GET /api/events?screens=off` opens `text/event-stream` with
+  `cache-control: no-cache` and `x-accel-buffering: no`
+  (`index.ts:8555-8563`). A bearer token authenticates the stream like any
+  other route (`request-auth.ts:326,342-350`); a stream ticket is only for
+  cookie-less browser clients.
+- The first frame is
+  `data: {"kind":"hello","cursor":"<streamId>:<seq>","resumed":<bool>}`
+  (`index.ts:8582-8596`). `cursor` is the head *before* replay, so the
+  checkpoint must be the `id:` of the last frame actually applied.
+- Every non-heartbeat frame carries `id: <streamId>:<seq>` and a `data:` JSON
+  body repeating `seq` (`index.ts:2036-2040`).
+- Resume with `?since=<cursor>` or the `Last-Event-ID` header; the header
+  wins when both are present (`index.ts:8567-8570`). A cursor whose stream id
+  belongs to an earlier server run is rejected (`index.ts:2028-2035`).
+- `resumed:false` means "I could not give you what you missed — hydrate". A
+  cold start that offered no cursor gets `false` too, by design
+  (`index.ts:8578-8595`), so a full REST snapshot always follows it.
+- Replay buffer: 500 frames (`index.ts:2014`). A cursor that fell off the end
+  yields `resumed:false` rather than a partial replay.
+- Keepalive every `SSE_HEARTBEAT_MS` (15 s default, `index.ts:2016-2020`): a
+  `: keepalive` comment plus `data: {"kind":"ping"}`. Heartbeats carry no
+  `id:` and never advance replay (`index.ts:8604-8615`).
+- Frame `kind` values the server broadcasts: `bot`, `bot.deleted`, `group`,
+  `group.deleted`, `message`, `message.patch`, `thread`, `notify`, `runtime`,
+  `computer`, `config`, `screen`. `screen` is the only kind a client may
+  decline, with `?screens=off` (`index.ts:2024-2025`).
+- `notify` frames carry `{kind, botId, botName, threadId, title, body,
+  groupId?}` with kind ∈ `approval` \| `question` \| `done` \|
+  `routine-failed` \| `turn-failed` \| `takeover` (`notify.ts:18,109`). A bot
+  whose notifications are off produces none (`notify.ts:85`), so a
+  notification is a wake-up, never the truth.
+
+## Team package import
+
+- Additive only. `mode=replace` is 400; the accepted modes are `add` and
+  `project` (`index.ts:9157-9163`). `project` opens a caller-owned room only
+  for a legacy `openmaus.team` manifest, never for a full package
+  (`index.ts:9302`).
+- Every agent becomes a **new** bot with a fresh id. A colliding name is
+  numbered ("Sudo 2"), counting hidden bots too
+  (`index.ts:9209-9212,9241`).
+- The section is the package `name`, numbered on collision with any existing
+  bot or group section (`index.ts:9217-9228`). The response's `name` field is
+  the *unnumbered* package name (`index.ts:9201,9322-9328`), so read the real
+  section from a returned bot's `section` field.
+- `chiefOfStaff` names a package key; that bot becomes the chief
+  (`index.ts:9299-9301`) and its returned record carries `chiefOfStaff: true`.
+- Rooms are created from package-local keys normalised to the fresh bot ids,
+  with the bulletin and default responder applied (`index.ts:9271-9284`).
+  Routines are created disabled (`index.ts:9285-9291`).
+- Parse-time limits: tagline ≤ 160 (`bot-package.ts:47`), an agent
+  description ≤ 4000 (`bot-package.ts:68`), a playbook's instructions ≤ 24000
+  (`bot-package.ts:118`). A violation is 400 with the validation message.
+- 201 `{name, bots[], group, groups[], routines[]}`; `group` is the legacy
+  single room and `groups[]` the full list.
+
+## Data-dir files
+
+| Path | Contents |
+|---|---|
+| `environment-id` | The persistent identity, written once and never rotated by the server (`environment.ts:59-70`). A new data dir means a new server identity. |
+| `delegation-receipts.json` | `[{id, sourceThreadId, toBotId, toBotName, status, finishedAt, result?}]` — newest first, deduplicated by `id`, capped at 100, pruned after 48 h, `result` truncated to 4000 chars (`delegations.ts:96-129`). Fleet-wide: filter by `sourceThreadId`. |
+| `events/<threadId>.ndjson` | Normalised `RuntimeEvent` lines (`thread-events.ts:5-6`): `turn.started`, `turn.completed` with `ok` and `usage{input, output, cachedInput}`, `session.started` with `model`, `item.started/updated/completed`, `request.opened/resolved`, `thread.token-usage.updated`, `runtime.error` (`contracts.ts:95-153`). Only `turn.completed.usage` may be summed; `thread.token-usage.updated` is a live indicator whose meaning differs per driver (`contracts.ts:113-117`). |
+| `native/<threadId>.ndjson` | `{at, dir:"in"\|"out", source, msg}`, the provider's own protocol verbatim and secret-redacted (`thread-events.ts:7-9,18-23`; `drivers/native.ts:11-21`). Claude lines carry `message.content[]` with `tool_use` and `tool_result` blocks; Codex lines carry its own thread start and resume protocol. |
+| `bots.json`, `groups.json`, `messages-<threadId>.json` | The store (`store.ts:562-564`). Alongside them: `sessions.json`, `decisions.ndjson` (`decision-log.ts:68`), `skills/`. |
+
+## Message shapes on a thread
+
+Fields the driver reads (`store.ts:101-183`): `id`, `at`, `role`
+(`"bot"`/`"user"`), `kind` (`"text"`, `"activity"`, `"screen"`, …), `text`,
+`from{botId,name,color}`, `card`, `connector`, `secret`,
+`tool{name, ok, spoken?, setup?}`, `sendId`, `steered`, `queued`/`queueId`,
+`turnId`, `via`.
+
+- `from` is set only on a bot message in a group thread
+  (`index.ts:2731-2732`) and on a delegation echo (`index.ts:3389`). Direct
+  turn text on a 1:1 thread carries none — that absence is how the lead's own
+  words are told apart from an echo.
+- Echo: role `bot`, kind `text`, `from` = the target bot, text
+  `@<name> replied to the delegated task:\n\n<reply>` (`index.ts:3383-3390`).
+  Names may contain spaces.
+- Delegation activity: role `bot`, kind `activity`, `tool.name` one of
+  `Delegation to @X completed without a text reply` (ok true) or
+  `Delegation to @X failed — <reason>` (ok false) (`index.ts:3396-3400`);
+  `Delegation to @X waiting — they're busy (retry n/3 when they finish)`
+  (`delegations.ts:491,558`);
+  `Delegation to @X canceled — still busy after 3 retries`
+  (`delegations.ts:506,573`); `Delegation to @X canceled — <reason>`
+  (`delegations.ts:632`); `Delegation to @X denied by user`
+  (`delegations.ts:535`).
+- A pending request (`scripts/mcp-server.ts:652-660`): a `card` with a
+  `requestId` that is neither `answered` nor `dismissed`; or a `connector`
+  that is not `dismissed`, not `resumed`, and whose `status` is not
+  `connected`; or a `secret` that is neither `provided` nor `dismissed`.
+- A failed dispatch (`scripts/mcp-server.ts:662-675`): after the last user
+  message there is no bot text, and an activity carries `tool.ok === false`
+  with a `tool.name` matching `/^error:/i`.
+
+## The CLI
+
+- `openmausbot serve [--port 8799] [--data-dir DIR] [--label NAME]
+  [--public-url https://host] [--tailscale | --tunnel] [--no-pair]`
+  (`cli.ts:113-136`). Other commands: `pair [--label NAME] [--client]`,
+  `sessions [revoke ID]`, `status`, `login`, `logout` (`cli.ts:64,115-127`).
+- `--no-pair` suppresses only the pairing link and QR code printed at start
+  (`cli.ts:503-508`); `openmausbot pair` still mints codes afterwards.
+- Defaults: port `OMB_PORT` or 8799, data dir `OMB_DATA_DIR` or
+  `~/.openmausbot` (`cli.ts:73-74`). `OMB_ASK_BOT_TIMEOUT_MS` sets the
+  server-wide ask window (`index.ts:2193`).
+- `serve` is a supervisor. It spawns the server as a child and forwards its
+  **whole environment** (`...process.env`, `cli.ts:434-441`), so a provider
+  key present in the launcher's environment reaches the bots unless it is
+  removed before the spawn. `/api/health` answers with the child's pid
+  (`index.ts:11363-11365`), which is what lets the driver prove ownership by
+  ancestry. SIGINT or SIGTERM on the supervisor stops the child
+  (`cli.ts:455,462-473`).
+- `serve` refuses to start when something already answers on the port
+  (`cli.ts:407-409`) and gives the child 60 s to answer (`cli.ts:475-487`).

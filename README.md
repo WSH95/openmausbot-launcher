@@ -9,8 +9,9 @@ The same skill directory loads in Claude Code, Codex CLI, Grok Build,
 OpenClaw, Hermes Agent, and DeepSeek Harness; with OpenClaw on the
 workstation it works from a phone over Telegram.
 
-Status: scaffold. The design is `docs/design.md`; evidence from real runs
-goes to `docs/evidence.md`.
+Status: 0.1.0. The driver's fourteen verbs are implemented and tested
+against a contract fake; one real task ran through the dev-team pack 0.4.2
+on OpenMausBot 0.1.56 (`docs/evidence.md`). The design is `docs/design.md`.
 
 ## Layout
 

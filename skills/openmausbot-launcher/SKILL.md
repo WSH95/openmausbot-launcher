@@ -76,7 +76,7 @@ reconciled; opens one fresh task thread per bot tagged with the run id;
 sends the brief once, ending with the instruction to close with a line
 containing only `DONE oml:<run id>`; and records the run. If it stops
 half way, `omb task --resume` continues the same run; `omb task --abandon`
-closes it. There is no force.
+closes it. The driver has no force option.
 
 Then loop on the watch until a terminal state:
 
@@ -140,7 +140,7 @@ only when the user says so, with `reconcile --remove <slug>`.
   only. Never bind the server to a public address.
 - Never drive the lead from a room; only its own thread wakes it.
 - Installed playbooks cannot be edited: a rule change is a re-import.
-- Ids, not names: the driver resolves names for you; bots do not.
+- Use ids with the server, not names: the driver resolves names for you, and a bot's own tools do not.
 - `/api/decisions` is a log of every card ever shown, not a queue.
 - Chains are one hop; the lead is woken at most three times in five
   minutes, and a fourth outcome is dropped: that is what `stalled` and

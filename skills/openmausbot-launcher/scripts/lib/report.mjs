@@ -90,11 +90,25 @@ export function commitsSince(projectDir, sinceSha) {
   return out ? out.split("\n").filter(Boolean).map((l) => { const [sha, ...rest] = l.split("\t"); let files = []; try { files = git(["diff-tree", "--no-commit-id", "--name-only", "-r", sha], projectDir).split("\n").filter(Boolean); } catch {} return { sha, subject: rest.join("\t"), files }; }) : [];
 }
 
+/** A Project facts test command may carry a note for the bots, e.g. "npm test (run inside the task's worktree)"; strip it before running. */
+export const bareCommand = (command) => String(command ?? "").replace(/\s*\([^()]*\)\s*$/, "").trim();
+
 export function runTests(command, cwd, { timeoutMs = 10 * 60_000 } = {}) {
+  command = bareCommand(command);
   if (!command || command === "none" || command === "<fill in>") return { ran: false, ok: null, detail: "no test command in Project facts" };
   const t0 = Date.now();
   const r = spawnSync("sh", ["-c", command], { cwd, encoding: "utf8", timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 });
   return { ran: true, ok: r.status === 0, status: r.status, seconds: Math.round((Date.now() - t0) / 1000), tail: `${r.stdout ?? ""}${r.stderr ?? ""}`.trim().split("\n").slice(-8).join("\n") };
+}
+
+/** The merged commit: the closing text's "merged as <sha>", else the record commit's subject, else a "<a>..<b>" range in the closing text. */
+export function mergedShaFrom(closing, recordSubject) {
+  const m1 = closing ? /merged as `?([0-9a-f]{7,40})`?/i.exec(closing) : null;
+  if (m1) return m1[1];
+  const m2 = recordSubject ? /merged as ([0-9a-f]{7,40})/i.exec(recordSubject) : null;
+  if (m2) return m2[1];
+  const m3 = closing ? /`?[0-9a-f]{7,40}\.\.([0-9a-f]{7,40})`?/.exec(closing) : null;
+  return m3 ? m3[1] : null;
 }
 
 export function renderMarkdown(r) {
