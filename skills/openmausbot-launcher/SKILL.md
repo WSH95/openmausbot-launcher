@@ -26,6 +26,9 @@ dependencies. Every verb prints one JSON object; `--brief` prints one line
 for a phone. `--project <dir>` names the project (default: the git root of
 the working directory); the driver keeps its state in
 `<project>/.omb/state.json`, so later calls need only `--project`.
+`omb state --show --project <dir>` prints that file as the driver reads it,
+with no lock and no request, so a fresh session can see the recorded server,
+team, and run before acting.
 `--dry-run` previews actions without HTTP, process, Git, or state mutations;
 it never runs the project's tests or creates a lock database.
 
