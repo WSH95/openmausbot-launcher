@@ -6,6 +6,7 @@ import { spawn } from "node:child_process";
 import { makeRepo, runOmb, sleep } from "./helpers.mjs";
 import { ensureExclude, statePaths, updateState } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
 import { scanOrphans } from "../skills/openmausbot-launcher/scripts/lib/proc.mjs";
+import { defaultBranchInfo } from "../skills/openmausbot-launcher/scripts/lib/git.mjs";
 
 const linux = process.platform === "linux";
 const env = { OMB_TOKEN: "" };
@@ -137,4 +138,17 @@ test("a process that changes cwd after SIGTERM is not escalated or reported dead
   assert.ok(fs.existsSync(ready)); fs.rmdirSync(cwd);
   const result = await killOrphan({ pid: child.pid, startTicks: procInfo(child.pid).startTicks, cwd, deleted: true }, { worktreesDir, graceMs: 100 });
   assert.equal(result.killed, false); assert.match(result.why, /cwd/); assert.equal(procInfo(child.pid)?.alive, true);
+});
+
+test("reconcile names where the default branch came from and hints when it is only the current branch", async () => {
+  const { dir } = makeRepo({ branch: "trunk" });
+  ensureExclude(dir, [".omb/"]);
+  const r = await runOmb(["reconcile", "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.defaultBranch, "trunk"); assert.equal(r.json.defaultBranchSource, "current");
+  assert.equal(r.json.hint, "the default branch trunk is inferred from the current branch (no Project facts, origin/HEAD, main, or master): record it with facts --default-branch trunk");
+  assert.deepEqual(defaultBranchInfo(dir, { defaultBranch: "trunk" }), { branch: "trunk", source: "facts" });
+  const { dir: main } = makeRepo();
+  assert.deepEqual(defaultBranchInfo(main, null), { branch: "main", source: "main" });
+  const plain = await runOmb(["reconcile", "--project", main], { env });
+  assert.equal(plain.json.defaultBranchSource, "main"); assert.equal(plain.json.hint, undefined);
 });

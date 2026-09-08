@@ -21,9 +21,13 @@ verb("reconcile", {
     const check = reconcileCheck(cfg.projectDir, cfg.state?.facts);
     const errors = removed.flatMap((r) => r.errors);
     const code = check.clean && errors.length === 0 ? EXIT.OK : EXIT.PRECONDITION;
+    const hints = [
+      check.clean ? null : "the lead cleans up after its gate; a stopped task keeps its worktree until you pass --remove <slug>",
+      check.defaultBranchSource === "current" ? `the default branch ${check.defaultBranch} is inferred from the current branch (no Project facts, origin/HEAD, main, or master): record it with facts --default-branch ${check.defaultBranch}` : null,
+    ].filter(Boolean);
     return {
       code, ok: code === EXIT.OK,
-      result: { ...check, dryRun: cfg.dryRun, removed, hint: check.clean ? undefined : "the lead cleans up after its gate; a stopped task keeps its worktree until you pass --remove <slug>" },
+      result: { ...check, dryRun: cfg.dryRun, removed, hint: hints.length ? hints.join("; ") : undefined },
       brief: `reconcile · ${check.clean ? "clean" : check.problems.join("; ")}${removed.length ? ` · ${cfg.dryRun ? "would remove" : "removed"} ${removed.map((r) => r.slug).join(", ")}` : ""}`,
     };
   },

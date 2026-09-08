@@ -27,13 +27,14 @@ export function gitAvailable() {
 
 export function currentBranch(cwd) { return git(["branch", "--show-current"], cwd); }
 
-/** The project's default branch: Project facts first, then origin/HEAD, then main or master if they exist. */
-export function defaultBranch(cwd, facts) {
-  if (facts?.defaultBranch) return facts.defaultBranch;
-  try { const ref = git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd); if (ref) return ref.replace(/^origin\//, ""); } catch {}
-  for (const b of ["main", "master"]) { try { git(["rev-parse", "--verify", "--quiet", `refs/heads/${b}`], cwd); return b; } catch {} }
-  return currentBranch(cwd) || "main";
+/** The project's default branch and where it came from: Project facts, origin/HEAD, an existing main or master, or, as a last resort, the current branch. */
+export function defaultBranchInfo(cwd, facts) {
+  if (facts?.defaultBranch) return { branch: facts.defaultBranch, source: "facts" };
+  try { const ref = git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd); if (ref) return { branch: ref.replace(/^origin\//, ""), source: "origin" }; } catch {}
+  for (const b of ["main", "master"]) { try { git(["rev-parse", "--verify", "--quiet", `refs/heads/${b}`], cwd); return { branch: b, source: b }; } catch {} }
+  return { branch: currentBranch(cwd) || "main", source: "current" };
 }
+export function defaultBranch(cwd, facts) { return defaultBranchInfo(cwd, facts).branch; }
 
 export function worktrees(cwd) {
   const out = git(["worktree", "list", "--porcelain"], cwd);
@@ -59,7 +60,7 @@ export function dirtyEntries(cwd) {
 /** The root check the lead's playbook uses between tasks. */
 export function reconcileCheck(cwd, facts) {
   const branch = currentBranch(cwd);
-  const def = defaultBranch(cwd, facts);
+  const { branch: def, source } = defaultBranchInfo(cwd, facts);
   const trees = worktrees(cwd);
   const branches = taskBranches(cwd);
   const dirty = dirtyEntries(cwd);
@@ -68,7 +69,7 @@ export function reconcileCheck(cwd, facts) {
   if (trees.length !== 1) problems.push(`${trees.length - 1} extra worktree(s): ${trees.slice(1).map((t) => t.path).join(", ")}`);
   if (branches.length) problems.push(`task branches remain: ${branches.join(", ")}`);
   if (dirty.length) problems.push(`${dirty.length} modified or untracked path(s)`);
-  return { clean: problems.length === 0, branch, defaultBranch: def, worktrees: trees, taskBranches: branches, dirty, problems };
+  return { clean: problems.length === 0, branch, defaultBranch: def, defaultBranchSource: source, worktrees: trees, taskBranches: branches, dirty, problems };
 }
 
 /** Remove one task worktree and its branch, never with --force on the worktree. */
