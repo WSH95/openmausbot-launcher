@@ -261,3 +261,35 @@ verb("interrupt", {
     return { result: { bot: bot.name, threadId, interrupted: true }, brief: `interrupt · ${bot.name}` };
   },
 });
+
+// ── watch ──
+import { watchRun } from "../watch.mjs";
+import { brief as briefLine, EXIT_FOR, TERMINAL as TERMINAL_STATES } from "../snapshot.mjs";
+
+verb("watch", {
+  options: { "max-seconds": { type: "string" }, until: { type: "string" }, poll: { type: "string" }, "stall-minutes": { type: "string" }, "quiet-seconds": { type: "string" }, "drop-seconds": { type: "string" }, nudge: { type: "boolean" }, "quiet-if-unchanged": { type: "boolean" } },
+  handler: async ({ flags }) => {
+    const cfg = resolveConfig(flags);
+    const team = requireTeam(cfg);
+    const task = cfg.state.task && cfg.state.task.status !== "closed" ? cfg.state.task : null;
+    if (!task) throw new Fail(EXIT.PRECONDITION, "no open run to watch", { hint: "start one with task, or use status" });
+    if (task.status !== "dispatched") throw new Fail(EXIT.PRECONDITION, `the run is ${task.status}`, { hint: "task --resume finishes the dispatch" });
+    const until = flags.until ?? "settled";
+    if (!["settled", "change", "question"].includes(until)) throw new Fail(EXIT.USAGE, "--until must be settled, change, or question");
+    const client = createClient(cfg);
+    const num = (v, d) => (v === undefined ? d : Number(v));
+    const log = (m) => { if (flags.verbose) process.stderr.write(`[watch] ${m}\n`); };
+    const nudge = flags.nudge ? async () => { await client.post(`/api/bots/${team.lead.id}/messages`, { text: "status?", threadId: task.leadThreadId, sendId: `nudge-${task.runId}` }); } : null;
+    const r = await watchRun({ client, team, task, dataDir: cfg.dataDirReadable ? cfg.dataDir : null, maxSeconds: num(flags["max-seconds"], 100), until, pollMs: num(flags.poll, 30) * 1000, stallMs: num(flags["stall-minutes"], 40) * 60_000, quietMs: num(flags["quiet-seconds"], 30) * 1000, dropMs: num(flags["drop-seconds"], 120) * 1000, nudge, log });
+    await updateState(cfg.paths, (d) => { if (d.task?.runId === task.runId && d.task.status !== "closed") { d.task.lastEval = r.watermarks; if (r.nudged && !d.task.nudgedAt) d.task.nudgedAt = new Date().toISOString(); } return d; });
+    const state = r.timedOut && !TERMINAL_STATES.has(r.ev.state) ? "timeout" : r.ev.state;
+    const code = state === "timeout" ? EXIT.TIMEOUT : r.outcome === "change" || r.outcome === "question" ? (TERMINAL_STATES.has(r.ev.state) ? EXIT_FOR[r.ev.state] : EXIT.OK) : EXIT_FOR[r.ev.state] ?? EXIT.OK;
+    const line = briefLine(r.ev, r.snap, task);
+    const unchanged = flags["quiet-if-unchanged"] && !r.changedSinceReport;
+    return {
+      code, ok: code === EXIT.OK,
+      result: { state, outcome: r.outcome, reasons: r.ev.reasons, hint: r.ev.hint, changes: r.changes, lead: r.snap.leadText, lastUser: r.snap.lastUser, pending: r.snap.pending, outcomes: r.snap.outcomes.length, busy: r.ev.busy, inflight: r.ev.inflight, quietFor: r.ev.quietFor, cursor: r.cursor, elapsedSec: r.elapsedSec, pollingOnly: r.pollingOnly, nudged: r.nudged, complete: r.snap.complete, incomplete: r.snap.incomplete, brief: line, ...(unchanged ? { silent: true } : {}) },
+      brief: unchanged ? "" : state === "timeout" ? `${line} · watch timed out after ${r.elapsedSec}s, call again` : line,
+    };
+  },
+});

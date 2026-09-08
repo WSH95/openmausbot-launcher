@@ -36,6 +36,7 @@ export async function run(argv) {
     const out = await def.handler({ flags, positionals: parsed.positionals, verb: name });
     const code = out.code ?? EXIT.OK;
     if (flags.brief && out.brief !== undefined) return { code, output: out.brief };
+    if (out.result?.silent) return { code, output: "" };
     return { code, output: JSON.stringify({ ok: code === EXIT.OK || out.ok === true, verb: name, ...out.result }) };
   } catch (e) {
     if (flags.verbose) process.stderr.write(`${e.stack}\n`);

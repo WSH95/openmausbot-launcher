@@ -8,5 +8,5 @@ import "./lib/verbs/team.mjs";
 import "./lib/verbs/run.mjs";
 
 const { code, output } = await run(process.argv.slice(2));
-if (output !== undefined) process.stdout.write(output.endsWith("\n") ? output : `${output}\n`);
+if (output !== undefined && output !== "") process.stdout.write(output.endsWith("\n") ? output : `${output}\n`);
 process.exitCode = code;
