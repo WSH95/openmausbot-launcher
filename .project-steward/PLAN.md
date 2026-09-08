@@ -2,12 +2,14 @@
 
 Milestones only. Beads owns the task list (`bd ready`); M1.1 is epic `oml-t8u`.
 
-## M1: driver, skill, and the 0.4.2 validation run
+## M1: driver, skill, and launcher validation
 
-Implementation exists. Formal validation remains incomplete: T12 recorded
-8/9 pack checks, with a ListAgents residual, and the specified
-`doctor`/`status`/`send` sequence is not fully verified on Claude Code,
-Codex, and Grok. Evidence: `docs/evidence.md`; remaining gate: `oml-axr.15`.
+Implementation exists. The specified `doctor`/`status`/`send` sequence is
+not fully verified on Claude Code, Codex, and Grok; remaining gate:
+`oml-axr.15`. Team packages are supplied inputs. `dev-team.openmaus.json`
+is the external test configuration used for T12; its 8/9 package checks
+remain in `docs/evidence.md` and do not block launcher acceptance
+(Decision 0006).
 
 ## M1.1: correctness review repairs
 
@@ -23,4 +25,5 @@ and current operator/design/handoff documents. Details and status are in
 
 OpenClaw, Hermes, and DSH installation and phone recipes remain unverified.
 The existing v2 beads cover pairing, macOS lifecycle, unsupported request
-types, and parallel runs. Pack fixes remain in the dev-pack repository.
+types, and parallel runs. Any proposed package changes belong to that
+package's project and are not prerequisites for launcher validation.

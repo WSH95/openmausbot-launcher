@@ -9,12 +9,17 @@ The skill includes install guidance for Claude Code, Codex CLI, Grok Build,
 OpenClaw, Hermes Agent, and DeepSeek Harness. The OpenClaw phone recipe
 uses a workstation gateway and Telegram; it is documented but unverified.
 
+Supply a compatible team package with `omb import <package.json>`. The
+launcher reads its roster and lead from that input; `dev-team.openmaus.json`
+is an external test configuration, with no required package path or roster.
+
 Status: 0.1.0. The driver's fourteen verbs are implemented and tested
 against a contract fake; one real task ran through the dev-team pack 0.4.2
 on OpenMausBot 0.1.56 ([evidence](docs/evidence.md)), with 8/9 pack checks.
 M1.1 repairs dry runs, serialization, monitoring, identity, cleanup, and
-report attribution. Full host validation and the pack's ListAgents residual
-remain open. The design is [docs/design.md](docs/design.md).
+report attribution. Full host validation remains open. The pack's ListAgents
+result is recorded separately; its optional `--check-042` diagnostics do not
+define launcher acceptance. The design is [docs/design.md](docs/design.md).
 
 ## Layout
 

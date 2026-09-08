@@ -82,3 +82,22 @@ The supported `.beads/PRIME.md` override now carries the project policy into
 both hosts' existing hooks. Automated push settings remain disabled;
 Project Steward keeps automatic local commits enabled. Decision 0004 is
 historical and no longer defines the repository's policy.
+
+## 0006 — 2026-09-08 — Team packages are external test inputs
+
+The user clarified that `dev-team.openmaus.json` is a test configuration,
+not a configuration to hardcode in the launcher. The earlier M1 explanation
+incorrectly made resolving that package's ListAgents behavior a prerequisite
+for launcher acceptance.
+
+The importer already reads the supplied path and discovers the package's
+roster and lead; `--check-042` already runs only when explicitly requested.
+Keep this behavior. Package-specific diagnostics remain optional and retain
+their original results. The launcher must import, bind, dispatch, monitor,
+relay, report accurately and clean up with the supplied configuration.
+
+Correct M1's scope and `oml-axr.15` to retain the missing host validation
+without requiring package edits or a 9/9 package score. T12 remains 8/9;
+its historical report is not changed to passed. This correction changes
+documentation and tracking only, with no new bot turns or package edits.
+Tracked in `oml-qh7`.

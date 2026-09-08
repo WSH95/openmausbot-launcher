@@ -30,7 +30,11 @@ workstation the same skill works from a phone over Telegram.
   share it. Decision 0003 supersedes the original directory lock.
 - Safe lifecycle: `up` proves ownership by process ancestry before recording
   it; `down` and `cleanup --kill` never signal a process they cannot verify.
-- The first real run doubles as the dev pack's 0.4.2 validation.
+- Accept compatible team packages supplied by the operator; discover their
+  roster and lead from the import, with bindings supplied by the caller.
+  `dev-team.openmaus.json` is an external test configuration. The first real
+  run also collected its 0.4.2 diagnostics; those checks are separate from
+  launcher acceptance (Decision 0006).
 
 ## Non-goals
 

@@ -47,6 +47,13 @@ against the 0.1.56 source and folded in below:
 3. **Topology: same machine.** OpenClaw gateway and OMB on the workstation:
    loopback, no pairing. Remote is a token in the environment or a 0600
    file, tested against the fake server only; the `pair` verb is deferred.
+4. **Team packages are supplied inputs.** `dev-team.openmaus.json` is an
+   external test configuration. The launcher has no required package path,
+   release, roster, or bot names. Import reads the chosen package, selects
+   its chief of staff or the explicit `--lead`, and records the returned
+   identities; model bindings come from the caller. Package behavior checks
+   are optional diagnostics and do not define launcher acceptance
+   (Decision 0006).
 
 Calls made by the agent: generic OMB operator core with the dev-team pack
 conventions in a reference file; driver = dependency-free Node ESM `.mjs`
@@ -530,8 +537,9 @@ the shell or turn, confirm health still answers, then `down`. If a host's
 policy kills the child, `hosts.md` documents the fallback: a user-managed
 server (`systemd --user` unit or a terminal) and `up` reporting `attached`.
 
-**Real run = the 0.4.2 pack validation (bead `atw-yyd.9`)**, bot turns spent
-once: the slugkit clone from the 0.4.1 validation on a fresh data dir; a new
+**First real test configuration: dev-team 0.4.2.** The recorded run also
+collected pack diagnostics for bead `atw-yyd.9`, spending bot turns once:
+the slugkit clone from the 0.4.1 validation on a fresh data dir; a new
 small TODO item with an open bead; baseline sha and test count recorded;
 exact Project facts; roster per `bd memories validation-models` (Sonnet 5
 for the lead, planner and implementer; gpt-5.6-luna at high for both
@@ -552,6 +560,15 @@ test command passes when run by `report` itself. The result closes the run
 as `passed`, `incomplete`, or `failed`; the record goes to the new repo's
 `docs/evidence.md` and a pointer section in the devpack `EVIDENCE.md`.
 
+The dev-team package is one supplied test configuration. Its nine checks
+describe that package's workflow; request them explicitly with `--check-042`.
+An ordinary report uses the run's configured requirements without these
+additional checks. Importing this package never enables them automatically.
+Launcher validation checks import, binding, dispatch, monitoring, input
+relay, accurate reporting and cleanup. A bot's failure to follow a package
+instruction remains evidence to report; fixing the package is not a
+prerequisite for demonstrating that the launcher performs those operations.
+
 Host checks: Claude Code (symlink, triggers on "run T10 through the team",
 `${CLAUDE_SKILL_DIR}` resolves, 100 s and background 570 s watches); Codex
 (`$openmausbot-launcher` listed, loopback HTTP and `up` under the sandbox or
@@ -567,10 +584,11 @@ suite. Commit coherent, tested checkpoints without a separate permission
 question. Every `git push`, including automated or force pushes, requires
 the user's explicit permission for that push.
 
-M1 implementation exists, but its formal validation gate is incomplete:
-T12 remains 8/9 because the pack lead used host ListAgents, and the specified
-doctor/status/send sequence across all three hosts is not fully recorded.
-M1.1 adds no paid bot run and no new host claims.
+M1 implementation exists. The specified doctor/status/send sequence across
+all three hosts is not fully recorded and remains in `oml-axr.15`. T12's
+8/9 package score and original incomplete report remain unchanged as
+historical evidence. Resolving the lead's ListAgents behavior is outside
+launcher acceptance. M1.1 added no paid bot run or new host claims.
 
 ## Risks and unknowns
 

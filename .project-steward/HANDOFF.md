@@ -10,15 +10,20 @@ session_status: closed
 The user-approved M1.1 repair is complete under Beads epic `oml-t8u`.
 The full `npm test` suite passed 153/153 again in 49.324 s on Node 24.11.0;
 independent code and documentation reviews approved the final changes.
-M1 itself is reopened (`oml-axr`): formal host checks and the pack validation
-gate remain incomplete, tracked in `oml-axr.15`. Original T12 remains 8/9.
+M1 itself remains open (`oml-axr`): formal host command checks are incomplete,
+tracked in `oml-axr.15`. Decision 0006 clarifies that team packages are supplied
+inputs and `dev-team.openmaus.json` is a test configuration. Its optional
+package checks do not gate launcher acceptance. Original T12 remains 8/9.
 
 ## In flight
 
-No repair implementation remains. This local checkpoint includes the M1.1
-repairs and Git policy correction on `main`, following the user's explicit
-commit request. Local Git work and tested commits are permitted; every
-`git push` requires explicit permission (Decision 0005, `oml-2d5`).
+No repair implementation remains. Commit `5cfde51` contains the M1.1 repairs
+and Git policy correction on `main`, following the user's explicit commit
+request. The current documentation checkpoint corrects the supplied-package
+boundary and M1 criteria under `oml-qh7`; it changes no driver or package code.
+The 50 existing import/report tests passed in 7.119 s; `git diff --check`
+passed. Local Git work and tested commits are permitted; every `git push`
+requires explicit permission (Decision 0005, `oml-2d5`).
 The initial repair used `/tmp/oml-m1-baseline-tzs2tgl8` for review; this
 checkpoint was also reviewed with Git and passed `git diff --check`.
 
@@ -35,9 +40,11 @@ changed no driver code.
 
 ## Next steps
 
-1. Read `bd show oml-axr.15` for the remaining formal validation scope.
-   This repair authorizes no new paid runs or dev-pack edits; future
-   validation must have its own authorization and evidence.
+1. Read `bd show oml-axr.15` for the missing doctor/status/send evidence on
+   Claude Code, Codex and Grok. Use the existing supplied test package and
+   record each host's commands and results. No package edit or 9/9 package
+   score is a prerequisite. The M1.1 repair and this scope correction spent
+   no new bot turns.
 2. Use `bd ready` for later work; the existing v2 issues own special
    request types, pairing, macOS, phone-host verification and parallel runs.
 3. Obtain explicit user permission before any `git push`; the checkpoint
@@ -45,8 +52,10 @@ changed no driver code.
 
 ## Blockers
 
-The repository no longer prohibits Git operations. The previous hook had
-prevented the full Git-reading T12 report invocation; that is historical,
+Missing host command evidence keeps M1 open. The dev-team ListAgents finding
+is a package diagnostic, not a launcher blocker. The repository permits Git
+operations. The previous hook prevented the full Git-reading T12 report
+invocation; that is historical,
 not current policy. A Git-free reanalysis using the same report helpers
 verified three archive checks without HTTP, tests, state writes, or bot
 turns. The six repository/test checks retain their original evidence only.
@@ -81,5 +90,7 @@ Dry-run reports execute no tests; skipped required evidence stays unknown.
 Historical reanalysis preserves the original report. Startup identity
 failure reports the URL, log and spawned PIDs for manual recovery.
 
-Do not claim 9/9 pack validation or all-host coverage. M1.1 spent zero new
-bot turns and changed no dev-pack files. All remaining work is in Beads.
+Do not claim 9/9 pack validation or all-host coverage. Package-specific
+checks apply only when requested; preserve the historical T12 result.
+M1.1 and this scope correction spent zero new bot turns and changed no
+dev-pack files. All remaining work is in Beads.

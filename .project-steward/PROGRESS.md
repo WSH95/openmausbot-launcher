@@ -3,6 +3,17 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-08 — Team package scope corrected
+The user clarified that `dev-team.openmaus.json` is an external test
+configuration. Verified that import takes the supplied path and discovers
+the roster and lead, and that `--check-042` is explicitly requested. Corrected
+the design, README, charter, M1 scope and `oml-axr.15`: the remaining task is
+host command evidence; package edits and a 9/9 package score are not launcher
+acceptance requirements. Decision 0006 supersedes that part of the previous
+checkpoint. T12's original result is preserved. The 50 existing import/report
+tests passed in 7.119 s, with a clean diff check. Documentation and tracking
+only; no new bot turns, package edits or pushes. Correction: `oml-qh7`.
+
 ### 2026-09-08 — Current state verified for the requested local commit
 User requested a commit of the current state. Re-ran `npm test`: 153 passed,
 0 failed, 0 skipped in 49.324 s; `git diff --check` passed. The checkpoint

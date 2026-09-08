@@ -108,3 +108,13 @@ console.log(check042({
 M1's formal host gate is also incomplete: recorded discovery/status and
 survival spikes do not establish the specified doctor/status/send sequence
 on all three hosts. M1.1 makes no new all-host or 9/9 validation claim.
+
+## 2026-09-08 — Scope clarification: supplied test configuration
+
+The user clarified that `dev-team.openmaus.json` is an external test
+configuration. T12 demonstrates the launcher driving that supplied team;
+its optional 0.4.2 checks also measure the package's own behavior. The
+8/9 score and original incomplete report remain unchanged. A 9/9 package
+score is not a launcher acceptance requirement. The missing host command
+evidence remains in `oml-axr.15`; Decision 0006 records the corrected scope.
+This clarification involved no real bot runs or edits to the package.
