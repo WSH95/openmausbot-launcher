@@ -172,7 +172,9 @@ verb("task", {
 
 const sendIdFor = (scope, threadId, text) => `send-${createHash("sha1").update(`${scope}|${threadId}|${text}`).digest("hex").slice(0, 16)}`;
 
+/** A matching sendId returns the canonical receipt with the ORIGINAL message, id and `at` included, and no replay marker (index.ts:10765-10777, send-idempotency.ts:21-40): a message stamped before this request began is a duplicate. That reads the server's clock; on loopback it is this clock, over a remote URL it assumes the clocks agree to within the gap between two sends. */
 async function deliver(client, cfg, { botId, threadId, text, sendId }) {
+  const t0 = Date.now();
   let receipt;
   try { receipt = await client.post(`/api/bots/${botId}/messages`, { text, threadId, sendId }); }
   catch (e) {
@@ -183,16 +185,16 @@ async function deliver(client, cfg, { botId, threadId, text, sendId }) {
     throw precondition(e);
   }
   if (receipt.dryRun) return { dryRun: true, ...receipt };
-  return { threadId: receipt.threadId, messageId: receipt.message?.id ?? null, steered: receipt.steered === true, queued: receipt.queued === true, queueId: receipt.queueId ?? null };
+  return { threadId: receipt.threadId, messageId: receipt.message?.id ?? null, steered: receipt.steered === true, queued: receipt.queued === true, queueId: receipt.queueId ?? null, duplicate: typeof receipt.message?.at === "number" && receipt.message.at < t0 };
 }
 
 verb("send", {
-  options: { bot: { type: "string" }, thread: { type: "string" } },
+  options: { bot: { type: "string" }, thread: { type: "string" }, again: { type: "boolean" } },
   allowPositionals: true,
   handler: stateCommand(async ({ flags, positionals, cfg, save }) => {
     const team = requireTeam(cfg);
     const text = positionals.join(" ").trim();
-    if (!text) throw new Fail(EXIT.USAGE, 'usage: send "<text>" [--bot <name>] [--thread <id>]');
+    if (!text) throw new Fail(EXIT.USAGE, 'usage: send "<text>" [--bot <name>] [--thread <id>] [--again]');
     const client = createClient(cfg);
     await requireSameEnvironment(cfg, client);
     const bot = flags.bot ? findBot(team, flags.bot) : team.lead;
@@ -200,10 +202,11 @@ verb("send", {
     const task = cfg.state.task && cfg.state.task.status !== "closed" ? cfg.state.task : null;
     let threadId = flags.thread ?? (task?.threads?.[bot.id]) ?? null;
     if (!threadId) { const live = (await client.get("/api/bots?messages=0")).bots?.find((b) => b.id === bot.id); threadId = live?.threadId; }
-    const sendId = sendIdFor(task?.runId ?? "no-run", threadId, text);
+    // --again salts the scope: a deliberate repeat gets a fresh sendId and is delivered, not deduped.
+    const sendId = sendIdFor(`${task?.runId ?? "no-run"}${flags.again ? `:${Date.now()}` : ""}`, threadId, text);
     const r = await deliver(client, cfg, { botId: bot.id, threadId, text, sendId });
     if (!r.dryRun && task) await save( (d) => { if (d.task?.runId === task.runId) d.task.lastEval = { ...(d.task.lastEval ?? {}), lastChangeAt: Date.now() }; return d; });
-    return { result: { bot: bot.name, ...r, sendId }, brief: `send · ${bot.name} · ${r.queued ? "queued" : r.steered ? "steered" : "delivered"}` };
+    return { result: { bot: bot.name, ...r, sendId }, brief: `send · ${bot.name} · ${r.duplicate ? `duplicate of ${r.messageId}` : r.queued ? "queued" : r.steered ? "steered" : "delivered"}` };
   }),
 });
 

@@ -67,6 +67,10 @@ repeat with the same text and reply target returns the canonical receipt; a
 repeat with different text is 409 `sendId already belongs to another message`
 (`index.ts:10767,10782`). The driver therefore retries a send by resending
 the identical thread, text and `sendId`, and never rewrites any of the three.
+The canonical receipt is the original message — its `id` and `at`, with no
+replay marker (`send-idempotency.ts:21-40`) — so the driver flags
+`duplicate: true` when `message.at` predates the request's start; on loopback
+that is one clock, over a remote URL it assumes the server's clock agrees.
 
 ## The event stream
 
