@@ -6,9 +6,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { procInfo, hasProc } from "./server.mjs";
 
-export function procCwd(pid) {
-  try { return fs.readlinkSync(`/proc/${pid}/cwd`); } catch { return null; }
-}
 
 function cwdIdentity(pid) {
   try {

@@ -148,7 +148,7 @@ is needed; 6 stalled or failed.
 | `status` | `[--bots] [--tail N]` | one snapshot plus the evaluation; without an open task, returns `run: null`, roster, latest leader/user messages and the requested tail without a task verdict; never blocks; `carried: true` marks a verdict carried from the last watch rather than settled by this snapshot | snapshot routes |
 | `watch` | `--max-seconds N` (default 100) `--until settled\|change\|question` `[--poll 30] [--stall-minutes 40] [--nudge] [--quiet-if-unchanged]` | see below | `/api/events`, snapshot routes, receipts file |
 | `interrupt` | `[--bot]` | stops the run's turn only: always sends `{threadId: <run thread>}`; a 409 (the bot is busy in a room or routine, `index.ts:11044`) is reported, never overridden; takes no state lock, since it writes nothing | `POST /api/bots/:id/interrupt` |
-| `reconcile` | `[--check]` (default) `[--remove <slug>]…` | exactly one worktree, no `task/*` branch, clean `git status --porcelain --untracked-files=normal`, on the default branch; `--remove` = `git worktree remove` then `git branch -D`, explicit slugs only; reports `defaultBranchSource` (`facts`, `origin`, `main`, `master`, `current`) and hints to record the branch with `facts --default-branch` when only the current branch supplied it | git |
+| `reconcile` | `[--remove <slug>]…` | exactly one worktree, no `task/*` branch, clean `git status --porcelain --untracked-files=normal`, on the default branch; `--remove` = `git worktree remove` then `git branch -D`, explicit slugs only; reports `defaultBranchSource` (`facts`, `origin`, `main`, `master`, `current`) and hints to record the branch with `facts --default-branch` when only the current branch supplied it | git |
 | `cleanup` | `[--kill] [--pattern codex-linux-sandbox] [--down]` | processes matching the pattern whose cwd is under `<project>/.worktrees/` and deleted; never a pid recorded as the owned server; identity (pid, start time, cwd) rechecked before SIGTERM and again before SIGKILL (5 s later); Linux only, macOS reports | `/proc`, `pgrep` |
 | `report` | `[--md] [--check-042] [--run last\|ID] [--no-tests] [--close\|--no-close]` | turns and tokens from **every run thread's** `events/<thread>.ndjson`, outcomes for the run, lead text, decisions, `git log <sentSha>..HEAD`, worktree list; verifies the record step; runs the project test command independently; `--check-042` adds the pack-validation checks (below); `--md` renders the evidence section; **closes the run**: moves `task` to `history` by `runId` with a result of `passed`, `incomplete`, or `failed` | data dir, git, `bd show` |
 | `state` | `--show` | read the state | file |
@@ -163,7 +163,7 @@ skill and routine requests in `answer`.
 1. Inside the command transaction, check state and server identity;
    no run in `preparing` or `dispatched` (else exit 3 with the hint to
    `task --resume` or `task --abandon`); no team bot busy and nothing queued
-   or running in team-map for team bots; `reconcile --check` passes.
+   or running in team-map for team bots; `reconcile` passes.
 2. Under the state lock, persist the intent: `runId`, `status: preparing`,
    the brief, `sendId = task-<runId>`, and the run's thread title
    `<title> [oml:<runId8>]` (task creation has no idempotency key and titles

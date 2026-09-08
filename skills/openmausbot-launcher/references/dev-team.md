@@ -235,6 +235,6 @@ that pack residual. See this repository's `docs/evidence.md`.
 
 ## Cleanup
 
-- **A stopped task keeps its worktree on purpose.** After a discard, two failed rounds, a BLOCKED implementer, or a failing default branch, `.worktrees/<slug>` and `task/<slug>` stay so someone can look, and the report says so; `reconcile --check` then fails and the next `task` refuses to dispatch.
+- **A stopped task keeps its worktree on purpose.** After a discard, two failed rounds, a BLOCKED implementer, or a failing default branch, `.worktrees/<slug>` and `task/<slug>` stay so someone can look, and the report says so; `reconcile` then fails and the next `task` refuses to dispatch.
 - **Removing them is the operator's explicit act**: `omb reconcile --remove <slug>` runs `git worktree remove .worktrees/<slug>` then `git branch -D task/<slug>`, for the named slugs only (`scripts/lib/git.mjs:69-75`). Ask the user first; the leftover exists to be inspected. `git worktree remove` refuses a worktree holding unignored untracked files, and the lead stops there and reports what remains.
 - **Orphaned sandbox processes.** A CLI's sandbox process group can outlive its turn. `omb cleanup` lists processes matching `codex-linux-sandbox` (the default `--pattern`) whose cwd is under `<project>/.worktrees/` and deleted; `--kill` terminates them, never a pid recorded as the owned server. Five such groups from the M7 run were alive five to six hours later and were killed by hand.

@@ -37,6 +37,10 @@ test("reconcile: clean root, then a task worktree, a task branch, a dirty file, 
   assert.equal(r.code, 3); assert.ok(r.json.removed[0].errors.length >= 1);
   r = await runOmb(["reconcile", "--project", dir, "--remove", "../x"], { env });
   assert.equal(r.code, 2);
+  r = await runOmb(["reconcile", "--project", dir, "--check"], { env });
+  assert.equal(r.code, 2, "the never-read --check flag is gone"); assert.match(r.json.error, /^Unknown option '--check'/);
+  const proc = await import("../skills/openmausbot-launcher/scripts/lib/proc.mjs");
+  assert.deepEqual(Object.keys(proc).sort(), ["killOrphan", "scanOrphans"]);
 });
 
 test("reconcile honours the default branch from Project facts", async () => {

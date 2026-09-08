@@ -91,7 +91,7 @@ than none: the hook fires in a degenerate state (dev pack `HANDOFF.md`,
   driver then exits 1 `cannot reach http://127.0.0.1:<port>: EPERM` with the
   escalation hint, never exit 3 "identity could not be verified".
 - The record step (`bd`, `git commit`) runs inside the lead's CLI sandbox. A
-  failure there leaves the root dirty, and the next task's `reconcile --check`
+  failure there leaves the root dirty, and the next task's `reconcile`
   is what reports it.
 
 ## Tried and rejected

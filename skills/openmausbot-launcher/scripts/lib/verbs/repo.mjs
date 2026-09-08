@@ -9,7 +9,7 @@ import { scanOrphans, killOrphan } from "../proc.mjs";
 export const DEFAULT_ORPHAN_PATTERN = "codex-linux-sandbox";
 
 verb("reconcile", {
-  options: { check: { type: "boolean" }, remove: { type: "string", multiple: true } },
+  options: { remove: { type: "string", multiple: true } },
   handler: async ({ flags }) => {
     const cfg = resolveConfig(flags);
     if (cfg.mode === "remote") throw new Fail(EXIT.PRECONDITION, "reconcile needs the project checkout", { hint: "run it on the machine that has the repository" });
