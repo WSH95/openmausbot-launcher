@@ -26,9 +26,11 @@ verb("status", {
     await requireSameEnvironment(cfg, client);
     const task = cfg.state.task && cfg.state.task.status !== "closed" ? cfg.state.task : null;
     const snap = await snapshot(client, { team, task }, { dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null });
+    const tail = Number(flags.tail ?? 0);
+    const conversation = { lead: snap.leadText, lastUser: snap.lastUser, ...(tail > 0 ? { tail: snap.leadTail.slice(-tail).map((m) => ({ id: m.id, at: m.at, role: m.role, kind: m.kind, from: m.from?.name ?? null, text: summarizeLong(m) })) } : {}) };
     if (!task) {
       const busy = snap.bots.filter((b) => b.busy).map((b) => b.name);
-      return { result: { run: null, complete: snap.complete, incomplete: snap.incomplete, bots: snap.bots, busy, pending: snap.pending }, brief: `status · no run · ${busy.length ? `${busy.join(", ")} working` : "team idle"}${snap.pending.length ? ` · ${snap.pending.length} pending request(s)` : ""}` };
+      return { result: { run: null, complete: snap.complete, incomplete: snap.incomplete, bots: snap.bots, busy, pending: snap.pending, ...conversation }, brief: `status · no run · ${busy.length ? `${busy.join(", ")} working` : "team idle"}${snap.pending.length ? ` · ${snap.pending.length} pending request(s)` : ""}` };
     }
     const carried = carriedInputs(task);
     // A single snapshot cannot establish settlement; keep the last watch's terminal verdict when nothing moved since.
@@ -36,9 +38,8 @@ verb("status", {
     const prior = carriedVerdict(snap, task);
     if (ev.state === "running" && prior) ev = { ...ev, state: prior, reasons: [`from the last watch: ${prior}`, ...ev.reasons], carried: true };
     const line = brief(ev, snap, task);
-    const tail = Number(flags.tail ?? 0);
     return {
-      result: { run: { runId: task.runId, status: task.status, title: task.title, slug: task.slug, sentAt: task.sentAt }, state: ev.state, reasons: ev.reasons, hint: ev.hint, inflight: ev.inflight, busy: ev.busy, quietFor: ev.quietFor, pending: snap.pending, outcomes: snap.outcomes, lead: snap.leadText, lastUser: snap.lastUser, marker: snap.markerSeen, complete: snap.complete, incomplete: snap.incomplete, receipts: snap.receipts, ...(flags.bots ? { bots: snap.bots, teamMap: snap.teamMap } : {}), ...(tail > 0 ? { tail: snap.leadTail.slice(-tail).map((m) => ({ id: m.id, at: m.at, role: m.role, kind: m.kind, from: m.from?.name ?? null, text: summarizeLong(m) })) } : {}), brief: line },
+      result: { run: { runId: task.runId, status: task.status, title: task.title, slug: task.slug, sentAt: task.sentAt }, state: ev.state, reasons: ev.reasons, hint: ev.hint, inflight: ev.inflight, busy: ev.busy, quietFor: ev.quietFor, pending: snap.pending, outcomes: snap.outcomes, ...conversation, marker: snap.markerSeen, complete: snap.complete, incomplete: snap.incomplete, receipts: snap.receipts, ...(flags.bots ? { bots: snap.bots, teamMap: snap.teamMap } : {}), brief: line },
       brief: line,
     };
   },

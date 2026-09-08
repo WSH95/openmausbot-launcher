@@ -7,90 +7,84 @@ session_status: closed
 
 ## Now
 
-The user-approved M1.1 repair is complete under Beads epic `oml-t8u`.
-The full `npm test` suite passed 153/153 again in 49.324 s on Node 24.11.0;
-independent code and documentation reviews approved the final changes.
-M1 itself remains open (`oml-axr`): formal host command checks are incomplete,
-tracked in `oml-axr.15`. Decision 0006 clarifies that team packages are supplied
-inputs and `dev-team.openmaus.json` is a test configuration. Its optional
-package checks do not gate launcher acceptance. Original T12 remains 8/9.
+M1 is complete (`oml-axr`, remaining host evidence `oml-axr.15`). The
+earlier M1.1 repairs are in `5cfde51`; supplied-package scope correction
+is in `e17de18`. This checkpoint adds real native CLI command evidence,
+fixes standalone status visibility, and updates the operator/project docs.
+The full `npm test` suite passes 154/154 on Node 24.11.0 in 52.225 s;
+focused snapshot tests pass 5/5. `git diff --check` passed.
 
-## In flight
+## What was validated
 
-No repair implementation remains. Commit `5cfde51` contains the M1.1 repairs
-and Git policy correction on `main`, following the user's explicit commit
-request. The current documentation checkpoint corrects the supplied-package
-boundary and M1 criteria under `oml-qh7`; it changes no driver or package code.
-The 50 existing import/report tests passed in 7.119 s; `git diff --check`
-passed. Local Git work and tested commits are permitted; every `git push`
-requires explicit permission (Decision 0005, `oml-2d5`).
-The initial repair used `/tmp/oml-m1-baseline-tzs2tgl8` for review; this
-checkpoint was also reviewed with Git and passed `git diff --check`.
+Claude Code 2.1.263, Codex CLI 0.153.4 and Grok Build 1.0.13 each executed
+doctor, server doctor, status, one send and reply observation using real
+OMB 0.1.56. The operator authored the messages and gave exact commands to
+the native CLI agents; their shell tools executed those commands. OMB
+stored the messages as `role: user`. The user corrected imprecise sender
+wording; keep command provenance separate from OMB message identity.
 
-Changed source areas: state/session transactions and SQLite locking;
-HTTP cancellation; snapshot/watch evidence and deadlines; command identity
-and dry-run guards; process cleanup; archived report evidence and approval
-attribution. New modules are `lib/session.mjs` and `lib/verbs/report.mjs`.
-Tests and the fake card contract changed alongside them. README, design,
-evidence, SKILL.md, API/host/dev-team/pitfall references, and steward records
-were updated. Steward runtime files also reflect CLI bookkeeping.
-The subsequent policy correction changed AGENTS.md, CLAUDE.md,
-`.beads/PRIME.md`, Beads configuration and steward policy records; it
-changed no driver code.
+All five user-requested bindings were configured and read back:
+Sudo `codex/gpt-5.6-luna/high`, Sage `claude/claude-sonnet-5/high`, Vale
+`codex/gpt-5.6-terra/high`, Nova `claude/claude-opus-5/high`, Quill
+`grok/grok-4.6/medium`. Only Sudo executed: three successful OMB turns.
+The other four models and a new full-team delegation workflow were not
+exercised. No launcher task was opened. Native host sessions also consumed
+subscriptions. The external dev-team package's SHA-256 is unchanged.
 
-## Next steps
+The Claude check exposed `status --tail` dropping hydrated leader/user
+messages when no task was open. A failing regression reproduced it; the
+fix returns that conversation with `run: null` and no task verdict. Claude
+resumed read-only checks in the same session without resending. Codex
+required per-command escalation for loopback HTTP in workspace-write.
+Initial Claude redirection and Codex CLI-flag failures spent no OMB turns.
+These failures and the successful tool results are preserved in evidence.
 
-1. Read `bd show oml-axr.15` for the missing doctor/status/send evidence on
-   Claude Code, Codex and Grok. Use the existing supplied test package and
-   record each host's commands and results. No package edit or 9/9 package
-   score is a prerequisite. The M1.1 repair and this scope correction spent
-   no new bot turns.
-2. Use `bd ready` for later work; the existing v2 issues own special
-   request types, pairing, macOS, phone-host verification and parallel runs.
-3. Obtain explicit user permission before any `git push`; the checkpoint
-   is local only.
+At the user's suggestion, read agent-team-devpack's setup guide and its
+evidence for per-engine probes, delegation and T12. The historical team
+run used different models; it does not validate this new five-model roster.
+No files in that repository were changed.
 
-## Blockers
+## Repository and runtime
 
-Missing host command evidence keeps M1 open. The dev-team ListAgents finding
-is a package diagnostic, not a launcher blocker. The repository permits Git
-operations. The previous hook prevented the full Git-reading T12 report
-invocation; that is historical,
-not current policy. A Git-free reanalysis using the same report helpers
-verified three archive checks without HTTP, tests, state writes, or bot
-turns. The six repository/test checks retain their original evidence only.
+Work remains on `main`. This is a local completion checkpoint; no push
+was performed. Local Git operations and tested Conventional Commits are
+authorized; every push requires explicit permission for that push
+(Decision 0005 and `.beads/PRIME.md`). AGENTS.md and CLAUDE.md were not
+changed in this checkpoint.
 
-## Key files
+The temporary fixture `/tmp/oml-m1-hostcheck-VslL6s/project` is clean on
+`main`, with one worktree and no task branches. Cleanup found no orphan
+candidates. `down` stopped owned supervisor/server PIDs 534440/534447;
+both are absent, health refuses connections, and no process has a cwd
+under the fixture. No validation process or server is left running.
+The local raw logs and server data remain under that temporary root.
+The committed evidence extraction retains commands, IDs, results and
+hashes without copying transcript reasoning or credentials.
 
-- `docs/design.md`: authoritative repaired behavior, state and identity rules.
-- `docs/evidence.md`: original T12 and the offline attribution correction.
-- `.project-steward/VERIFY.md`: full suite, review results and explicit gaps.
-- `skills/openmausbot-launcher/references/limits-and-pitfalls.md`: lock
-  upgrade, bounded checkpoints, and report evidence rules.
-- `tests/monitoring.test.mjs`, `identity.test.mjs`, `dry-run.test.mjs`,
-  `report-evidence.test.mjs` and extended existing suites: repair regressions.
+No M1 implementation is in flight. Later work is in `bd ready`, including
+OpenClaw/Hermes/DSH verification, pairing, macOS lifecycle, special request
+types, parallel runs and long Codex SSE. M1 completion does not claim these
+are verified. No new task is selected automatically.
 
-## Tried and rejected
+## Key evidence
 
-Directory-lock reclaiming and age-based stealing admit concurrent writers.
-SQLite uses immediate attempts, bounded asynchronous busy retries, and a
-persistent database. Unknown evidence cannot authorize done or report pass.
-The lead's paraphrase is not reviewer approval; the real T12 ask result is
-03:10:22.421Z, before the worktree at 03:10:32.046Z. Do not weaken regressions
-to reinstate either behavior.
+- `docs/evidence.md`: historical T12, offline reanalysis and native CLI checks.
+- `docs/validation/2026-09-08-m1-hosts.json`: exact commands, native session
+  and tool IDs, user/reply IDs, three runtime turns, model bindings and cleanup.
+- `.project-steward/VERIFY.md`: test results and coverage limits.
+- `tests/snapshot.test.mjs`: standalone-send regression.
+- `skills/openmausbot-launcher/references/hosts.md`: actual tested permission
+  modes, Codex escalation and remaining host limitations.
 
-## Warnings
+## Preserved constraints
+
+`dev-team.openmaus.json` is an external test input, never a required or
+hardcoded launcher configuration. T12 retains its original incomplete
+report and 8/9 package score. Its ListAgents finding does not block launcher
+acceptance, and no package files or archived T12 results were changed.
 
 For legacy `.omb/lock` refusal, stop every launcher command and automation,
 update every installed copy, then remove only that legacy path. Never
-unlink or rotate `lock.sqlite`; a hung live writer is stopped explicitly.
-Node's experimental SQLite warning stays on stderr; JSON is on stdout.
-`checkpointed:false` means an observation was not saved, so watch again.
-Dry-run reports execute no tests; skipped required evidence stays unknown.
-Historical reanalysis preserves the original report. Startup identity
-failure reports the URL, log and spawned PIDs for manual recovery.
-
-Do not claim 9/9 pack validation or all-host coverage. Package-specific
-checks apply only when requested; preserve the historical T12 result.
-M1.1 and this scope correction spent zero new bot turns and changed no
-dev-pack files. All remaining work is in Beads.
+unlink or rotate `lock.sqlite`; stop a hung live writer explicitly.
+`checkpointed:false` means an observation was not saved. Unknown evidence
+cannot authorize done or report pass; dry-run reports execute no tests.

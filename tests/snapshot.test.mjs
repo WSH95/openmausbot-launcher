@@ -161,6 +161,29 @@ test("snapshot against the fake: team bots, discovered specialists, tails, outco
   assert.equal(s.complete, false); assert.ok(s.incomplete.length >= 1);
 });
 
+test("status --tail shows a standalone send's reply without creating or classifying a task", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const env = { OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir };
+  const { dir } = makeRepo();
+  assert.equal((await runOmb(["import", PKG, "--project", dir, "--url", f.url], { env })).code, 0);
+  const empty = await runOmb(["status", "--tail", "1", "--project", dir], { env });
+  assert.equal(empty.code, 0, empty.stdout);
+  assert.equal(empty.json.lead, null); assert.equal(empty.json.lastUser, null); assert.deepEqual(empty.json.tail, []);
+  const sent = await runOmb(["send", "Reply with M1 transport ACK", "--project", dir], { env });
+  assert.equal(sent.code, 0, sent.stdout);
+  const reply = await f.control({ op: "leadSay", threadId: sent.json.threadId, text: "M1 transport ACK" });
+  const status = await runOmb(["status", "--tail", "1", "--project", dir], { env });
+  assert.equal(status.code, 0, status.stdout);
+  assert.equal(status.json.run, null); assert.equal(status.json.complete, true);
+  assert.equal(status.json.lead.id, reply.message.id); assert.equal(status.json.lead.text, "M1 transport ACK");
+  assert.equal(status.json.lastUser.id, sent.json.messageId); assert.equal(status.json.lastUser.text, "Reply with M1 transport ACK");
+  assert.deepEqual(status.json.tail.map(m => [m.id, m.role, m.text]), [[reply.message.id, "bot", "M1 transport ACK"]]);
+  assert.equal(status.json.state, undefined, "a standalone reply is not a task completion verdict");
+  assert.equal(loadState(statePaths(dir)).task, null);
+  const plain = await runOmb(["status", "--project", dir], { env });
+  assert.equal(plain.json.lead.text, "M1 transport ACK"); assert.equal(plain.json.tail, undefined);
+});
+
 test("status: without a run, with a dispatched run, and carrying a terminal verdict", async (t) => {
   const f = await startFake(); t.after(() => f.close());
   const env = { OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir };

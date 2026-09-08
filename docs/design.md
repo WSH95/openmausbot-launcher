@@ -144,7 +144,7 @@ is needed; 6 stalled or failed.
 | `task` | `"<brief>"` or `--todo T10 [--bead ID]`, `[--title] [--resume] [--abandon]` | see "Task lifecycle" | `POST /api/bots/:id/tasks`, `/api/bots/:id/messages`, `/api/team-map` |
 | `send` | `"<text>" [--bot] [--thread]` | message to the lead's run thread with a deterministic `sendId`; a retry resends the identical thread, text, and `sendId`; a 409 "the bot switched tasks" is reported with the active thread in the hint and **never retargeted** (`index.ts:10751-10798`); a late-steer 409 after settlement is reported as undelivered; a 202 `queued` or `steered` receipt is recorded | `POST /api/bots/:id/messages` |
 | `answer` | `--allow\|--deny\|--message "<text>" [--request ID]` or `"<text>"` | typed requests: ordinary question and approval cards (`card.requestId`, unanswered, undismissed) are answered on the owning thread with outcomes `allowed-once\|rejected\|answered\|unavailable` reported as is; an `unavailable` **textual** answer on the lead's run thread falls back to `send`; an unavailable allow or deny is never turned into chat; `--request` required when more than one card is pending; connector, credential, skill (reviewed-hash) and routine requests are **reported with their type and route, exit 5, unsupported in v1**; bare text = `send` | `POST /api/threads/:id/respond` |
-| `status` | `[--bots] [--tail N]` | one snapshot plus the evaluation; never blocks | snapshot routes |
+| `status` | `[--bots] [--tail N]` | one snapshot plus the evaluation; without an open task, returns `run: null`, roster, latest leader/user messages and the requested tail without a task verdict; never blocks | snapshot routes |
 | `watch` | `--max-seconds N` (default 100) `--until settled\|change\|question` `[--poll 30] [--stall-minutes 40] [--nudge] [--quiet-if-unchanged]` | see below | `/api/events`, snapshot routes, receipts file |
 | `interrupt` | `[--bot]` | stops the run's turn only: always sends `{threadId: <run thread>}`; a 409 (the bot is busy in a room or routine, `index.ts:11044`) is reported, never overridden | `POST /api/bots/:id/interrupt` |
 | `reconcile` | `[--check]` (default) `[--remove <slug>]…` | exactly one worktree, no `task/*` branch, clean `git status --porcelain --untracked-files=normal`, on the default branch; `--remove` = `git worktree remove` then `git branch -D`, explicit slugs only | git |
@@ -441,9 +441,9 @@ task through my OpenMausBot team and relay its questions to me."`,
 
 | Host | Install | Run | Time budget | Status |
 |---|---|---|---|---|
-| Claude Code | `ln -s <repo>/skills/openmausbot-launcher ~/.claude/skills/openmausbot-launcher` | Bash, `${CLAUDE_SKILL_DIR}/scripts/omb.mjs` | `--max-seconds 100` (120 s default), or 570 in background with a 600 s timeout | verify |
-| Grok Build | reads `~/.claude/skills`, nothing more | bash tool | 100 | verify |
-| Codex | `ln -s … ~/.agents/skills/openmausbot-launcher` (also `~/.codex/skills`); `$openmausbot-launcher` | shell under sandbox; loopback HTTP and `up` may need escalation | 100 | verify |
+| Claude Code | `ln -s <repo>/skills/openmausbot-launcher ~/.claude/skills/openmausbot-launcher` | Bash, `${CLAUDE_SKILL_DIR}/scripts/omb.mjs` | `--max-seconds 100` (120 s default), or 570 in background with a 600 s timeout | command checks verified; see evidence for watch coverage |
+| Grok Build | reads `~/.claude/skills`, nothing more | bash tool | 100 | command checks verified |
+| Codex | `ln -s … ~/.agents/skills/openmausbot-launcher` (also `~/.codex/skills`); `$openmausbot-launcher` | shell under sandbox; loopback HTTP and `up` may need escalation | 100 | command checks verified with escalation; long SSE unverified |
 | DSH | `~/.agents/skills` (tier 500, non-recursive) | shell | 100 | docs only |
 | OpenClaw | `~/.agents/skills` (default state only) or `openclaw skills install <path>`; allowlist the script path, scoped per agent and arguments per the exec-approvals docs | `exec` with `host: gateway` and an explicit `timeoutSeconds` | 1500 in background, or automations | docs only |
 | Hermes | `~/.hermes/skills/` copy or `skills.external_dirs: [~/.agents/skills]`; `hermes skills trust` for project installs | terminal, `${HERMES_SKILL_DIR}` | 240 in cron via the `.sh` adapter | docs only |
@@ -584,17 +584,29 @@ suite. Commit coherent, tested checkpoints without a separate permission
 question. Every `git push`, including automated or force pushes, requires
 the user's explicit permission for that push.
 
-M1 implementation exists. The specified doctor/status/send sequence across
-all three hosts is not fully recorded and remains in `oml-axr.15`. T12's
-8/9 package score and original incomplete report remain unchanged as
-historical evidence. Resolving the lead's ListAgents behavior is outside
-launcher acceptance. M1.1 added no paid bot run or new host claims.
+M1 is complete: `oml-axr.15` records doctor, server doctor, status, send and
+reply observation through the three native hosts on OpenMausBot 0.1.56.
+The operator authored each test message; the native CLI agent executed
+`omb send`, and OMB stored it as `role: user`. This establishes host command
+execution, not OMB bot sender identity. All five user-requested model
+bindings were configured, but only Sudo ran (three OMB turns). The other
+four models and a new full-team task were not exercised. No launcher task
+was opened; `run: null` remains distinct from task completion.
+
+The checks exposed and fixed a standalone-status defect: without a task,
+the command discarded the hydrated leader/user messages and requested
+tail. A failing regression precedes the fix; the full suite passes 154/154.
+`docs/evidence.md` records the native sessions, restrictions, messages and
+cleanup. T12's 8/9 package score and original incomplete report remain
+unchanged. Resolving ListAgents behavior is outside launcher acceptance.
+M1.1 added no paid bot run; the later host checks are recorded separately.
 
 ## Risks and unknowns
 
-1. Codex sandbox: loopback HTTP, a detached `up`, and long SSE inside
-   `codex-linux-sandbox` are unverified until step 4; `up`/`down` may need
-   escalation or the user-managed fallback.
+1. Codex sandbox: the recorded configuration blocks listening sockets and
+   blocked loopback HTTP during the native check. The host command sequence
+   passed with per-command escalation; long SSE inside the sandbox remains
+   unverified. Lifecycle commands may need escalation or a user-managed server.
 2. OpenClaw `--announce` on empty output and the exact allowlist argument
    syntax are documented, not verified (OpenClaw is not installed).
 3. The run marker depends on the lead following the brief's last

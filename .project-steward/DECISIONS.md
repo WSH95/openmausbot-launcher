@@ -101,3 +101,27 @@ without requiring package edits or a 9/9 package score. T12 remains 8/9;
 its historical report is not changed to passed. This correction changes
 documentation and tracking only, with no new bot turns or package edits.
 Tracked in `oml-qh7`.
+
+## 0007 — 2026-09-08 — Complete M1 with attributed native command evidence
+
+The user approved M1 completion and specified the test bindings: Sudo
+`codex/gpt-5.6-luna/high`, Sage `claude/claude-sonnet-5/high`, Vale
+`codex/gpt-5.6-terra/high`, Nova `claude/claude-opus-5/high`, Quill
+`grok/grok-4.6/medium`. Configure all five from the unchanged supplied
+package and verify the remaining command sequence in the three native
+CLIs, with one acknowledgment request to the leader per host. No pushes.
+
+The operator authored the test text and prompted the native agents with
+exact commands. Their shell tool records establish command execution;
+OMB stores each ordinary send as `role: user`. The user correctly called
+attention to that sender role. Do not describe these checks as OMB bot
+messages, autonomous development-task handling or a full-team run.
+
+The three successful OMB leader turns complete the missing host command
+evidence. Only the leader model executed. A standalone-status visibility
+bug found in the checks is fixed with a regression; the full suite passes
+154/154. The fixture is clean and the owned server stopped. Close
+`oml-axr.15` and `oml-axr`; preserve T12's separate 8/9 package result.
+The exact records and restrictions are in `docs/evidence.md` and
+`docs/validation/2026-09-08-m1-hosts.json`. This does not broaden acceptance
+to the other unverified hosts, long Codex SSE, or the four unused models.

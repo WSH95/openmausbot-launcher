@@ -58,13 +58,29 @@ omb bind --default claude/claude-fable-5-1/max --reviewers codex/gpt-6-astra/xhi
 - A Grok bot has no auto approval level: `bind` leaves it on `ask` and reports it under `skipped` (`scripts/lib/verbs/team.mjs:141`); its cards go to `omb answer --allow --request <id>`.
 - A model change is refused with 409 while a bot is busy; `bind` runs only on an idle team.
 
-**Validation roster** — the user's instruction for the dev pack's own tests, not general advice
+**Historical T12 roster** — the user's instruction for the dev pack's own tests, not general advice
 (`docs/design.md`, "Real run"; `EVIDENCE.md`, pack 0.4.1 validation): Sonnet 5 for the Claude
 bots at the server's default effort, gpt-5.6-luna at high for both Codex reviewers.
 
 ```
 omb bind --default claude/claude-sonnet-5 --reviewers codex/gpt-5.6-luna/high --approval auto
 ```
+
+**M1 native-host command checks (2026-09-08)** used the unchanged supplied
+package with these later user-requested bindings:
+
+```
+omb bind --model sudo=codex/gpt-5.6-luna/high \
+  --model sage=claude/claude-sonnet-5/high \
+  --model vale=codex/gpt-5.6-terra/high \
+  --model nova=claude/claude-opus-5/high \
+  --model quill=grok/grok-4.6/medium
+```
+
+All five selections were read back. Only Sudo answered the three
+operator-authored transport messages, stored by OMB as user messages.
+The other four models and a full delegation workflow were not exercised
+in these checks. Neither roster is a launcher default or a required config.
 
 ## Project facts
 

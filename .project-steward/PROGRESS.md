@@ -3,6 +3,41 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-08 — M1 host evidence complete
+Claude Code 2.1.263, Codex CLI 0.153.4 and Grok Build 1.0.13 each executed
+the specified doctor/server-doctor/status/send checks and observed a unique
+Sudo acknowledgment on real OMB 0.1.56. The operator supplied the text;
+native CLI shell tools executed the commands; OMB stored user-role messages.
+This distinction was clarified after the user challenged the sender wording.
+All five requested model bindings were read back; only Sudo ran (three OMB
+turns). The other models and a new full-team workflow were not exercised.
+
+Claude exposed status dropping the conversation when no launcher task was
+open. Added a failing regression, returned the already-hydrated messages
+and tail without a task verdict, then resumed Claude observation without
+resending. Focused tests 5/5; full suite 154/154 in 52.225 s. Native CLI
+restrictions and initial no-send invocation failures are recorded alongside
+the successes in docs/evidence.md and its structured extraction. Final
+cleanup found a clean fixture, one worktree and no orphan candidates; owned
+PIDs are gone and health refuses connections. The external package hash and
+T12 archive are unchanged. M1 and oml-axr.15 are complete; no pushes.
+
+At the user's suggestion, read agent-team-devpack's setup guide and evidence
+for engine probes, delegation and the T12 run. Those distinguish native
+launcher command checks from bot model execution and the full team loop.
+Retained those separate claims; did not substitute historical models for
+validation of the new roster. No changes were made in that repository.
+
+### 2026-09-08 — M1 host validation started
+The user approved completing M1 and implementing the host validation plan.
+Claimed `oml-axr.15`. Use the unchanged external dev-team test package in an
+isolated temporary project with a fresh real OMB 0.1.56 server. The requested
+bindings are Sudo: gpt-5.6-luna/high; Sage: claude-sonnet-5/high; Vale:
+gpt-5.6-terra/high; Nova: claude-opus-5/high; Quill: grok-4.6/medium.
+Each native host will run doctor/status/send and confirm a unique leader
+acknowledgment. All five roles are configured; only the leader needs bot
+turns for these checks. No package edits or pushes.
+
 ### 2026-09-08 — Team package scope corrected
 The user clarified that `dev-team.openmaus.json` is an external test
 configuration. Verified that import takes the supplied path and discovers

@@ -1,0 +1,1486 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-08T09:20:22.663Z",
+  "purpose": "M1 native CLI command execution checks: doctor, doctor --server, status, send, reply observation",
+  "coverage": {
+    "messagePath": "operator-authored text -> native CLI agent shell tool -> omb send -> OMB role:user -> Sudo reply",
+    "instructions": "Each native CLI was given the installed skill path and exact driver commands. The operator launched those sessions and captured their native tool results.",
+    "tested": [
+      "native CLI execution of the specified commands",
+      "one successful user-role send per host",
+      "matching leader acknowledgment observed by each native CLI",
+      "all five requested model bindings configured and read back",
+      "clean fixture and owned server shutdown"
+    ],
+    "notTested": [
+      "other four bot models executing",
+      "a new full-team delegation task",
+      "bot-to-bot sender identity",
+      "autonomous interpretation of a development task",
+      "long Codex SSE inside the sandbox",
+      "OpenClaw, Hermes, or DSH"
+    ],
+    "newOmbBotTurns": 3,
+    "launcherTaskRunId": null,
+    "nativeCliSessionsAlsoConsumeSubscriptions": true,
+    "outputProjection": "Selected fields from native tool results; status tails retain only the latest user and leader messages. Raw native transcripts remain in the local log directory, identified by SHA-256. No transcript reasoning is included here."
+  },
+  "fixture": {
+    "project": "/tmp/oml-m1-hostcheck-VslL6s/project",
+    "rawLogs": "/tmp/oml-m1-hostcheck-VslL6s/logs",
+    "dataDir": "/tmp/oml-m1-hostcheck-VslL6s/data-20260908T084943-RegNMH",
+    "nodeVersion": "24.11.0",
+    "openmausbotVersion": "0.1.56",
+    "server": {
+      "ok": true,
+      "verb": "up",
+      "status": "owned",
+      "changed": true,
+      "url": "http://127.0.0.1:46783",
+      "owned": true,
+      "supervisorPid": 534440,
+      "supervisorStart": 8708195,
+      "healthPid": 534447,
+      "healthStart": 8708206,
+      "environmentId": "b7181155-e0cc-46b8-96dc-82fad3ad9c65",
+      "dataDir": "/tmp/oml-m1-hostcheck-VslL6s/data-20260908T084943-RegNMH",
+      "version": "0.1.56",
+      "askTimeoutMs": 600000,
+      "log": "/tmp/oml-m1-hostcheck-VslL6s/data-20260908T084943-RegNMH/serve.log",
+      "startedAt": "2026-09-08T08:49:45.381Z"
+    },
+    "package": {
+      "path": "/home/wsh/Documents/agent-team-devpack/packages/dev-team/dev-team.openmaus.json",
+      "sha256Before": "48e4ac637c7afb6d9e82f0ecf035967411d9c75e61ac8e0603ee7b62a3255949",
+      "sha256After": "48e4ac637c7afb6d9e82f0ecf035967411d9c75e61ac8e0603ee7b62a3255949",
+      "unchanged": true
+    },
+    "team": {
+      "package": {
+        "path": "/home/wsh/Documents/agent-team-devpack/packages/dev-team/dev-team.openmaus.json",
+        "name": "Agent Team dev team",
+        "release": "0.4.2"
+      },
+      "section": "Agent Team dev team",
+      "environmentId": "b7181155-e0cc-46b8-96dc-82fad3ad9c65",
+      "importedAt": "2026-09-08T08:49:46.681Z",
+      "lead": {
+        "id": "d28aeaae-ad8c-4895-ae91-0b840b053554",
+        "name": "Sudo",
+        "key": "sudo",
+        "title": "Team Lead",
+        "model": "codex/gpt-5.6-luna/high",
+        "approvalMode": "auto"
+      },
+      "rooms": [
+        {
+          "id": "62d93b7a-9567-4331-ad17-2dbd49179452",
+          "name": "Dev Room",
+          "threadId": "5a67a20d-56bc-4b89-a3fd-bda19b65b711"
+        }
+      ],
+      "bots": [
+        {
+          "id": "d28aeaae-ad8c-4895-ae91-0b840b053554",
+          "name": "Sudo",
+          "key": "sudo",
+          "title": "Team Lead",
+          "model": "codex/gpt-5.6-luna/high",
+          "approvalMode": "auto"
+        },
+        {
+          "id": "9b7596ab-4ba0-4603-984c-0635315d0f1b",
+          "name": "Sage",
+          "key": "sage",
+          "title": "Planner",
+          "model": "claude/claude-sonnet-5/high",
+          "approvalMode": "auto"
+        },
+        {
+          "id": "14820eeb-1130-4a5d-a810-b4cef0cf0487",
+          "name": "Vale",
+          "key": "vale",
+          "title": "Plan Reviewer",
+          "model": "codex/gpt-5.6-terra/high",
+          "approvalMode": "auto"
+        },
+        {
+          "id": "082f1681-8c76-4a12-9d74-18010dde5d05",
+          "name": "Nova",
+          "key": "nova",
+          "title": "Implementer",
+          "model": "claude/claude-opus-5/high",
+          "approvalMode": "auto"
+        },
+        {
+          "id": "e02540b7-a037-4653-981e-53c169e510cb",
+          "name": "Quill",
+          "key": "quill",
+          "title": "Code Reviewer",
+          "model": "grok/grok-4.6/medium",
+          "approvalMode": null
+        }
+      ]
+    },
+    "bindings": [
+      "sudo=codex/gpt-5.6-luna/high",
+      "sage=claude/claude-sonnet-5/high",
+      "vale=codex/gpt-5.6-terra/high",
+      "nova=claude/claude-opus-5/high",
+      "quill=grok/grok-4.6/medium"
+    ],
+    "setupAndCleanupCommands": [
+      {
+        "label": "git-init",
+        "startedAt": "2026-09-08T08:49:43.695Z",
+        "endedAt": "2026-09-08T08:49:43.705Z",
+        "executable": "git",
+        "args": [
+          "init",
+          "-b",
+          "main"
+        ],
+        "cwd": "/tmp/oml-m1-hostcheck-VslL6s/project",
+        "code": 0,
+        "signal": null
+      },
+      {
+        "label": "git-baseline",
+        "startedAt": "2026-09-08T08:49:43.705Z",
+        "endedAt": "2026-09-08T08:49:43.714Z",
+        "executable": "git",
+        "args": [
+          "commit",
+          "--allow-empty",
+          "-m",
+          "chore: initialize launcher host-validation fixture"
+        ],
+        "cwd": "/tmp/oml-m1-hostcheck-VslL6s/project",
+        "code": 0,
+        "signal": null
+      },
+      {
+        "label": "doctor-before-up",
+        "startedAt": "2026-09-08T08:49:43.725Z",
+        "endedAt": "2026-09-08T08:49:43.815Z",
+        "executable": "/home/wsh/.local/lib/node-v24.11.0/bin/node",
+        "args": [
+          "/home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs",
+          "doctor",
+          "--project",
+          "/tmp/oml-m1-hostcheck-VslL6s/project"
+        ],
+        "cwd": "/tmp/oml-m1-hostcheck-VslL6s/project",
+        "code": 0,
+        "signal": null
+      },
+      {
+        "label": "up",
+        "startedAt": "2026-09-08T08:49:43.815Z",
+        "endedAt": "2026-09-08T08:49:45.479Z",
+        "executable": "/home/wsh/.local/lib/node-v24.11.0/bin/node",
+        "args": [
+          "/home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs",
+          "up",
+          "--fresh",
+          "--port",
+          "46783",
+          "--data-dir",
+          "/tmp/oml-m1-hostcheck-VslL6s/data",
+          "--project",
+          "/tmp/oml-m1-hostcheck-VslL6s/project"
+        ],
+        "cwd": "/tmp/oml-m1-hostcheck-VslL6s/project",
+        "code": 0,
+        "signal": null
+      },
+      {
+        "label": "doctor-server",
+        "startedAt": "2026-09-08T08:49:45.479Z",
+        "endedAt": "2026-09-08T08:49:46.072Z",
+        "executable": "/home/wsh/.local/lib/node-v24.11.0/bin/node",
+        "args": [
+          "/home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs",
+          "doctor",
+          "--server",
+          "--project",
+          "/tmp/oml-m1-hostcheck-VslL6s/project"
+        ],
+        "cwd": "/tmp/oml-m1-hostcheck-VslL6s/project",
+        "code": 0,
+        "signal": null
+      },
+      {
+        "label": "import",
+        "startedAt": "2026-09-08T08:49:46.073Z",
+        "endedAt": "2026-09-08T08:49:46.695Z",
+        "executable": "/home/wsh/.local/lib/node-v24.11.0/bin/node",
+        "args": [
+          "/home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs",
+          "import",
+          "/home/wsh/Documents/agent-team-devpack/packages/dev-team/dev-team.openmaus.json",
+          "--project",
+          "/tmp/oml-m1-hostcheck-VslL6s/project"
+        ],
+        "cwd": "/tmp/oml-m1-hostcheck-VslL6s/project",
+        "code": 0,
+        "signal": null
+      },
+      {
+        "label": "bind",
+        "startedAt": "2026-09-08T08:49:46.695Z",
+        "endedAt": "2026-09-08T08:49:46.952Z",
+        "executable": "/home/wsh/.local/lib/node-v24.11.0/bin/node",
+        "args": [
+          "/home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs",
+          "bind",
+          "--model",
+          "sudo=codex/gpt-5.6-luna/high",
+          "--model",
+          "sage=claude/claude-sonnet-5/high",
+          "--model",
+          "vale=codex/gpt-5.6-terra/high",
+          "--model",
+          "nova=claude/claude-opus-5/high",
+          "--model",
+          "quill=grok/grok-4.6/medium",
+          "--project",
+          "/tmp/oml-m1-hostcheck-VslL6s/project"
+        ],
+        "cwd": "/tmp/oml-m1-hostcheck-VslL6s/project",
+        "code": 0,
+        "signal": null
+      },
+      {
+        "label": "operator-status-claude",
+        "startedAt": "2026-09-08T08:56:39.376Z",
+        "endedAt": "2026-09-08T08:56:39.623Z",
+        "executable": "/home/wsh/.local/lib/node-v24.11.0/bin/node",
+        "args": [
+          "/home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs",
+          "status",
+          "--tail",
+          "10",
+          "--project",
+          "/tmp/oml-m1-hostcheck-VslL6s/project"
+        ],
+        "cwd": "/tmp/oml-m1-hostcheck-VslL6s/project",
+        "code": 0,
+        "signal": null
+      },
+      {
+        "label": "operator-final-status",
+        "startedAt": "2026-09-08T09:13:12.624Z",
+        "endedAt": "2026-09-08T09:13:12.885Z",
+        "executable": "/home/wsh/.local/lib/node-v24.11.0/bin/node",
+        "args": [
+          "/home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs",
+          "status",
+          "--tail",
+          "10",
+          "--project",
+          "/tmp/oml-m1-hostcheck-VslL6s/project"
+        ],
+        "cwd": "/tmp/oml-m1-hostcheck-VslL6s/project",
+        "code": 0,
+        "signal": null
+      },
+      {
+        "label": "cleanup",
+        "startedAt": "2026-09-08T09:14:01.218Z",
+        "endedAt": "2026-09-08T09:14:01.376Z",
+        "executable": "/home/wsh/.local/lib/node-v24.11.0/bin/node",
+        "args": [
+          "/home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs",
+          "cleanup",
+          "--project",
+          "/tmp/oml-m1-hostcheck-VslL6s/project"
+        ],
+        "cwd": "/tmp/oml-m1-hostcheck-VslL6s/project",
+        "code": 0,
+        "signal": null
+      },
+      {
+        "label": "down",
+        "startedAt": "2026-09-08T09:14:21.668Z",
+        "endedAt": "2026-09-08T09:14:21.963Z",
+        "executable": "/home/wsh/.local/lib/node-v24.11.0/bin/node",
+        "args": [
+          "/home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs",
+          "down",
+          "--project",
+          "/tmp/oml-m1-hostcheck-VslL6s/project"
+        ],
+        "cwd": "/tmp/oml-m1-hostcheck-VslL6s/project",
+        "code": 0,
+        "signal": null
+      }
+    ]
+  },
+  "hosts": {
+    "claude": {
+      "version": "2.1.263",
+      "passed": true,
+      "sessionId": "5032fc81-cdca-41b6-abfb-b60fcd177642",
+      "installedSkill": "/home/wsh/.claude/skills/openmausbot-launcher/SKILL.md",
+      "messageAuthor": "operator",
+      "storedSenderRole": "user",
+      "targetBot": "sudo",
+      "acknowledgment": "M1-claude-a67539db ACK",
+      "threadId": "2fc5c12e-0891-4bcd-af8b-840e33ba7965",
+      "userMessageId": "c3af3d90-69de-452f-a892-4abf1512aa95",
+      "replyMessageId": "29703b13-5da5-421b-97c5-7bf5a8965311",
+      "sendId": "send-e2d8fa6424ff0535",
+      "invocations": [
+        {
+          "executable": "claude",
+          "args": [
+            "-p",
+            "<operator-supplied validation prompt>",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--permission-mode",
+            "default",
+            "--add-dir",
+            "/tmp/oml-m1-hostcheck-VslL6s",
+            "--allowedTools",
+            "Read",
+            "Skill",
+            "Bash(node /home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs:*)",
+            "Bash(OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js node /home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs:*)",
+            "Bash(cat:*)",
+            "Bash(sleep:*)",
+            "Bash(readlink:*)",
+            "Bash(ls:*)",
+            "Bash(node --version)"
+          ],
+          "pid": 537492,
+          "startedAt": "2026-09-08T08:54:59.887Z",
+          "endedAt": "2026-09-08T08:57:53.246Z",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "permissions": "default with launcher/read/sleep allowlist",
+          "transcript": {
+            "file": "claude.transcript.jsonl",
+            "sha256": "a8a2cafeb132e786ca07d7714278644e3c042efdbe65615a1f9ccf3422e23672"
+          },
+          "prompt": {
+            "file": "claude.prompt.txt",
+            "sha256": "2750719c018c660a9ba39055a63174ad7e2fe68a350918f4130dc293c97f8497"
+          }
+        },
+        {
+          "executable": "claude",
+          "args": [
+            "-p",
+            "<operator-supplied validation prompt>",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--permission-mode",
+            "default",
+            "--add-dir",
+            "/tmp/oml-m1-hostcheck-VslL6s",
+            "--allowedTools",
+            "Read",
+            "Skill",
+            "Bash(node /home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs:*)",
+            "Bash(OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js node /home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs:*)",
+            "Bash(cat:*)",
+            "Bash(sleep:*)",
+            "Bash(readlink:*)",
+            "Bash(ls:*)",
+            "Bash(node --version)",
+            "--resume",
+            "5032fc81-cdca-41b6-abfb-b60fcd177642"
+          ],
+          "pid": 544584,
+          "startedAt": "2026-09-08T09:01:29.324Z",
+          "endedAt": "2026-09-08T09:02:04.437Z",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "permissions": "default with launcher/read/sleep allowlist",
+          "transcript": {
+            "file": "claude.observe.transcript.jsonl",
+            "sha256": "93a7dfc40e6b593ba918a358c5c0636dcc9dc403799d33f7a404bc0549ff72ae"
+          },
+          "prompt": {
+            "file": "claude.observe.prompt.txt",
+            "sha256": "bbd05ecbc4e138678cfbca9834a87ae96863541f34fc232b1028e59bfc786580"
+          }
+        }
+      ],
+      "commands": [
+        {
+          "label": "localDoctor",
+          "source": "claude.observe.transcript.jsonl",
+          "line": 14,
+          "toolCallId": "toolu_01LHt5aNBmLWVyYL7XqA68iw",
+          "command": "OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js node /home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs doctor --project /tmp/oml-m1-hostcheck-VslL6s/project",
+          "succeeded": true,
+          "output": {
+            "ok": true,
+            "verb": "doctor",
+            "checks": [
+              {
+                "id": "node",
+                "ok": true,
+                "required": true,
+                "detail": "node 24.11.0; local mode needs 24+"
+              },
+              {
+                "id": "binary",
+                "ok": true,
+                "required": true,
+                "detail": "/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js (openmausbot 0.1.56, from OMB_BIN)"
+              },
+              {
+                "id": "git",
+                "ok": true,
+                "required": true,
+                "detail": "git on PATH"
+              },
+              {
+                "id": "project",
+                "ok": true,
+                "required": true,
+                "detail": "git repository at /tmp/oml-m1-hostcheck-VslL6s/project"
+              },
+              {
+                "id": "data-dir",
+                "ok": true,
+                "required": false,
+                "detail": "/tmp/oml-m1-hostcheck-VslL6s/data-20260908T084943-RegNMH is readable"
+              }
+            ],
+            "failed": []
+          }
+        },
+        {
+          "label": "serverDoctor",
+          "source": "claude.observe.transcript.jsonl",
+          "line": 17,
+          "toolCallId": "toolu_013NJwyeQgHjUgFdm6pwJR3E",
+          "command": "OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js node /home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs doctor --server --project /tmp/oml-m1-hostcheck-VslL6s/project",
+          "succeeded": true,
+          "output": {
+            "ok": true,
+            "verb": "doctor",
+            "checks": [
+              {
+                "id": "node",
+                "ok": true,
+                "required": true,
+                "detail": "node 24.11.0; local mode needs 24+"
+              },
+              {
+                "id": "binary",
+                "ok": true,
+                "required": true,
+                "detail": "/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js (openmausbot 0.1.56, from OMB_BIN)"
+              },
+              {
+                "id": "git",
+                "ok": true,
+                "required": true,
+                "detail": "git on PATH"
+              },
+              {
+                "id": "project",
+                "ok": true,
+                "required": true,
+                "detail": "git repository at /tmp/oml-m1-hostcheck-VslL6s/project"
+              },
+              {
+                "id": "data-dir",
+                "ok": true,
+                "required": false,
+                "detail": "/tmp/oml-m1-hostcheck-VslL6s/data-20260908T084943-RegNMH is readable"
+              },
+              {
+                "id": "health",
+                "ok": true,
+                "required": true,
+                "detail": "http://127.0.0.1:46783 answers, pid 534447"
+              },
+              {
+                "id": "session",
+                "ok": true,
+                "required": true,
+                "detail": "loopback with scopes admin,client"
+              },
+              {
+                "id": "engines",
+                "ok": true,
+                "required": true,
+                "detail": "grok:available kimi:unavailable droid:unavailable cursor:unavailable claude:available codex:available antigravity:unavailable opencodeGo:unavailable computer:unavailable openaiCompat:unavailable qwen:unavailable hermes:unavailable pi:unavailable"
+              },
+              {
+                "id": "provider-keys",
+                "ok": true,
+                "required": true,
+                "detail": "no provider API keys in the server's environment"
+              },
+              {
+                "id": "identity",
+                "ok": true,
+                "required": false,
+                "detail": "the recorded server identity matches"
+              }
+            ],
+            "failed": []
+          }
+        },
+        {
+          "label": "initialStatus",
+          "source": "claude.transcript.jsonl",
+          "line": 37,
+          "toolCallId": "toolu_01S3H6ZKSa8msSLrFhUYQBUw",
+          "command": "OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js node /home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs status --tail 10 --project /tmp/oml-m1-hostcheck-VslL6s/project",
+          "succeeded": true,
+          "output": {
+            "ok": true,
+            "verb": "status",
+            "run": null,
+            "complete": true,
+            "incomplete": [],
+            "busy": [],
+            "pending": []
+          }
+        },
+        {
+          "label": "send",
+          "source": "claude.transcript.jsonl",
+          "line": 43,
+          "toolCallId": "toolu_01HVT9JgzJAx9zcs4j2YL2PM",
+          "command": "OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js node /home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs send \"This is an authorized launcher transport check, not a development task. Reply with exactly: M1-claude-a67539db ACK. Do not call tools, delegate, edit files, run Git, or post to a room.\" --project /tmp/oml-m1-hostcheck-VslL6s/project",
+          "succeeded": true,
+          "output": {
+            "ok": true,
+            "verb": "send",
+            "bot": "Sudo",
+            "threadId": "2fc5c12e-0891-4bcd-af8b-840e33ba7965",
+            "messageId": "c3af3d90-69de-452f-a892-4abf1512aa95",
+            "steered": false,
+            "queued": false,
+            "queueId": null,
+            "sendId": "send-e2d8fa6424ff0535"
+          }
+        },
+        {
+          "label": "replyStatus",
+          "source": "claude.observe.transcript.jsonl",
+          "line": 21,
+          "toolCallId": "toolu_01CMuwzvEn1MGB9tnL2FeDFq",
+          "command": "OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js node /home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs status --tail 10 --project /tmp/oml-m1-hostcheck-VslL6s/project",
+          "succeeded": true,
+          "output": {
+            "ok": true,
+            "verb": "status",
+            "run": null,
+            "complete": true,
+            "incomplete": [],
+            "busy": [],
+            "pending": [],
+            "lead": {
+              "id": "29703b13-5da5-421b-97c5-7bf5a8965311",
+              "at": 1788857741916,
+              "text": "M1-claude-a67539db ACK"
+            },
+            "lastUser": {
+              "id": "c3af3d90-69de-452f-a892-4abf1512aa95",
+              "at": 1788857734375,
+              "text": "This is an authorized launcher transport check, not a development task. Reply with exactly: M1-claude-a67539db ACK. Do not call tools, delegate, edit files, run Git, or post to a room."
+            },
+            "tail": [
+              {
+                "id": "c3af3d90-69de-452f-a892-4abf1512aa95",
+                "at": 1788857734375,
+                "role": "user",
+                "kind": "text",
+                "from": null,
+                "text": "This is an authorized launcher transport check, not a development task. Reply with exactly: M1-claude-a67539db ACK. Do not call tools, delegate, edit files, run Git, or post to a room."
+              },
+              {
+                "id": "29703b13-5da5-421b-97c5-7bf5a8965311",
+                "at": 1788857741916,
+                "role": "bot",
+                "kind": "text",
+                "from": null,
+                "text": "M1-claude-a67539db ACK"
+              }
+            ]
+          }
+        }
+      ],
+      "failedCommands": []
+    },
+    "codex": {
+      "version": "0.153.4",
+      "passed": true,
+      "sessionId": "01a08042-55e4-7021-a025-f78ee5e3a157",
+      "installedSkill": "/home/wsh/.agents/skills/openmausbot-launcher/SKILL.md",
+      "messageAuthor": "operator",
+      "storedSenderRole": "user",
+      "targetBot": "sudo",
+      "acknowledgment": "M1-codex-9b5b4c6c ACK",
+      "threadId": "2fc5c12e-0891-4bcd-af8b-840e33ba7965",
+      "userMessageId": "19fea1cf-c79f-4f65-9607-528e21228b1e",
+      "replyMessageId": "87bcde6d-fd9f-4c42-9072-cfc49437eeb1",
+      "sendId": "send-5674534e04803d86",
+      "invocations": [
+        {
+          "executable": "codex",
+          "args": [
+            "exec",
+            "--json",
+            "--approve-for-me",
+            "--cd",
+            "/tmp/oml-m1-hostcheck-VslL6s/project",
+            "--add-dir",
+            "/tmp/oml-m1-hostcheck-VslL6s",
+            "<operator-supplied validation prompt>"
+          ],
+          "pid": 549510,
+          "startedAt": "2026-09-08T09:03:45.881Z",
+          "endedAt": "2026-09-08T09:05:46.914Z",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "permissions": "workspace-write with automatic approval review",
+          "transcript": {
+            "file": "codex.transcript.jsonl",
+            "sha256": "eace778a9c41c64087e96bd04cd7b639a5b3c312281a004bef5d8818028fa09a"
+          },
+          "prompt": {
+            "file": "codex.prompt.txt",
+            "sha256": "c625216dc4ee19eac01d7725f0c7fe0073dc486fb8570fa25dbbbdf06fdf9c72"
+          }
+        }
+      ],
+      "commands": [
+        {
+          "label": "localDoctor",
+          "source": "codex.transcript.jsonl",
+          "line": 8,
+          "toolCallId": "item_3",
+          "command": "/bin/bash -lc 'OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js node /home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs doctor --project /tmp/oml-m1-hostcheck-VslL6s/project'",
+          "succeeded": true,
+          "exitCode": 0,
+          "output": {
+            "ok": true,
+            "verb": "doctor",
+            "checks": [
+              {
+                "id": "node",
+                "ok": true,
+                "required": true,
+                "detail": "node 24.11.0; local mode needs 24+"
+              },
+              {
+                "id": "binary",
+                "ok": true,
+                "required": true,
+                "detail": "/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js (openmausbot 0.1.56, from OMB_BIN)"
+              },
+              {
+                "id": "git",
+                "ok": true,
+                "required": true,
+                "detail": "git on PATH"
+              },
+              {
+                "id": "project",
+                "ok": true,
+                "required": true,
+                "detail": "git repository at /tmp/oml-m1-hostcheck-VslL6s/project"
+              },
+              {
+                "id": "data-dir",
+                "ok": true,
+                "required": false,
+                "detail": "/tmp/oml-m1-hostcheck-VslL6s/data-20260908T084943-RegNMH is readable"
+              }
+            ],
+            "failed": []
+          }
+        },
+        {
+          "label": "serverDoctor",
+          "source": "codex.transcript.jsonl",
+          "line": 13,
+          "toolCallId": "item_6",
+          "command": "/bin/bash -lc 'OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js node /home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs doctor --server --project /tmp/oml-m1-hostcheck-VslL6s/project'",
+          "succeeded": true,
+          "exitCode": 0,
+          "output": {
+            "ok": true,
+            "verb": "doctor",
+            "checks": [
+              {
+                "id": "node",
+                "ok": true,
+                "required": true,
+                "detail": "node 24.11.0; local mode needs 24+"
+              },
+              {
+                "id": "binary",
+                "ok": true,
+                "required": true,
+                "detail": "/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js (openmausbot 0.1.56, from OMB_BIN)"
+              },
+              {
+                "id": "git",
+                "ok": true,
+                "required": true,
+                "detail": "git on PATH"
+              },
+              {
+                "id": "project",
+                "ok": true,
+                "required": true,
+                "detail": "git repository at /tmp/oml-m1-hostcheck-VslL6s/project"
+              },
+              {
+                "id": "data-dir",
+                "ok": true,
+                "required": false,
+                "detail": "/tmp/oml-m1-hostcheck-VslL6s/data-20260908T084943-RegNMH is readable"
+              },
+              {
+                "id": "health",
+                "ok": true,
+                "required": true,
+                "detail": "http://127.0.0.1:46783 answers, pid 534447"
+              },
+              {
+                "id": "session",
+                "ok": true,
+                "required": true,
+                "detail": "loopback with scopes admin,client"
+              },
+              {
+                "id": "engines",
+                "ok": true,
+                "required": true,
+                "detail": "grok:available kimi:unavailable droid:unavailable cursor:unavailable claude:available codex:available antigravity:unavailable opencodeGo:unavailable computer:unavailable openaiCompat:unavailable qwen:unavailable hermes:unavailable pi:unavailable"
+              },
+              {
+                "id": "provider-keys",
+                "ok": true,
+                "required": true,
+                "detail": "no provider API keys in the server's environment"
+              },
+              {
+                "id": "identity",
+                "ok": true,
+                "required": false,
+                "detail": "the recorded server identity matches"
+              }
+            ],
+            "failed": []
+          }
+        },
+        {
+          "label": "initialStatus",
+          "source": "codex.transcript.jsonl",
+          "line": 15,
+          "toolCallId": "item_7",
+          "command": "/bin/bash -lc 'OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js node /home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs status --tail 10 --project /tmp/oml-m1-hostcheck-VslL6s/project'",
+          "succeeded": true,
+          "exitCode": 0,
+          "output": {
+            "ok": true,
+            "verb": "status",
+            "run": null,
+            "complete": true,
+            "incomplete": [],
+            "busy": [],
+            "pending": [],
+            "lead": {
+              "id": "29703b13-5da5-421b-97c5-7bf5a8965311",
+              "at": 1788857741916,
+              "text": "M1-claude-a67539db ACK"
+            },
+            "lastUser": {
+              "id": "c3af3d90-69de-452f-a892-4abf1512aa95",
+              "at": 1788857734375,
+              "text": "This is an authorized launcher transport check, not a development task. Reply with exactly: M1-claude-a67539db ACK. Do not call tools, delegate, edit files, run Git, or post to a room."
+            },
+            "tail": [
+              {
+                "id": "c3af3d90-69de-452f-a892-4abf1512aa95",
+                "at": 1788857734375,
+                "role": "user",
+                "kind": "text",
+                "from": null,
+                "text": "This is an authorized launcher transport check, not a development task. Reply with exactly: M1-claude-a67539db ACK. Do not call tools, delegate, edit files, run Git, or post to a room."
+              },
+              {
+                "id": "29703b13-5da5-421b-97c5-7bf5a8965311",
+                "at": 1788857741916,
+                "role": "bot",
+                "kind": "text",
+                "from": null,
+                "text": "M1-claude-a67539db ACK"
+              }
+            ]
+          }
+        },
+        {
+          "label": "send",
+          "source": "codex.transcript.jsonl",
+          "line": 18,
+          "toolCallId": "item_9",
+          "command": "/bin/bash -lc 'OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js node /home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs send \"This is an authorized launcher transport check, not a development task. Reply with exactly: M1-codex-9b5b4c6c ACK. Do not call tools, delegate, edit files, run Git, or post to a room.\" --project /tmp/oml-m1-hostcheck-VslL6s/project'",
+          "succeeded": true,
+          "exitCode": 0,
+          "output": {
+            "ok": true,
+            "verb": "send",
+            "bot": "Sudo",
+            "threadId": "2fc5c12e-0891-4bcd-af8b-840e33ba7965",
+            "messageId": "19fea1cf-c79f-4f65-9607-528e21228b1e",
+            "steered": false,
+            "queued": false,
+            "queueId": null,
+            "sendId": "send-5674534e04803d86"
+          }
+        },
+        {
+          "label": "replyStatus",
+          "source": "codex.transcript.jsonl",
+          "line": 20,
+          "toolCallId": "item_10",
+          "command": "/bin/bash -lc 'OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js node /home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs status --tail 10 --project /tmp/oml-m1-hostcheck-VslL6s/project'",
+          "succeeded": true,
+          "exitCode": 0,
+          "output": {
+            "ok": true,
+            "verb": "status",
+            "run": null,
+            "complete": true,
+            "incomplete": [],
+            "busy": [],
+            "pending": [],
+            "lead": {
+              "id": "87bcde6d-fd9f-4c42-9072-cfc49437eeb1",
+              "at": 1788858314530,
+              "text": "M1-codex-9b5b4c6c ACK"
+            },
+            "lastUser": {
+              "id": "19fea1cf-c79f-4f65-9607-528e21228b1e",
+              "at": 1788858305503,
+              "text": "This is an authorized launcher transport check, not a development task. Reply with exactly: M1-codex-9b5b4c6c ACK. Do not call tools, delegate, edit files, run Git, or post to a room."
+            },
+            "tail": [
+              {
+                "id": "19fea1cf-c79f-4f65-9607-528e21228b1e",
+                "at": 1788858305503,
+                "role": "user",
+                "kind": "text",
+                "from": null,
+                "text": "This is an authorized launcher transport check, not a development task. Reply with exactly: M1-codex-9b5b4c6c ACK. Do not call tools, delegate, edit files, run Git, or post to a room."
+              },
+              {
+                "id": "87bcde6d-fd9f-4c42-9072-cfc49437eeb1",
+                "at": 1788858314530,
+                "role": "bot",
+                "kind": "text",
+                "from": null,
+                "text": "M1-codex-9b5b4c6c ACK"
+              }
+            ]
+          }
+        }
+      ],
+      "failedCommands": [
+        {
+          "label": "failedAttempt",
+          "source": "codex.transcript.jsonl",
+          "line": 10,
+          "toolCallId": "item_4",
+          "command": "/bin/bash -lc 'OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js node /home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs doctor --server --project /tmp/oml-m1-hostcheck-VslL6s/project'",
+          "succeeded": false,
+          "exitCode": 3,
+          "output": {
+            "ok": false,
+            "verb": "doctor",
+            "checks": [
+              {
+                "id": "node",
+                "ok": true,
+                "required": true,
+                "detail": "node 24.11.0; local mode needs 24+"
+              },
+              {
+                "id": "binary",
+                "ok": true,
+                "required": true,
+                "detail": "/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js (openmausbot 0.1.56, from OMB_BIN)"
+              },
+              {
+                "id": "git",
+                "ok": true,
+                "required": true,
+                "detail": "git on PATH"
+              },
+              {
+                "id": "project",
+                "ok": true,
+                "required": true,
+                "detail": "git repository at /tmp/oml-m1-hostcheck-VslL6s/project"
+              },
+              {
+                "id": "data-dir",
+                "ok": true,
+                "required": false,
+                "detail": "/tmp/oml-m1-hostcheck-VslL6s/data-20260908T084943-RegNMH is readable"
+              },
+              {
+                "id": "health",
+                "ok": false,
+                "required": true,
+                "detail": "nothing answers at http://127.0.0.1:46783"
+              }
+            ],
+            "failed": [
+              "health"
+            ]
+          }
+        }
+      ]
+    },
+    "grok": {
+      "version": "1.0.13",
+      "passed": true,
+      "sessionId": "01a08044-7934-7250-b9a1-e9c06cc82e9b",
+      "installedSkill": "/home/wsh/.claude/skills/openmausbot-launcher/SKILL.md",
+      "messageAuthor": "operator",
+      "storedSenderRole": "user",
+      "targetBot": "sudo",
+      "acknowledgment": "M1-grok-f28dd2fa ACK",
+      "threadId": "2fc5c12e-0891-4bcd-af8b-840e33ba7965",
+      "userMessageId": "5df65b65-8b7d-4f40-90e8-2a27af571b48",
+      "replyMessageId": "1a2fb241-eb2e-4103-a12a-e0887dd270c0",
+      "sendId": "send-71234deade03aa7f",
+      "invocations": [
+        {
+          "executable": "grok",
+          "args": [
+            "-p",
+            "<operator-supplied validation prompt>",
+            "--output-format",
+            "streaming-json",
+            "--permission-mode",
+            "auto",
+            "--max-turns",
+            "16",
+            "--no-subagents",
+            "--disable-web-search",
+            "--cwd",
+            "/tmp/oml-m1-hostcheck-VslL6s/project"
+          ],
+          "pid": 552095,
+          "startedAt": "2026-09-08T09:06:04.646Z",
+          "endedAt": "2026-09-08T09:08:18.159Z",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "permissions": "auto",
+          "transcript": {
+            "file": "grok.transcript.jsonl",
+            "sha256": "3b44f886b90566d3c7cfc3956d0b030a74f37058a18e9608fb7d6e9df90bf915"
+          },
+          "prompt": {
+            "file": "grok.prompt.txt",
+            "sha256": "eb8bfe9717ef561b19afb7ff5b2f86ce1840ee5d94ca560186895635123c1de1"
+          }
+        }
+      ],
+      "commands": [
+        {
+          "label": "localDoctor",
+          "source": "grok.transcript.jsonl",
+          "line": 120,
+          "toolCallId": "call-21378353-9149-4db1-876e-4258ead8b5ad-2",
+          "command": "OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js node /home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs doctor --project /tmp/oml-m1-hostcheck-VslL6s/project",
+          "succeeded": true,
+          "exitCode": 0,
+          "output": {
+            "ok": true,
+            "verb": "doctor",
+            "checks": [
+              {
+                "id": "node",
+                "ok": true,
+                "required": true,
+                "detail": "node 24.11.0; local mode needs 24+"
+              },
+              {
+                "id": "binary",
+                "ok": true,
+                "required": true,
+                "detail": "/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js (openmausbot 0.1.56, from OMB_BIN)"
+              },
+              {
+                "id": "git",
+                "ok": true,
+                "required": true,
+                "detail": "git on PATH"
+              },
+              {
+                "id": "project",
+                "ok": true,
+                "required": true,
+                "detail": "git repository at /tmp/oml-m1-hostcheck-VslL6s/project"
+              },
+              {
+                "id": "data-dir",
+                "ok": true,
+                "required": false,
+                "detail": "/tmp/oml-m1-hostcheck-VslL6s/data-20260908T084943-RegNMH is readable"
+              }
+            ],
+            "failed": []
+          }
+        },
+        {
+          "label": "serverDoctor",
+          "source": "grok.transcript.jsonl",
+          "line": 156,
+          "toolCallId": "call-9c643b12-f923-45da-85ae-ccace21ba163-3",
+          "command": "OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js node /home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs doctor --server --project /tmp/oml-m1-hostcheck-VslL6s/project",
+          "succeeded": true,
+          "exitCode": 0,
+          "output": {
+            "ok": true,
+            "verb": "doctor",
+            "checks": [
+              {
+                "id": "node",
+                "ok": true,
+                "required": true,
+                "detail": "node 24.11.0; local mode needs 24+"
+              },
+              {
+                "id": "binary",
+                "ok": true,
+                "required": true,
+                "detail": "/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js (openmausbot 0.1.56, from OMB_BIN)"
+              },
+              {
+                "id": "git",
+                "ok": true,
+                "required": true,
+                "detail": "git on PATH"
+              },
+              {
+                "id": "project",
+                "ok": true,
+                "required": true,
+                "detail": "git repository at /tmp/oml-m1-hostcheck-VslL6s/project"
+              },
+              {
+                "id": "data-dir",
+                "ok": true,
+                "required": false,
+                "detail": "/tmp/oml-m1-hostcheck-VslL6s/data-20260908T084943-RegNMH is readable"
+              },
+              {
+                "id": "health",
+                "ok": true,
+                "required": true,
+                "detail": "http://127.0.0.1:46783 answers, pid 534447"
+              },
+              {
+                "id": "session",
+                "ok": true,
+                "required": true,
+                "detail": "loopback with scopes admin,client"
+              },
+              {
+                "id": "engines",
+                "ok": true,
+                "required": true,
+                "detail": "grok:available kimi:unavailable droid:unavailable cursor:unavailable claude:available codex:available antigravity:unavailable opencodeGo:unavailable computer:unavailable openaiCompat:unavailable qwen:unavailable hermes:unavailable pi:unavailable"
+              },
+              {
+                "id": "provider-keys",
+                "ok": true,
+                "required": true,
+                "detail": "no provider API keys in the server's environment"
+              },
+              {
+                "id": "identity",
+                "ok": true,
+                "required": false,
+                "detail": "the recorded server identity matches"
+              }
+            ],
+            "failed": []
+          }
+        },
+        {
+          "label": "initialStatus",
+          "source": "grok.transcript.jsonl",
+          "line": 198,
+          "toolCallId": "call-b0586e24-2af2-4c03-8a83-617491b2ca9e-4",
+          "command": "OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js node /home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs status --tail 10 --project /tmp/oml-m1-hostcheck-VslL6s/project",
+          "succeeded": true,
+          "exitCode": 0,
+          "output": {
+            "ok": true,
+            "verb": "status",
+            "run": null,
+            "complete": true,
+            "incomplete": [],
+            "busy": [],
+            "pending": [],
+            "lead": {
+              "id": "87bcde6d-fd9f-4c42-9072-cfc49437eeb1",
+              "at": 1788858314530,
+              "text": "M1-codex-9b5b4c6c ACK"
+            },
+            "lastUser": {
+              "id": "19fea1cf-c79f-4f65-9607-528e21228b1e",
+              "at": 1788858305503,
+              "text": "This is an authorized launcher transport check, not a development task. Reply with exactly: M1-codex-9b5b4c6c ACK. Do not call tools, delegate, edit files, run Git, or post to a room."
+            },
+            "tail": [
+              {
+                "id": "19fea1cf-c79f-4f65-9607-528e21228b1e",
+                "at": 1788858305503,
+                "role": "user",
+                "kind": "text",
+                "from": null,
+                "text": "This is an authorized launcher transport check, not a development task. Reply with exactly: M1-codex-9b5b4c6c ACK. Do not call tools, delegate, edit files, run Git, or post to a room."
+              },
+              {
+                "id": "87bcde6d-fd9f-4c42-9072-cfc49437eeb1",
+                "at": 1788858314530,
+                "role": "bot",
+                "kind": "text",
+                "from": null,
+                "text": "M1-codex-9b5b4c6c ACK"
+              }
+            ]
+          }
+        },
+        {
+          "label": "send",
+          "source": "grok.transcript.jsonl",
+          "line": 269,
+          "toolCallId": "call-ca00fb9f-7639-40d0-acec-b1386c3c7b92-5",
+          "command": "OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js node /home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs send \"This is an authorized launcher transport check, not a development task. Reply with exactly: M1-grok-f28dd2fa ACK. Do not call tools, delegate, edit files, run Git, or post to a room.\" --project /tmp/oml-m1-hostcheck-VslL6s/project",
+          "succeeded": true,
+          "exitCode": 0,
+          "output": {
+            "ok": true,
+            "verb": "send",
+            "bot": "Sudo",
+            "threadId": "2fc5c12e-0891-4bcd-af8b-840e33ba7965",
+            "messageId": "5df65b65-8b7d-4f40-90e8-2a27af571b48",
+            "steered": false,
+            "queued": false,
+            "queueId": null,
+            "sendId": "send-71234deade03aa7f"
+          }
+        },
+        {
+          "label": "replyStatus",
+          "source": "grok.transcript.jsonl",
+          "line": 296,
+          "toolCallId": "call-78ac010e-8a51-4508-a8e7-c820e96931b8-6",
+          "command": "OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js node /home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs status --tail 10 --project /tmp/oml-m1-hostcheck-VslL6s/project",
+          "succeeded": true,
+          "exitCode": 0,
+          "output": {
+            "ok": true,
+            "verb": "status",
+            "run": null,
+            "complete": true,
+            "incomplete": [],
+            "busy": [],
+            "pending": [],
+            "lead": {
+              "id": "1a2fb241-eb2e-4103-a12a-e0887dd270c0",
+              "at": 1788858464833,
+              "text": "M1-grok-f28dd2fa ACK"
+            },
+            "lastUser": {
+              "id": "5df65b65-8b7d-4f40-90e8-2a27af571b48",
+              "at": 1788858455096,
+              "text": "This is an authorized launcher transport check, not a development task. Reply with exactly: M1-grok-f28dd2fa ACK. Do not call tools, delegate, edit files, run Git, or post to a room."
+            },
+            "tail": [
+              {
+                "id": "5df65b65-8b7d-4f40-90e8-2a27af571b48",
+                "at": 1788858455096,
+                "role": "user",
+                "kind": "text",
+                "from": null,
+                "text": "This is an authorized launcher transport check, not a development task. Reply with exactly: M1-grok-f28dd2fa ACK. Do not call tools, delegate, edit files, run Git, or post to a room."
+              },
+              {
+                "id": "1a2fb241-eb2e-4103-a12a-e0887dd270c0",
+                "at": 1788858464833,
+                "role": "bot",
+                "kind": "text",
+                "from": null,
+                "text": "M1-grok-f28dd2fa ACK"
+              }
+            ]
+          }
+        }
+      ],
+      "failedCommands": []
+    }
+  },
+  "botTurns": [
+    {
+      "botKey": "sudo",
+      "modelBinding": "codex/gpt-5.6-luna/high",
+      "threadId": "2fc5c12e-0891-4bcd-af8b-840e33ba7965",
+      "turnId": "ee1dcc70-825c-4d62-9d02-3b9a20a7ed88",
+      "provider": "codex",
+      "startedAt": "2026-09-08T08:55:34.468Z",
+      "completedAt": "2026-09-08T08:55:41.984Z",
+      "ok": true,
+      "usage": {
+        "input": 20672,
+        "output": 25,
+        "cachedInput": 9984
+      }
+    },
+    {
+      "botKey": "sudo",
+      "modelBinding": "codex/gpt-5.6-luna/high",
+      "threadId": "2fc5c12e-0891-4bcd-af8b-840e33ba7965",
+      "turnId": "4798f426-220c-411c-b4c5-20e854738f3d",
+      "provider": "codex",
+      "startedAt": "2026-09-08T09:05:05.547Z",
+      "completedAt": "2026-09-08T09:05:14.563Z",
+      "ok": true,
+      "usage": {
+        "input": 24498,
+        "output": 19,
+        "cachedInput": 20224
+      }
+    },
+    {
+      "botKey": "sudo",
+      "modelBinding": "codex/gpt-5.6-luna/high",
+      "threadId": "2fc5c12e-0891-4bcd-af8b-840e33ba7965",
+      "turnId": "5644f540-bcff-4500-a05c-a4f75a042cf1",
+      "provider": "codex",
+      "startedAt": "2026-09-08T09:07:35.167Z",
+      "completedAt": "2026-09-08T09:07:44.911Z",
+      "ok": true,
+      "usage": {
+        "input": 28313,
+        "output": 14,
+        "cachedInput": 24320
+      }
+    }
+  ],
+  "runtimeEventSources": [
+    {
+      "botKey": "sudo",
+      "threadId": "2fc5c12e-0891-4bcd-af8b-840e33ba7965",
+      "file": "/tmp/oml-m1-hostcheck-VslL6s/data-20260908T084943-RegNMH/events/2fc5c12e-0891-4bcd-af8b-840e33ba7965.ndjson",
+      "sha256": "63c3f4bdd57cefcf1f0a62032c1be9a52f43d25cad25c0c8629ab6e605cbdc7f"
+    },
+    {
+      "botKey": "sage",
+      "threadId": "8f2a9c16-76f5-4e3a-8bb3-e7ed87333f6a",
+      "file": "/tmp/oml-m1-hostcheck-VslL6s/data-20260908T084943-RegNMH/events/8f2a9c16-76f5-4e3a-8bb3-e7ed87333f6a.ndjson",
+      "exists": false
+    },
+    {
+      "botKey": "vale",
+      "threadId": "872daa94-89a7-4b4e-84aa-4cd620ae0f65",
+      "file": "/tmp/oml-m1-hostcheck-VslL6s/data-20260908T084943-RegNMH/events/872daa94-89a7-4b4e-84aa-4cd620ae0f65.ndjson",
+      "exists": false
+    },
+    {
+      "botKey": "nova",
+      "threadId": "b6873591-74d0-4a40-86ff-c5bcbe0ec6e3",
+      "file": "/tmp/oml-m1-hostcheck-VslL6s/data-20260908T084943-RegNMH/events/b6873591-74d0-4a40-86ff-c5bcbe0ec6e3.ndjson",
+      "exists": false
+    },
+    {
+      "botKey": "quill",
+      "threadId": "34e42989-8759-4f6e-b25c-b6d36659904c",
+      "file": "/tmp/oml-m1-hostcheck-VslL6s/data-20260908T084943-RegNMH/events/34e42989-8759-4f6e-b25c-b6d36659904c.ndjson",
+      "exists": false
+    }
+  ],
+  "incidents": [
+    {
+      "description": "An initial Claude attempt was stopped after shell redirection was blocked, before any successful send.",
+      "sessionId": "023a4700-8f9f-44b1-b831-814b9897b967",
+      "invocation": {
+        "executable": "claude",
+        "args": [
+          "-p",
+          "<operator-supplied validation prompt>",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--permission-mode",
+          "default",
+          "--add-dir",
+          "/tmp/oml-m1-hostcheck-VslL6s",
+          "--allowedTools",
+          "Read",
+          "Skill",
+          "Bash(node /home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs:*)",
+          "Bash(OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js node /home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs:*)",
+          "Bash(cat:*)",
+          "Bash(sleep:*)"
+        ],
+        "pid": 536012,
+        "startedAt": "2026-09-08T08:52:16.303Z",
+        "endedAt": "2026-09-08T08:54:04.655Z",
+        "exitCode": 143,
+        "signal": null,
+        "timedOut": false,
+        "permissions": "default with launcher/read/sleep allowlist",
+        "transcript": {
+          "file": "claude.redirection-attempt.transcript.jsonl",
+          "sha256": "a175e40a8d9a4a35266e034eb171d9ea23222dbc33252a619f2c8f9d93aae7ad"
+        },
+        "prompt": {
+          "file": "claude.redirection-attempt.prompt.txt",
+          "sha256": "69bd783b7fc268b04dd39917f5d33da10ccbffca86b56e88c69875a7969ba7df"
+        }
+      }
+    },
+    {
+      "description": "Claude sent successfully, but status discarded the leader conversation when no launcher task was open. A failing regression reproduced it; the fix exposed the existing reply. The same native Claude session resumed with read-only checks and did not resend."
+    },
+    {
+      "description": "An initial Codex invocation combined mutually exclusive --sandbox and --approve-for-me flags. It exited before a native agent session or OMB bot turn.",
+      "invocation": {
+        "executable": "codex",
+        "args": [
+          "exec",
+          "--json",
+          "--sandbox",
+          "workspace-write",
+          "--approve-for-me",
+          "--cd",
+          "/tmp/oml-m1-hostcheck-VslL6s/project",
+          "--add-dir",
+          "/tmp/oml-m1-hostcheck-VslL6s",
+          "<operator-supplied validation prompt>"
+        ],
+        "pid": 549086,
+        "startedAt": "2026-09-08T09:03:04.502Z",
+        "endedAt": "2026-09-08T09:03:04.515Z",
+        "exitCode": 2,
+        "signal": null,
+        "timedOut": false,
+        "permissions": "workspace-write with automatic approval review",
+        "transcript": {
+          "file": "codex.cli-argument-attempt.transcript.jsonl",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "prompt": {
+          "file": "codex.cli-argument-attempt.prompt.txt",
+          "sha256": "d3c0b6b35b02a543104d76739e2e1059d6470f84afde62326f2056815f82ef98"
+        }
+      }
+    },
+    {
+      "description": "The valid Codex session could not reach loopback during its first server doctor inside workspace-write (exit 3). The exact command passed after approval review allowed escalation; subsequent network commands used escalation."
+    }
+  ],
+  "cleanup": {
+    "reconcile": {
+      "ok": true,
+      "verb": "cleanup",
+      "supported": true,
+      "pattern": "codex-linux-sandbox",
+      "orphans": [],
+      "killed": [],
+      "reconcile": {
+        "clean": true,
+        "branch": "main",
+        "defaultBranch": "main",
+        "worktrees": [
+          {
+            "path": "/tmp/oml-m1-hostcheck-VslL6s/project",
+            "head": "0fc03b1ed618584a7a2a9b1d1c2fad9d6e1a3c34",
+            "branch": "main"
+          }
+        ],
+        "taskBranches": [],
+        "dirty": [],
+        "problems": []
+      },
+      "down": null
+    },
+    "down": {
+      "ok": true,
+      "verb": "down",
+      "stopped": true,
+      "supervisorPid": 534440,
+      "healthPid": 534447,
+      "url": "http://127.0.0.1:46783",
+      "orphans": []
+    },
+    "verification": {
+      "checkedAt": "2026-09-08T09:15:02.964Z",
+      "processes": [
+        {
+          "pid": 534440,
+          "exists": false
+        },
+        {
+          "pid": 534447,
+          "exists": false
+        }
+      ],
+      "health": {
+        "reachable": false,
+        "code": "ECONNREFUSED"
+      },
+      "remainingProcessesWithFixtureCwd": []
+    }
+  },
+  "verification": {
+    "regression": {
+      "command": "node --test --test-name-pattern='standalone send' tests/snapshot.test.mjs",
+      "beforeFix": "failed on missing no-run leader field"
+    },
+    "focused": {
+      "command": "node --test tests/snapshot.test.mjs",
+      "passed": 5,
+      "failed": 0,
+      "durationSeconds": 3.441380611
+    },
+    "fullSuite": {
+      "command": "npm test",
+      "passed": 154,
+      "failed": 0,
+      "skipped": 0,
+      "durationSeconds": 52.224853299,
+      "execution": "outside the socket-restricted sandbox after the source fix"
+    },
+    "sourceFiles": [
+      {
+        "file": "skills/openmausbot-launcher/scripts/lib/verbs/run.mjs",
+        "sha256": "46be58fc1521e9baff2dba7b9fc19aa00a7ff3461b2a6ba7fc457bfe65856701"
+      },
+      {
+        "file": "tests/snapshot.test.mjs",
+        "sha256": "f62aa1fd6e1d2e8cbdd13fe343905b5d4fd4237ba5bf0f6a0b03e66022a4db92"
+      }
+    ]
+  }
+}

@@ -117,6 +117,8 @@ line. Relay the lead's own words; do not paraphrase decisions.
 
 - A plain-text question or decision: `omb send "no new dependency, use a
   table"`. It goes to the lead's run thread with a deduplicating send id.
+  With no open run, it uses the lead's current thread; `omb status --tail 10`
+  shows that conversation without declaring a task complete.
 - An approval card (a bot wants to contact a peer): `omb answer --allow
   --request <id>` or `--deny`. A question card: `omb answer --message
   "…" --request <id>`. With one pending card `--request` may be omitted.

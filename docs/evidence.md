@@ -118,3 +118,135 @@ its optional 0.4.2 checks also measure the package's own behavior. The
 score is not a launcher acceptance requirement. The missing host command
 evidence remains in `oml-axr.15`; Decision 0006 records the corrected scope.
 This clarification involved no real bot runs or edits to the package.
+
+## 2026-09-08 — M1 native CLI command checks
+
+The remaining host command checks passed on **Claude Code 2.1.263,
+Codex CLI 0.153.4, and Grok Build 1.0.13**, using Node 24.11.0 and real
+OpenMausBot **0.1.56**. The [structured evidence](validation/2026-09-08-m1-hosts.json)
+contains native session/tool-call IDs, exact executed commands, selected
+JSON results, transcript hashes, send receipts, runtime turns and cleanup.
+This completes `oml-axr.15` and M1 (`oml-axr`).
+
+**What sent the messages.** The operator authored the acknowledgment text
+and launched three native CLI agent sessions, supplying the installed skill
+path and exact commands. Each session's own shell tool executed `omb send`.
+OMB stored those messages as **`role: user`**. That role does not identify
+which CLI executed the command. Execution is established by each native
+tool record correlated with the returned message ID, not by the OMB sender
+label or the host name embedded in the text. The launcher's `deliver`
+posts to `/api/bots/:id/messages`; the pinned server's `startTurn` appends
+ordinary sends with `role: "user"` (`server/index.ts:3835-3849`).
+
+These checks establish command execution and reply observation. They do
+not establish bot-to-bot communication, autonomous interpretation of a
+development brief, or a new full-team workflow. All five user-requested
+bindings were configured and read back; **only Sudo ran**, for exactly
+**three successful OMB turns**. The other four models were not exercised.
+Native host CLI sessions also consumed subscriptions. No launcher task
+was opened (`run: null`); a complete snapshot is not a task-done verdict.
+
+### Fixture, package and bindings
+
+- Temporary Git project: `/tmp/oml-m1-hostcheck-VslL6s/project`, branch
+  `main`, initial empty commit `0fc03b1ed618584a7a2a9b1d1c2fad9d6e1a3c34`.
+- Fresh data directory:
+  `/tmp/oml-m1-hostcheck-VslL6s/data-20260908T084943-RegNMH`.
+- Server: `http://127.0.0.1:46783`; environment
+  `b7181155-e0cc-46b8-96dc-82fad3ad9c65`; owned supervisor/server PIDs
+  `534440`/`534447` (both stopped after the checks).
+- Unchanged external test input:
+  `/home/wsh/Documents/agent-team-devpack/packages/dev-team/dev-team.openmaus.json`,
+  release 0.4.2. SHA-256 before import and after all checks:
+  `48e4ac637c7afb6d9e82f0ecf035967411d9c75e61ac8e0603ee7b62a3255949`.
+- Sudo bot `d28aeaae-ad8c-4895-ae91-0b840b053554`; conversation
+  `2fc5c12e-0891-4bcd-af8b-840e33ba7965` for all three user sends.
+
+| Role | Binding | Execution in these checks |
+|---|---|---|
+| Sudo, leader | `codex/gpt-5.6-luna/high` | three acknowledgment turns |
+| Sage, planner | `claude/claude-sonnet-5/high` | configured only |
+| Vale, plan reviewer | `codex/gpt-5.6-terra/high` | configured only |
+| Nova, implementer | `claude/claude-opus-5/high` | configured only |
+| Quill, code reviewer | `grok/grok-4.6/medium` | configured only |
+
+These are OMB bot bindings. The operator CLI sessions used their existing
+host defaults; their host names do not describe the model answering in OMB.
+The package and launcher contain no new required roster or package path.
+
+Cross-check at the user's suggestion: the supplied package project's
+`~/Documents/agent-team-devpack/docs/setup-guide.md`, sections 3–5, describes
+the lead's full delegation loop and fresh threads for development tasks.
+Its `EVIDENCE.md` day-1 driver proof instead uses one probe bot per engine;
+its final 0.4.2 section records the earlier T12 full-team run. Those are
+different checks from this native CLI sequence. None makes the four unused
+model selections in this new fixture tested. The package repository was
+read only; its older guide and handoff wording were not treated as new
+execution evidence or instructions to change this launcher's acceptance.
+
+### Commands and results
+
+The operator ran `up --fresh --port 46783 --data-dir <temporary-root>/data`,
+`import <supplied-package>`, and `bind` with the five per-bot selections
+above. Exact setup argv and results are in the structured evidence. Each
+native CLI then executed this sequence with direct JSON stdout:
+
+```sh
+# Paths used in this run; these variables only abbreviate the commands here.
+export OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js
+OMB_SCRIPT=/home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs
+M1_PROJECT=/tmp/oml-m1-hostcheck-VslL6s/project
+node "$OMB_SCRIPT" doctor --project "$M1_PROJECT"
+node "$OMB_SCRIPT" doctor --server --project "$M1_PROJECT"
+node "$OMB_SCRIPT" status --tail 10 --project "$M1_PROJECT"
+node "$OMB_SCRIPT" send "This is an authorized launcher transport check, not a development task. Reply with exactly: <nonce> ACK. Do not call tools, delegate, edit files, run Git, or post to a room." --project "$M1_PROJECT"
+node "$OMB_SCRIPT" status --tail 10 --project "$M1_PROJECT"
+```
+
+| Native CLI | Session | Nonce and observed reply | Result |
+|---|---|---|---|
+| Claude Code | `5032fc81-cdca-41b6-abfb-b60fcd177642` | `M1-claude-a67539db ACK` | doctor 5/5, server doctor 10/10; one send; existing reply verified after status fix |
+| Codex CLI | `01a08042-55e4-7021-a025-f78ee5e3a157` | `M1-codex-9b5b4c6c ACK` | doctor 5/5, server doctor 10/10 with escalation; one send and matching reply |
+| Grok Build | `01a08044-7934-7250-b9a1-e9c06cc82e9b` | `M1-grok-f28dd2fa ACK` | doctor 5/5, server doctor 10/10; one send and matching reply |
+
+| Native execution | User message ID | Sudo reply ID | OMB runtime turn ID |
+|---|---|---|---|
+| Claude Code | `c3af3d90-69de-452f-a892-4abf1512aa95` | `29703b13-5da5-421b-97c5-7bf5a8965311` | `ee1dcc70-825c-4d62-9d02-3b9a20a7ed88` |
+| Codex CLI | `19fea1cf-c79f-4f65-9607-528e21228b1e` | `87bcde6d-fd9f-4c42-9072-cfc49437eeb1` | `4798f426-220c-411c-b4c5-20e854738f3d` |
+| Grok Build | `5df65b65-8b7d-4f40-90e8-2a27af571b48` | `1a2fb241-eb2e-4103-a12a-e0887dd270c0` | `5644f540-bcff-4500-a05c-a4f75a042cf1` |
+
+The runtime turns completed successfully at 08:55:41.984Z, 09:05:14.563Z
+and 09:07:44.911Z respectively. All three native reply observations showed
+the matching latest user message, exact acknowledgment and an idle team.
+Raw transcripts remain under `/tmp/oml-m1-hostcheck-VslL6s/logs`; the
+committed extraction excludes transcript reasoning and credentials.
+
+### Failure found, retries and cleanup
+
+The first successful Claude send exposed a launcher bug: with no open
+task, `status --tail 10` discarded the leader/user messages already loaded
+by `snapshot`. Sudo had answered, but the native operator could not observe
+that answer through status. A failing fake-server regression reproduced
+the missing field before the fix. Status now returns that conversation
+with `run: null`, without creating or classifying a task. The same Claude
+session resumed with doctor/server-doctor/status reads and verified the
+existing reply; it did not send again.
+
+Claude ran in default permission mode with command allowlists. An earlier
+attempt to redirect command results to files was blocked before any send;
+direct stdout worked. The first Codex launch combined incompatible CLI
+flags and exited before an agent session or bot turn. In the corrected
+native session, workspace-write blocked loopback access during server
+doctor (exit 3); the exact command passed with approved escalation, as did
+subsequent network commands. Grok used auto permission mode. No global
+host configuration was changed. These results do not establish unrestricted
+Codex sandbox networking or long SSE watch support.
+
+Focused snapshot tests passed **5/5** in 3.441 s. The full `npm test` suite
+after the source fix passed **154/154**, zero failures or skips, in
+52.225 s outside the socket-restricted sandbox. `cleanup` found no launcher
+orphan candidates, a clean `main`, one worktree and no task branches.
+`down` stopped the owned server; independent checks found both recorded
+PIDs absent, health returning `ECONNREFUSED`, and no process with a cwd
+under the temporary fixture. No pushes occurred. T12's archive and 8/9
+package result remain unchanged; this check did not repeat that task.

@@ -9,9 +9,9 @@ the hosts' own documentation and are marked so.
 
 | Host | Install | How the agent runs the driver | Status |
 |---|---|---|---|
-| Claude Code 2.1.x | `ln -s <repo>/skills/openmausbot-launcher ~/.claude/skills/openmausbot-launcher` (or `.claude/skills/` in a project) | Bash: `${CLAUDE_SKILL_DIR}/scripts/omb.mjs <verb> …`; a permission prompt shows the script path | verified 2026-09-08 |
-| Grok Build 1.0.x | none: it reads `~/.claude/skills` and `.claude/skills` | bash tool, same path | verified 2026-09-08 |
-| Codex CLI 0.153.x | `ln -s <repo>/skills/openmausbot-launcher ~/.agents/skills/openmausbot-launcher` (also read: `~/.codex/skills`, a project's `.agents/skills`); `agents/openai.yaml` makes it `$openmausbot-launcher` | shell inside the workspace-write sandbox | verified 2026-09-08 for reads; see "Codex sandbox" |
+| Claude Code 2.1.263 | `ln -s <repo>/skills/openmausbot-launcher ~/.claude/skills/openmausbot-launcher` (or `.claude/skills/` in a project) | Bash: `${CLAUDE_SKILL_DIR}/scripts/omb.mjs <verb> …`; a permission prompt shows the script path | doctor, server doctor, status, send and reply verified 2026-09-08 |
+| Grok Build 1.0.13 | none: it reads `~/.claude/skills` and `.claude/skills` | bash tool, same path | doctor, server doctor, status, send and reply verified 2026-09-08 |
+| Codex CLI 0.153.4 | `ln -s <repo>/skills/openmausbot-launcher ~/.agents/skills/openmausbot-launcher` (also read: `~/.codex/skills`, a project's `.agents/skills`); `agents/openai.yaml` makes it `$openmausbot-launcher` | shell with per-command escalation for loopback HTTP when restricted | doctor, server doctor, status, send and reply verified 2026-09-08; see "Codex sandbox" |
 | DeepSeek Harness (dsh) | `~/.agents/skills/openmausbot-launcher` (tier 500; a project's `.agents/skills` is tier 200; discovery is not recursive) | shell | documented only |
 | OpenClaw | `~/.agents/skills/openmausbot-launcher` (read in the default state) or `openclaw skills install <repo>/skills/openmausbot-launcher`; then allow the script: `openclaw approvals allowlist add --agent "<agent>" <abs>/scripts/omb.mjs` | `exec` with `host: gateway` and an explicit `timeoutSeconds` | documented only |
 | Hermes Agent | copy into `~/.hermes/skills/openmausbot-launcher`, or add `~/.agents/skills` to `skills.external_dirs` in `~/.hermes/config.yaml`; project installs need `hermes skills trust` | terminal: `${HERMES_SKILL_DIR}/scripts/omb.mjs …` | documented only |
@@ -44,20 +44,33 @@ quiet window before it can declare a run settled, so never go below
 
 ## Codex sandbox (verified 2026-09-08)
 
-Codex's workspace-write sandbox denies listening sockets: `up` fails with
+The recorded Codex workspace-write sandbox denies listening sockets: `up` fails with
 `the server exited during startup` and the log shows
 `listen EPERM: operation not permitted`. Two ways out:
 
-1. Run `up` as an escalated command (Codex asks for approval to run outside
-   the sandbox). Later commands still follow that host's filesystem and
-   process permissions; only the recorded reads below are verified.
+1. Run `up` as an escalated command through the host's approval path.
+   Network commands may also need escalation: the native M1 check's first
+   `doctor --server` could not reach loopback (exit 3); the same command
+   passed outside the sandbox, followed by `status`, `send` and reply
+   observation through the native host's shell tools.
 2. Start the server elsewhere (a terminal, a `systemd --user` unit) and run
    `up` to attach; `down` then refuses, stop it where you started it.
 
-Codex and Grok discovery/status reads were recorded after the spike. Long
-Codex SSE watches and the formal doctor/status/send sequence on all three
-hosts remain unverified. OpenClaw, Hermes, and DSH are documentation only;
-no additional host verification was performed during M1.1.
+All three native hosts executed the formal doctor/status/send sequence in
+a fresh temporary project on real OpenMausBot 0.1.56. The operator supplied
+each acknowledgment message; the host's shell tool invoked the driver,
+and OpenMausBot stored the send as `role: user`. This verifies host command
+execution, not a distinct OMB sender identity or bot-to-bot communication.
+Only Sudo ran; the other four requested model bindings were read back but
+not exercised. No task was opened. See `docs/evidence.md` for command and
+session records, retries, and the standalone-status fix.
+
+Claude's default permission mode with explicit command allowlists accepted
+direct JSON stdout; an initial attempt to redirect results to files was
+blocked before any send. Codex used workspace-write with approval review;
+Grok used its auto permission mode. These are the tested configurations.
+Long Codex SSE watches remain unverified. OpenClaw, Hermes, and DSH are
+documentation only; M1.1 itself performed no additional host checks.
 
 ## Phone mode with OpenClaw on the same machine (documented only)
 
