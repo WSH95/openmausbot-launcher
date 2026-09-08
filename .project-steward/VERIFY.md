@@ -8,6 +8,64 @@ Run the relevant checks before marking work as verified in `HANDOFF.md`.
 | Tests | `npm test` | all pass |
 | Lint | `none` | clean |
 
+## M1 fix pass (2026-09-08)
+
+Node v24.11.0, worktree clean at `6f0cd58`. `npm test`: **197 passed, 0
+failed, 0 skipped** (~52-57 s; 154 before the pass). `node --test
+tests/docs.test.mjs tests/size.test.mjs`: 4/4. `git diff --check`: clean.
+
+One flake observed, filed as `oml-oqo` and **not** fixed in this pass (it is
+not one of the 26 findings): `tests/dry-run.test.mjs` "watch --dry-run
+--nudge neither checkpoints nor sends" failed in 2 of 6 full-suite runs on a
+loaded machine with `error: "observation deadline reached"` instead of
+`checkpointed: false`. The cause is a real driver defect, not a test bug:
+`watchRun` guards the deadline before each snapshot but not during one
+(`lib/watch.mjs:149` calls `snapshot()` unguarded), so a budget that expires
+mid-snapshot escapes as exit 1 with a hintless error instead of the exit 4
+timeout result. The test's 0.1 s budget makes it likely; a real 100 s watch
+needs a slow server at the very end of its budget.
+
+Fix commits, one per finding (test first, Conventional Commit):
+
+| Finding | Bead | Commit |
+|---|---|---|
+| 26 | `oml-nqo.30` | `ddcafb5` fix(session): report a blocked network as "cannot reach <url>" with a hint per cause |
+| 24 | `oml-nqo.28` | `0da606c` fix(lifecycle): find the sandbox listen signature anywhere in serve.log and name the line |
+| 23 | `oml-nqo.27` | `a868593` fix(lifecycle): refuse a port whose webhook neighbour is taken and name a receiver port |
+| 25 + 9 | `oml-nqo.29`, `oml-nqo.9` | `f911c9a` fix(state): resolve info/exclude through git and add the entries on import --adopt |
+| 1 | `oml-nqo.1` | `967cef3` feat(state): register the state --show verb |
+| 22 + 13 | `oml-nqo.26`, `oml-nqo.13` | `c37ad2b` feat(bind): per-bot --approval-for and --peer-approval; roster never prints undefined |
+| 11 | `oml-nqo.11` | `221ce8f` fix(run): merge the watch checkpoint over lastEval and drop the interrupt lock |
+| 21 | `oml-nqo.25` | `880a8e4` fix(status,report): report the carried flag |
+| 8 | `oml-nqo.8` | `d8fa972` feat(send): report duplicate deliveries and add --again |
+| 12 | `oml-nqo.12` | `17d692a` fix(down): name the live pids and the manual recovery when the record no longer verifies |
+| 14 | `oml-nqo.14` | `f388119`, `aec95ab`, `4aeb9f2`, `e35107d`, `4497f05` (up data dir, defaultBranchSource, receiptsWatched, fsynced state write, project.dir under --state) |
+| 6 | `oml-nqo.6` | `aa6e253` feat(report): read a Codex lead's native log for the 0.4.2 checks |
+| 7 | `oml-nqo.7` | `10788a2` fix(fake): clamp the message page limit to 200 like pageSize() |
+| 10 | `oml-nqo.10` | `406944c` fix(facts): take test and setup commands only from the operator; time out bd show |
+| 15 | `oml-nqo.15` | `99ec501` test(helpers): remove temp dirs at exit and strip ambient OMB_* from the driver env |
+| 16 | `oml-nqo.16` | `481b79b`, `26b9ed6`, `2c68579`, `d3f8443`, `996b1db`, `7d7838c`, `80e3420` (cli, insecure-http, remote status, SSE, config, git, dead code) |
+| 17 | `oml-nqo.17` | `8706b97` docs(lib): refresh stale step comments and the echo-prefix citation |
+| 19 | `oml-nqo.19` | `8d699d5` docs(evidence): record the stray codex-linux-sandbox kill |
+| 20 | `oml-nqo.20` | `070e274` docs(evidence): M1 fix pass, full-team validation T13 on the slugkit clone |
+| 18 | `oml-nqo.18` | `6f0cd58` docs: resolve the M1 review's document drift |
+
+Findings 2, 4 and 5 closed on the tier 2/3 evidence with no code; finding 3
+on tier 3 plus T13.
+
+T13 (real OpenMausBot 0.1.56, the user's five-model roster, Codex lead): run
+`6b0b7b17800c3d64`, incomplete, 9 turns (Sudo 5, Sage 1, Vale 1, Nova 1,
+Quill 2 1), 16 min 38 s dispatch to DONE, 7 Grok cards allowed once,
+`--check-042` 8/9 with the native-log checks scored from the Codex JSON-RPC
+log (`worktree-after-approval` unknown: the reviewer's verdict line was
+ambiguous, not a parser failure), merge `--ff-only` at `0918e0e`, record
+commit `d85cae5`, clone tests 85 OK (75 before), `cleanup --kill` found no
+orphan, `down` verified (pids gone, 8899 and 8900 refuse), package SHA-256
+unchanged. Record: `docs/evidence.md` "M1 fix pass, full-team validation"
+and `docs/validation/2026-09-08-fix-pass-t13.json`. Devpack: `EVIDENCE.md`
+pointer committed as `ab94d6d`; nothing under `packages/` touched. Stray pid
+426150 killed and recorded. No push.
+
 ## M1 review checkpoint (2026-09-08)
 
 Independent review and test of M1 at HEAD `b1a1f77` (Beads epic `oml-nqo`,

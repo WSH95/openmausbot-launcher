@@ -3,6 +3,26 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-08 — M1 fix pass complete: 26 findings fixed, T13 full-team run, epic closed
+Fixed every finding of the M1 review (`oml-nqo`), test first and one commit
+each (`ddcafb5`..`6f0cd58`); suite 197 passed (154 before). Closed the
+evidence findings on the tier 2/3 records. Killed the stray
+`codex-linux-sandbox` pid 426150 at the user's decision after re-verifying
+its identity; recorded in `docs/evidence.md`. Ran the full-team validation
+T13 (max_words) on the slugkit clone through the fixed driver with the
+user's roster (Codex lead, Sonnet, Codex, Opus, Grok): run
+`6b0b7b17800c3d64`, incomplete, 9 turns, 16 min 38 s, 7 Grok cards allowed
+once, one operator `send` that unblocked the merge gate, `--check-042` 8/9
+scored from the Codex lead's native log, reconcile clean, cleanup found no
+orphan, `down` verified. Evidence in `docs/evidence.md` and
+`docs/validation/2026-09-08-fix-pass-t13.json`; devpack `EVIDENCE.md`
+pointer committed locally (`ab94d6d`) and `atw-07l.27` noted — the gate is
+met. Documentation drift resolved (README, design, evidence corrections,
+references, AGENTS.md, bead titles) with `tests/docs.test.mjs` as the guard.
+`oml-nqo` closed. One new defect found by the pass's own suite runs and filed
+unfixed as `oml-oqo` (`watch` exits 1 instead of 4 when its budget expires
+inside a snapshot). No push.
+
 ### 2026-09-08 — M1 review complete: all four tiers, 26 findings, no repairs
 Finished the independent review and test of M1 (`oml-nqo`). Tier 3 spent
 **5 Sudo turns and 1 Sage turn** on run `d0a01943d403c7af` against real
