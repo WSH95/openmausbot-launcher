@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { startFake, makeRepo, runOmb, ROOT, sleep } from "./helpers.mjs";
 import { statePaths, loadState, updateState } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
-import { relevantFrame, mergeCheckpoint } from "../skills/openmausbot-launcher/scripts/lib/watch.mjs";
+import { relevantFrame, mergeCheckpoint, watchRun } from "../skills/openmausbot-launcher/scripts/lib/watch.mjs";
+import { createClient } from "../skills/openmausbot-launcher/scripts/lib/http.mjs";
 
 const PKG = path.join(ROOT, "tests", "fixtures", "dev-team.package.json");
 let env = { OMB_TOKEN: "" };
@@ -165,4 +166,19 @@ test("the watch checkpoint keeps a lastChangeAt another writer advanced", async 
   const r = await p;
   assert.equal(r.json.checkpointed, true, r.stdout);
   assert.equal(loadState(paths).task.lastEval.lastChangeAt, bumped);
+});
+
+test("a receipts directory that cannot be watched is logged and reported, never swallowed", async (t) => {
+  const { f, dir, team } = await setup(t);
+  const client = createClient({ url: f.url });
+  const task = loadState(statePaths(dir)).task;
+  const logs = [];
+  const r = await watchRun({ client, team, task, dataDir: path.join(dir, "absent-data"), maxSeconds: 0.5, quietMs: 100, log: (m) => logs.push(m) });
+  assert.equal(r.receiptsWatched, false);
+  assert.ok(logs.some((m) => /^receipts: ENOENT/.test(m)), logs.join("\n"));
+  assert.equal((await watchRun({ client, team, task, dataDir: f.dataDir, maxSeconds: 0.5, quietMs: 100 })).receiptsWatched, true);
+  const local = await runOmb(["watch", "--project", dir, "--max-seconds", "0.5", ...fast], { env });
+  assert.equal(local.json.receiptsWatched, true, local.stdout);
+  const remote = await runOmb(["watch", "--project", dir, "--max-seconds", "0.5", "--remote", ...fast], { env });
+  assert.equal(remote.json.receiptsWatched, false, "remote observation never watches a local directory");
 });

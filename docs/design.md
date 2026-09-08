@@ -275,7 +275,7 @@ Notifications are wake-ups only (a bot's notifications can be off,
    the truth; the checkpoint cursor is the `id:` of the last frame actually
    applied, never `hello.cursor` (which is the head before replay,
    `index.ts:8582-8596`). A polling snapshot runs every `--poll` seconds;
-   the receipts file is `fs.watch`ed best effort. On a stream drop or idle
+   the receipts file is `fs.watch`ed best effort (`receiptsWatched: false` in the result, plus a `--verbose` line, when the directory cannot be watched). On a stream drop or idle
    watchdog: 2 s backoff, reconnect with the cursor, polling-only after
    three failures; a reconnect that reports `resumed:false` resets quiet
    evidence.

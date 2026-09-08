@@ -126,7 +126,10 @@ export async function watchRun({ client, team, task, dataDir = null, maxSeconds 
   };
   const streamTask = runStream();
   let receiptsWatcher = null;
-  if (dataDir) { try { receiptsWatcher = fs.watch(dataDir, (_ev, name) => { if (name === "delegation-receipts.json" && !expired()) invalidate(); }); } catch {} }
+  if (dataDir) {
+    try { receiptsWatcher = fs.watch(dataDir, (_ev, name) => { if (name === "delegation-receipts.json" && !expired()) invalidate(); }); }
+    catch (e) { log(`receipts: ${e.message}`); }
+  }
 
   let snap = null; let ev = null; let sig = null;
   let lastSnapAt = null; let outcome = "timeout";
@@ -203,7 +206,7 @@ export async function watchRun({ client, team, task, dataDir = null, maxSeconds 
   }
   return {
     outcome, ev, snap, sig, changes, cursor, nudged, timedOut: outcome === "timeout", elapsedSec: Math.round((performance.now() - start) / 1000),
-    changedSinceReport: !sameSig(reported, sig), pollingOnly, lastChangeAt,
+    changedSinceReport: !sameSig(reported, sig), pollingOnly, receiptsWatched: receiptsWatcher !== null, lastChangeAt,
     watermarks: { state: ev.state, cursor, lastLeadMessageId: snap.leadText?.id ?? null, lastChangeAt, quietSince: null, outcomes: mergeOutcomes(snap.outcomes), evidence: evidenceOf(snap), lastReported: sig },
   };
 }
