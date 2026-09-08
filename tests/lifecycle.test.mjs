@@ -236,3 +236,13 @@ test("down after an environment change names the live pids and the manual recove
   r = await runOmb(["down", "--project", dir], { env: { OMB_TOKEN: "" } });
   assert.equal(r.code, 3); assert.equal(r.json.hint, "if that server is gone, run up to record a new one");
 });
+
+test("up follows the data-dir precedence: a recorded state dir beats OMB_DATA_DIR", { skip: !linux && "needs /proc" }, async () => {
+  const { dir } = makeRepo();
+  const recorded = path.join(tmpDir("oml-recorded-"), "data");
+  const ambient = path.join(tmpDir("oml-ambient-"), "data");
+  await updateState(statePaths(dir), (d) => { d.server = { url: "http://127.0.0.1:1", owned: false, dataDir: recorded }; return d; });
+  const r = await runOmb(["up", "--project", dir, "--port", String(await freePortPair()), "--dry-run"], { env: { OMB_BIN: FAKE, OMB_TOKEN: "", OMB_DATA_DIR: ambient } });
+  assert.equal(r.code, 0, r.stdout);
+  assert.equal(r.json.dataDir, recorded);
+});

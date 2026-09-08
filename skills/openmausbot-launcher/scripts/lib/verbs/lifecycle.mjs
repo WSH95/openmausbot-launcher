@@ -101,7 +101,7 @@ verb("up", {
     const port = flags.port !== undefined ? Number(flags.port) : Number(new URL(cfg.url).port || 8799);
     if (!Number.isInteger(port) || port <= 0) throw new Fail(EXIT.USAGE, `bad port ${flags.port}`);
     const url = `http://127.0.0.1:${port}`;
-    const baseDataDir = path.resolve(flags["data-dir"] ?? cfg.env.OMB_DATA_DIR ?? cfg.state?.server?.dataDir ?? cfg.dataDir);
+    const baseDataDir = cfg.dataDir; // flags > state > OMB_DATA_DIR > default, config.mjs:69
     let dataDir = flags.fresh ? srv.freshDataDir(baseDataDir, { dryRun: true }) : baseDataDir;
     const client = createClient({ url });
     const recorded = cfg.state?.server;
