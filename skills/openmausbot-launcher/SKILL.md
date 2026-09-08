@@ -29,7 +29,9 @@ the working directory); the driver keeps its state in
 `--dry-run` previews actions without HTTP, process, Git, or state mutations;
 it never runs the project's tests or creates a lock database.
 
-Exit codes: 0 ok; 1 network or HTTP error; 2 usage; 3 precondition
+Exit codes: 0 ok; 1 network or HTTP error (`cannot reach <url>: <cause>`
+names the cause: `ECONNREFUSED` means nothing listens there, `EPERM` means
+the shell's sandbox blocks outbound connections); 2 usage; 3 precondition
 (server down or not owned, bot busy, repository not reconciled, state
 missing or stale); 4 the time budget ran out while the run continues;
 5 the user is needed; 6 stalled or failed. Read `error` and `hint` in the
@@ -179,8 +181,10 @@ only when the user says so, with `reconcile --remove <slug>`.
 
 Claude Code and Grok Build: `--max-seconds 100`, or 570 in a background
 shell. Codex: `--max-seconds 100`; `up` needs an escalated command
-because the sandbox denies listening sockets. OpenClaw: `--max-seconds
-1500` in the background, or an automation that announces to Telegram.
+because the sandbox denies listening sockets, and so does every live verb
+when the sandbox blocks loopback (`cannot reach … EPERM`). OpenClaw:
+`--max-seconds 1500` in the background, or an automation that announces to
+Telegram.
 Hermes: `--max-seconds 240` from a cron adapter. Install paths,
 allowlists, and the recipes are in `references/hosts.md`.
 

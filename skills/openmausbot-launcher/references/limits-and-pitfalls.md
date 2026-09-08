@@ -81,7 +81,10 @@ than none: the hook fires in a degenerate state (dev pack `HANDOFF.md`,
   there dies in about 236 ms with `listen EPERM: operation not permitted
   127.0.0.1:<port>` in `serve.log` (this repository's `docs/evidence.md`,
   2026-09-08). Run `up` outside the sandbox with an approved escalation, or
-  start the server elsewhere and let `up` report `attached`.
+  start the server elsewhere and let `up` report `attached`. The same sandbox
+  can block outbound loopback connections; the driver then exits 1 `cannot
+  reach http://127.0.0.1:<port>: EPERM` with the escalation hint, never exit 3
+  "identity could not be verified".
 - The record step (`bd`, `git commit`) runs inside the lead's CLI sandbox. A
   failure there leaves the root dirty, and the next task's `reconcile --check`
   is what reports it.

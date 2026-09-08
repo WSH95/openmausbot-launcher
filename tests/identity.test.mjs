@@ -4,8 +4,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { startFake, makeRepo, runOmb, ROOT, FAKE, freePort, sleep } from "./helpers.mjs";
 import { statePaths, loadState, updateState, withLock, commitState } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
-import { procInfo, freshDataDir } from "../skills/openmausbot-launcher/scripts/lib/server.mjs";
+import { procInfo, freshDataDir, unreachable } from "../skills/openmausbot-launcher/scripts/lib/server.mjs";
 import { serverIdentity } from "../skills/openmausbot-launcher/scripts/lib/session.mjs";
+import { Fail } from "../skills/openmausbot-launcher/scripts/lib/cli.mjs";
 
 const PKG = path.join(ROOT, "tests/fixtures/dev-team.package.json");
 async function setup(t) {
@@ -132,4 +133,25 @@ test("watch checkpoints wait at most one second for another writer", async (t) =
   const r = await run(["watch", "--max-seconds", "0.2"]);
   assert.equal(r.json.checkpointed, false, r.stdout);
   assert.ok(performance.now() - start < 1800);
+});
+
+test("a closed port is a network failure, exit 1 with the cause, not an identity failure", async (t) => {
+  const { run } = await setup(t);
+  const closed = await freePort();
+  const r = await run(["status", "--url", `http://127.0.0.1:${closed}`]);
+  assert.equal(r.code, 1, r.stdout);
+  assert.equal(r.json.error, `cannot reach http://127.0.0.1:${closed}: ECONNREFUSED`);
+  assert.equal(r.json.hint, `nothing is listening at http://127.0.0.1:${closed}: run up, or check --url`);
+});
+
+test("unreachable maps the syscall code to the operator's hint", () => {
+  const net = (message) => Object.assign(new Error(message), { network: true });
+  const eperm = unreachable("http://127.0.0.1:8905", net("GET /api/health: EPERM"));
+  assert.ok(eperm instanceof Fail); assert.equal(eperm.code, 1);
+  assert.equal(eperm.message, "cannot reach http://127.0.0.1:8905: EPERM");
+  assert.equal(eperm.hint, "the shell's sandbox blocks outbound connections: run this command outside the sandbox (escalation), or use --remote against a reachable URL");
+  assert.equal(unreachable("http://127.0.0.1:8905", net("GET /api/health: EACCES")).hint, eperm.hint);
+  assert.equal(unreachable("http://127.0.0.1:1", net("GET /api/health: ECONNREFUSED")).hint, "nothing is listening at http://127.0.0.1:1: run up, or check --url");
+  assert.equal(unreachable("http://127.0.0.1:1", net("GET /api/health: no answer within 12 ms")).message, "cannot reach http://127.0.0.1:1: no answer within 12 ms");
+  assert.equal(unreachable("http://127.0.0.1:1", net("GET /api/health: no answer within 12 ms")).hint, "the server did not answer within 12 ms");
 });

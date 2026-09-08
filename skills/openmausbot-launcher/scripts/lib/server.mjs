@@ -7,6 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { EXIT, Fail } from "./cli.mjs";
+import { HttpError } from "./http.mjs";
 
 export const STRIPPED_ENV = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "XAI_API_KEY", "OMB_TOKEN"];
 export const hasProc = () => process.platform === "linux" && fs.existsSync("/proc/self/stat");
@@ -26,11 +27,38 @@ export function procInfo(pid) {
   } catch { return null; }
 }
 
+/** One GET whose failure keeps its cause: a network error stays distinguishable from an HTTP status. */
+export async function probe(client, route, opts = {}) {
+  try { return { ok: true, body: await client.get(route, opts) }; }
+  catch (e) {
+    if (e.network) return { ok: false, network: e };
+    if (e instanceof HttpError) return { ok: false, status: e.status, body: e.body, error: e };
+    throw e;
+  }
+}
+
+/** A network failure from http.mjs told as the operator's story: the URL, the cause, and what to do about it. */
+export function unreachable(url, err) {
+  const cause = String(err?.message ?? err).replace(/^[A-Z]+ \S+: /, "");
+  const code = /\b(E[A-Z]{3,})\b/.exec(cause)?.[1] ?? null;
+  const within = /within (\d+) ms/.exec(cause)?.[1];
+  const hint = code === "ECONNREFUSED" ? `nothing is listening at ${url}: run up, or check --url`
+    : code === "EPERM" || code === "EACCES" ? "the shell's sandbox blocks outbound connections: run this command outside the sandbox (escalation), or use --remote against a reachable URL"
+    : within ? `the server did not answer within ${within} ms` : undefined;
+  return new Fail(EXIT.ERROR, `cannot reach ${url}: ${cause}`, hint ? { hint } : {});
+}
+
 export async function health(client, opts = {}) {
-  try { const h = await client.get("/api/health", opts); return h && h.app === "openmausbot" ? h : null; } catch (e) { if (e.network) return null; throw e; }
+  const p = await probe(client, "/api/health", opts);
+  if (p.ok) return p.body && p.body.app === "openmausbot" ? p.body : null;
+  if (p.network) return null;
+  throw p.error;
 }
 export async function environment(client, opts = {}) {
-  try { return await client.get("/.well-known/openmausbot/environment", opts); } catch (e) { if (e.network) return null; throw e; }
+  const p = await probe(client, "/.well-known/openmausbot/environment", opts);
+  if (p.ok) return p.body;
+  if (p.network) return null;
+  throw p.error;
 }
 
 export async function waitHealthy(client, timeoutMs, isDead) {
