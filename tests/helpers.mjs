@@ -29,7 +29,14 @@ export async function freePortPair() {
   }
 }
 
-export function tmpDir(prefix = "oml-") { return fs.mkdtempSync(path.join(os.tmpdir(), prefix)); }
+const created = [];
+/** A fresh directory under the OS temp dir. Every test file is its own process under `node --test`,
+ * so the exit hook below removes this file's directories; set OML_KEEP_TMP=1 to keep them for a look. */
+export function tmpDir(prefix = "oml-") { const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix)); created.push(dir); return dir; }
+process.on("exit", () => {
+  if (process.env.OML_KEEP_TMP === "1") return;
+  for (const dir of created) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch {} }
+});
 
 /** A fake OpenMausBot with a fast heartbeat and a fresh data dir. */
 export async function startFake(opts = {}) {
@@ -46,10 +53,11 @@ export function makeRepo(opts = {}) {
   return { dir, git };
 }
 
-/** Run the driver and parse its JSON stdout. */
+/** Run the driver and parse its JSON stdout. No ambient OMB_* setting reaches the child; only `opts.env` does. */
 export function runOmb(args, opts = {}) {
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("OMB_")));
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [OMB, ...args], { cwd: opts.cwd ?? ROOT, env: { ...process.env, ...opts.env }, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(process.execPath, [OMB, ...args], { cwd: opts.cwd ?? ROOT, env: { ...env, ...opts.env }, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = ""; let stderr = "";
     child.stdout.on("data", (c) => { stdout += c; });
     child.stderr.on("data", (c) => { stderr += c; });
