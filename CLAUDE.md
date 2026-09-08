@@ -27,35 +27,26 @@ bd close <id>         # Complete work
 
 **Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
 
-## Agent Context Profiles
+## Repository Git policy
 
-The managed Beads block is task-tracking guidance, not permission to override repository, user, or orchestrator instructions.
+The user explicitly permits local Git operations as part of authorized work:
+inspection, staging, commits, branches, worktrees, rebases, and local merges.
+Create Conventional Commits at tested semantic checkpoints without asking
+for separate commit permission.
 
-- **Conservative (default)**: Use `bd` for task tracking. Do not run git commits, git pushes, or Dolt remote sync unless explicitly asked. At handoff, report changed files, validation, and suggested next commands.
-- **Minimal**: Keep tool instruction files as pointers to `bd prime`; use the same conservative git policy unless active instructions say otherwise.
-- **Team-maintainer**: Only when the repository explicitly opts in, agents may close beads, run quality gates, commit, and push as part of session close. A current "do not commit" or "do not push" instruction still wins.
+Every `git push` requires the user's explicit permission for that push,
+including pushes by agents, automation, helpers, and force-pushes. Permission
+to implement, commit, or merge does not authorize a push. The absence of a
+remote does not prohibit local Git work. This repository policy overrides
+Beads' conservative/minimal Git defaults.
 
 ## Session Completion
 
-This protocol applies when ending a Beads implementation workflow. It is subordinate to explicit user, repository, and orchestrator instructions.
+1. Track remaining work in Beads.
+2. Run relevant quality gates if code changed.
+3. Close completed issues with `bd close` and update unfinished work.
+4. Review local changes and commit a coherent, verified checkpoint.
+5. Hand off the result and validation. Obtain explicit user permission
+   before any `git push`; never push automatically during session close.
 
-1. **File issues for remaining work** - Create beads for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **Handle git/sync by active profile**:
-   ```bash
-   # Conservative/minimal/default: report status and proposed commands; wait for approval.
-   git status
-
-   # Team-maintainer opt-in only, unless current instructions forbid it:
-   git pull --rebase
-   git push
-   git status
-   ```
-5. **Hand off** - Summarize changes, validation, issue status, and any blocked sync/commit/push step
-
-**Critical rules:**
-- Explicit user or orchestrator instructions override this Beads block.
-- Do not commit or push without clear authority from the active profile or the current user request.
-- If a required sync or push is blocked, stop and report the exact command and error.
 <!-- END BEADS INTEGRATION -->

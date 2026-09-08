@@ -1,3 +1,4 @@
+import { stateCommand, requireSameEnvironment, requireDataDir, serverIdentity, protectServerSelection, runContext } from "../session.mjs";
 // doctor, up, down (design: the verb table, "Modes", and lib/server.mjs).
 import fs from "node:fs";
 import path from "node:path";
@@ -38,7 +39,7 @@ verb("doctor", {
     const checks = [];
     const check = (id, ok, required, detail) => { checks.push({ id, ok, required, detail }); };
     const major = Number(process.versions.node.split(".")[0]);
-    const needNode = cfg.mode === "local" ? 24 : 22;
+    const needNode = 24;
     check("node", major >= needNode, true, `node ${process.versions.node}; ${cfg.mode} mode needs ${needNode}+`);
     let bin = null;
     if (cfg.mode === "local") {
@@ -95,16 +96,16 @@ verb("doctor", {
 
 verb("up", {
   options: { port: { type: "string" }, fresh: { type: "boolean" }, label: { type: "string" }, "ask-timeout-ms": { type: "string" }, timeout: { type: "string" } },
-  handler: async ({ flags }) => {
-    const cfg = resolveConfig(flags);
+  handler: stateCommand(async ({ flags, cfg, save }) => {
     if (cfg.mode === "remote") throw new Fail(EXIT.PRECONDITION, "up runs on the machine where OpenMausBot runs", { hint: "start the server there, then attach with up on that machine" });
     const port = flags.port !== undefined ? Number(flags.port) : Number(new URL(cfg.url).port || 8799);
     if (!Number.isInteger(port) || port <= 0) throw new Fail(EXIT.USAGE, `bad port ${flags.port}`);
     const url = `http://127.0.0.1:${port}`;
     const baseDataDir = path.resolve(flags["data-dir"] ?? cfg.env.OMB_DATA_DIR ?? cfg.state?.server?.dataDir ?? cfg.dataDir);
-    const dataDir = flags.fresh ? srv.freshDataDir(baseDataDir.replace(/-\d{8}-\d{4}$/, "")) : baseDataDir;
+    let dataDir = flags.fresh ? srv.freshDataDir(baseDataDir, { dryRun: true }) : baseDataDir;
     const client = createClient({ url });
     const recorded = cfg.state?.server;
+    await protectServerSelection(cfg, url);
     if (recorded?.owned && recorded.url === url) {
       const v = await srv.verifyOwned(recorded, client);
       if (v.ok) {
@@ -115,16 +116,17 @@ verb("up", {
     const h = await srv.health(client);
     if (h) {
       if (flags.fresh) throw new Fail(EXIT.PRECONDITION, `port ${port} is in use by a server this launcher does not own`, { hint: "choose another --port or drop --fresh to attach" });
-      const env = await srv.environment(client);
-      const info = srv.procInfo(h.pid);
-      const server = { url, owned: false, healthPid: h.pid, healthStart: info?.startTicks ?? null, environmentId: env?.environmentId ?? null, dataDir: cfg.dataDirReadable ? cfg.dataDir : null, version: env?.version ?? null, attachedAt: new Date().toISOString() };
-      await updateState(cfg.paths, (doc) => { doc.server = server; return doc; });
+      const identity = await serverIdentity({ ...cfg, url }, client);
+      const server = { url, owned: false, healthPid: identity.healthPid, healthStart: identity.healthStart, environmentId: identity.environmentId, dataDir: cfg.dataDirReadable ? cfg.dataDir : null, version: identity.version ?? null, attachedAt: new Date().toISOString() };
+      if (cfg.dryRun) return { result: { dryRun: true, status: "attached", changed: false, ...server }, brief: `up · dry run · would attach ${url}` };
+      await save( (doc) => { doc.server = server; return doc; });
       return { result: { status: "attached", changed: true, ...server }, brief: `up · attached · ${url} · pid ${h.pid}` };
     }
     if (!srv.hasProc()) throw new Fail(EXIT.PRECONDITION, "starting a server needs Linux (/proc identities)", { hint: "start openmausbot serve yourself, then run up to attach" });
     const bin = resolveBinary(cfg.env);
     if (!bin.command) throw new Fail(EXIT.PRECONDITION, bin.error);
     const askTimeoutMs = num(flags["ask-timeout-ms"], 600_000);
+    if (flags.fresh && !cfg.dryRun) dataDir = srv.freshDataDir(baseDataDir);
     const log = srv.serveLogPath(dataDir);
     const timeoutMs = num(flags.timeout, 60) * 1000;
     if (cfg.dryRun) {
@@ -142,15 +144,14 @@ verb("up", {
       });
     }
     const server = await srv.proveOwnership({ supervisorPid: sp.pid, client, dataDir, url, version: bin.version, askTimeoutMs, log });
-    await updateState(cfg.paths, (doc) => { doc.server = server; return doc; });
+    await save( (doc) => { doc.server = server; return doc; });
     return { result: { status: "owned", changed: true, ...server }, brief: `up · started · ${url} · pid ${server.healthPid} · data ${dataDir}` };
-  },
+  }),
 });
 
 verb("down", {
   options: { timeout: { type: "string" } },
-  handler: async ({ flags }) => {
-    const cfg = resolveConfig(flags);
+  handler: stateCommand(async ({ flags, cfg, save }) => {
     const server = cfg.state?.server;
     if (!server) throw new Fail(EXIT.PRECONDITION, "no server is recorded in the state", { hint: "nothing to stop; up records the server it starts" });
     if (!server.owned) throw new Fail(EXIT.PRECONDITION, "the recorded server is attached, not owned", { hint: "stop it where you started it" });
@@ -160,8 +161,8 @@ verb("down", {
     if (cfg.dryRun) return { result: { dryRun: true, signal: "SIGTERM", supervisorPid: server.supervisorPid }, brief: `down · dry run · SIGTERM ${server.supervisorPid}` };
     const stopped = await srv.stopOwned(server, { timeoutMs: num(flags.timeout, 15) * 1000 });
     if (!stopped) throw new Fail(EXIT.ERROR, "the server did not exit after SIGTERM", { hint: `pids ${server.supervisorPid} and ${server.healthPid} are still alive; see ${server.log}` });
-    await updateState(cfg.paths, (doc) => { doc.server = { ...server, owned: false, supervisorPid: null, healthPid: null, supervisorStart: null, healthStart: null, stoppedAt: new Date().toISOString() }; return doc; });
+    await save( (doc) => { doc.server = { ...server, owned: false, supervisorPid: null, healthPid: null, supervisorStart: null, healthStart: null, stoppedAt: new Date().toISOString() }; return doc; });
     const scan = scanOrphans({ pattern: "codex-linux-sandbox", worktreesDir: path.join(cfg.projectDir, ".worktrees") });
     return { result: { stopped: true, supervisorPid: server.supervisorPid, healthPid: server.healthPid, url: server.url, orphans: scan.orphans }, brief: `down · stopped ${server.url}${scan.orphans.length ? ` · ${scan.orphans.length} orphan(s): run cleanup --kill` : ""}` };
-  },
+  }),
 });

@@ -40,7 +40,7 @@ export async function run(argv) {
     return { code, output: JSON.stringify({ ok: code === EXIT.OK || out.ok === true, verb: name, ...out.result }) };
   } catch (e) {
     if (flags.verbose) process.stderr.write(`${e.stack}\n`);
-    return { code: e.code ?? EXIT.ERROR, output: JSON.stringify({ ok: false, verb: name, error: e.message, ...(e.status ? { status: e.status } : {}), ...(e.hint ? { hint: e.hint } : {}), ...(e.log ? { log: e.log } : {}) }) };
+    return { code: e instanceof Fail ? e.code : EXIT.ERROR, output: JSON.stringify({ ok: false, verb: name, error: e.message, ...(e.status ? { status: e.status } : {}), ...(e.hint ? { hint: e.hint } : {}), ...(e.log ? { log: e.log } : {}) }) };
   }
 }
 

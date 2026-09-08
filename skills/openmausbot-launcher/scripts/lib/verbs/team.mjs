@@ -1,3 +1,4 @@
+import { stateCommand, requireSameEnvironment, requireDataDir, serverIdentity, protectServerSelection, runContext } from "../session.mjs";
 // import, bind, facts (design: the verb table and "Task lifecycle" preconditions).
 import fs from "node:fs";
 import path from "node:path";
@@ -16,25 +17,18 @@ function requireTeam(cfg) {
   return cfg.state.team;
 }
 
-async function requireSameEnvironment(cfg, client) {
-  const env = await srv.environment(client);
-  const recorded = cfg.state?.team?.environmentId;
-  if (recorded && env?.environmentId && env.environmentId !== recorded) {
-    throw new Fail(EXIT.PRECONDITION, "the server is not the one this team was imported on", { hint: "the data dir changed: re-import the package or run import --adopt" });
-  }
-  return env;
-}
 
 const teamRecord = (bot, key) => ({ id: bot.id, name: bot.name, key: key ?? null, title: bot.title ?? null, model: specString(bot.modelSelection), approvalMode: bot.approvalMode ?? null });
 
 verb("import", {
   options: { lead: { type: "string" }, adopt: { type: "string" } },
   allowPositionals: true,
-  handler: async ({ flags, positionals }) => {
-    const cfg = resolveConfig(flags);
+  handler: stateCommand(async ({ flags, positionals, cfg, save }) => {
     if (cfg.state?.task && cfg.state.task.status !== "closed") throw new Fail(EXIT.PRECONDITION, `a run is ${cfg.state.task.status} (${cfg.state.task.title})`, { hint: "finish it with report, or task --abandon, before changing the team" });
     const client = createClient(cfg);
-    const env = await srv.environment(client);
+    if (!flags.adopt) requireDataDir(cfg, "import");
+    const keepOwned = await protectServerSelection(cfg, cfg.url);
+    const env = await serverIdentity(cfg, client);
     let team;
     if (flags.adopt) {
       const fleet = await client.get("/api/bots?messages=0");
@@ -77,9 +71,10 @@ verb("import", {
       const section = bots.find((b) => b.section)?.section ?? res.name ?? null;
       team = { package: { path: path.resolve(file), name: pkg.package?.name ?? null, release: pkg.package?.release ?? null }, section, environmentId: env?.environmentId ?? null, importedAt: new Date().toISOString(), lead, rooms: groups.map((g) => ({ id: g.id, name: g.name, threadId: g.threadId })), bots: mapped };
     }
-    await updateState(cfg.paths, (doc) => { doc.team = team; doc.server = doc.server ?? { url: cfg.url, owned: false, environmentId: env?.environmentId ?? null, dataDir: cfg.dataDirReadable ? cfg.dataDir : null }; return doc; });
+    if (cfg.dryRun) return { result: { ...team, dryRun: true }, brief: `import · dry run · would adopt ${team.section}` };
+    await save( (doc) => { doc.team = team; doc.server = { ...(keepOwned ? doc.server : {}), url: cfg.url, owned: keepOwned, environmentId: env.environmentId, healthPid: env.healthPid, healthStart: env.healthStart, version: env.version, dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null }; return doc; });
     return { result: { ...team }, brief: `import · ${team.section} · lead ${team.lead.name} · ${team.bots.length} bots, ${team.rooms.length} room(s)` };
-  },
+  }),
 });
 
 function pickLead(bots, leadRef, chiefName) {
@@ -96,9 +91,9 @@ function pickLead(bots, leadRef, chiefName) {
 
 verb("bind", {
   options: { default: { type: "string" }, reviewers: { type: "string" }, model: { type: "string", multiple: true }, approval: { type: "string" }, "no-room": { type: "boolean" } },
-  handler: async ({ flags }) => {
-    const cfg = resolveConfig(flags);
+  handler: stateCommand(async ({ flags, cfg, save }) => {
     if (cfg.mode === "remote") throw new Fail(EXIT.PRECONDITION, "bind needs the project checkout on the server's machine");
+    requireDataDir(cfg, "bind");
     const team = requireTeam(cfg);
     const approval = flags.approval ?? "auto";
     if (!["auto", "ask"].includes(approval)) throw new Fail(EXIT.USAGE, `--approval must be auto or ask`);
@@ -151,7 +146,7 @@ verb("bind", {
     }
     if (!cfg.dryRun) {
       const after = await client.get("/api/bots?messages=0");
-      await updateState(cfg.paths, (doc) => {
+      await save( (doc) => {
         doc.project = { ...(doc.project ?? {}), dir: projectDir, defaultBranch: doc.facts?.defaultBranch ?? defaultBranch(projectDir, doc.facts) };
         doc.team.bots = doc.team.bots.map((b) => { const l = (after.bots ?? []).find((x) => x.id === b.id); return l ? { ...b, model: specString(l.modelSelection), approvalMode: l.approvalMode ?? null } : b; });
         if (doc.team.lead) { const l = (after.bots ?? []).find((x) => x.id === doc.team.lead.id); if (l) doc.team.lead = { ...doc.team.lead, model: specString(l.modelSelection), approvalMode: l.approvalMode ?? null }; }
@@ -161,14 +156,14 @@ verb("bind", {
     const code = results.conflicts.length ? EXIT.PRECONDITION : EXIT.OK;
     return { code, ok: code === EXIT.OK, result: { project: projectDir, dryRun: cfg.dryRun, ...results, roster: results.bots.map((b) => `${b.bot}: ${b.model} (${b.approvalMode})`) },
       brief: `bind · ${projectDir} · ${results.bots.map((b) => `${b.bot} ${b.model}`).join(", ")}${results.conflicts.length ? ` · ${results.conflicts.length} conflict(s)` : ""}` };
-  },
+  }),
 });
 
 verb("facts", {
   options: { "default-branch": { type: "string" }, test: { type: "string" }, setup: { type: "string" }, merge: { type: "string" }, "task-log": { type: "string" }, tracker: { type: "string" }, "plan-review": { type: "string" }, text: { type: "string" }, append: { type: "boolean" } },
-  handler: async ({ flags }) => {
-    const cfg = resolveConfig(flags);
+  handler: stateCommand(async ({ flags, cfg, save }) => {
     if (cfg.mode === "remote") throw new Fail(EXIT.PRECONDITION, "facts needs the server's machine and the project checkout");
+    requireDataDir(cfg, "facts");
     const team = requireTeam(cfg);
     const client = createClient(cfg);
     await requireSameEnvironment(cfg, client);
@@ -194,8 +189,8 @@ verb("facts", {
     if (next.length >= MAX_DESCRIPTION) throw new Fail(EXIT.PRECONDITION, `the description would be ${next.length} characters; the limit is ${MAX_DESCRIPTION - 1}`, { hint: `shorten the block by ${next.length - MAX_DESCRIPTION + 1} characters` });
     if (!cfg.dryRun) {
       try { await client.patch(`/api/bots/${lead.id}`, { description: next }); } catch (e) { throw precondition(e); }
-      await updateState(cfg.paths, (doc) => { doc.facts = facts; doc.project = { ...(doc.project ?? { dir: cfg.projectDir }), defaultBranch: facts.defaultBranch }; return doc; });
+      await save( (doc) => { doc.facts = facts; doc.project = { ...(doc.project ?? { dir: cfg.projectDir }), defaultBranch: facts.defaultBranch }; return doc; });
     }
     return { result: { dryRun: cfg.dryRun, lead: lead.name, length: next.length, block, facts }, brief: `facts · ${block}` };
-  },
+  }),
 });

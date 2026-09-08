@@ -29,8 +29,8 @@ export function procInfo(pid) {
 export async function health(client, opts = {}) {
   try { const h = await client.get("/api/health", opts); return h && h.app === "openmausbot" ? h : null; } catch (e) { if (e.network) return null; throw e; }
 }
-export async function environment(client) {
-  try { return await client.get("/.well-known/openmausbot/environment"); } catch (e) { if (e.network) return null; throw e; }
+export async function environment(client, opts = {}) {
+  try { return await client.get("/.well-known/openmausbot/environment", opts); } catch (e) { if (e.network) return null; throw e; }
 }
 
 export async function waitHealthy(client, timeoutMs, isDead) {
@@ -73,7 +73,8 @@ export async function proveOwnership({ supervisorPid, client, dataDir, url, vers
     throw new Fail(EXIT.PRECONDITION, `the listener on ${url} (pid ${h.pid}, parent ${child.ppid}) is not the child of the server this launcher started (pid ${supervisorPid})`, { hint: "another server owns that port; choose another --port or attach without --fresh" });
   }
   const env = await environment(client);
-  return { url, owned: true, supervisorPid, supervisorStart: sup.startTicks, healthPid: h.pid, healthStart: child.startTicks, environmentId: env?.environmentId ?? null, dataDir, version, askTimeoutMs, log, startedAt: new Date().toISOString() };
+  if (!env?.environmentId) throw new Fail(EXIT.PRECONDITION, "the started server's environment identity could not be verified", { hint: `check ${url} and ${log}; supervisor ${supervisorPid}, server ${h.pid}` });
+  return { url, owned: true, supervisorPid, supervisorStart: sup.startTicks, healthPid: h.pid, healthStart: child.startTicks, environmentId: env.environmentId, dataDir, version, askTimeoutMs, log, startedAt: new Date().toISOString() };
 }
 
 /** Is the recorded owned server still exactly that server? */
@@ -93,9 +94,11 @@ export async function verifyOwned(server, client) {
   const h = client ? await health(client) : null;
   if (client && !h) reasons.push(`nothing answers at ${server.url}`);
   else if (h && h.pid !== server.healthPid) reasons.push(`${server.url} is answered by pid ${h.pid}, not ${server.healthPid}`);
-  if (client && h && server.environmentId) {
+  if (!server.environmentId) reasons.push("the recorded environment id is missing");
+  if (client && h) {
     const env = await environment(client);
-    if (env && env.environmentId !== server.environmentId) reasons.push("the environment id changed");
+    if (!env?.environmentId) reasons.push("the live environment id could not be verified");
+    else if (env.environmentId !== server.environmentId) reasons.push("the environment id changed");
   }
   return { ok: reasons.length === 0, reasons };
 }
@@ -115,10 +118,12 @@ export function readEnviron(pid) {
   try { return fs.readFileSync(`/proc/${pid}/environ`).toString().split("\0").filter(Boolean).map((kv) => kv.split("=")[0]); } catch { return null; }
 }
 
-export function freshDataDir(base) {
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${base}-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+export function freshDataDir(base, { dryRun = false } = {}) {
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").slice(0, 15);
+  const prefix = `${base}-${stamp}-`;
+  if (dryRun) return `${prefix}<unique>`;
+  fs.mkdirSync(path.dirname(base), { recursive: true, mode: 0o700 });
+  return fs.mkdtempSync(prefix);
 }
 
 export function serveLogPath(dataDir) { return path.join(dataDir, "serve.log"); }

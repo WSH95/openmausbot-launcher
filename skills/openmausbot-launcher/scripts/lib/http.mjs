@@ -21,15 +21,17 @@ export function createClient({ url, token = null, dryRun = false, timeoutMs = 15
   async function request(method, path, body, opts = {}) {
     const perCall = opts.timeoutMs ?? timeoutMs;
     if (dryRun && method !== "GET") return { dryRun: true, method, path, body };
-    let res;
+    let res; let text;
     try {
-      res = await fetch(`${u.origin}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(perCall) });
+      const timeout = AbortSignal.timeout(Math.max(0, Math.floor(perCall)));
+      const signal = opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout;
+      res = await fetch(`${u.origin}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal });
+      text = await res.text();
     } catch (e) {
       const cause = e.cause?.code ?? e.cause?.errors?.find((x) => x.code)?.code ?? /\b(E[A-Z]{3,})\b/.exec(String(e.cause?.message ?? ""))?.[1] ?? (e.name === "TimeoutError" ? "TimeoutError" : (e.cause?.message ?? e.message));
       const err = new Fail(EXIT.ERROR, `${method} ${path}: ${cause === "TimeoutError" || e.name === "TimeoutError" ? `no answer within ${perCall} ms` : `${cause}`}`, { hint: cause === "ECONNREFUSED" ? `nothing is listening at ${u.origin}` : undefined });
       err.network = true; throw err;
     }
-    const text = await res.text();
     let parsed = null;
     try { parsed = text ? JSON.parse(text) : null; } catch { parsed = { raw: text }; }
     if (!res.ok) throw new HttpError(method, path, res.status, parsed);
@@ -37,7 +39,7 @@ export function createClient({ url, token = null, dryRun = false, timeoutMs = 15
   }
   return {
     url: u.origin, hasToken: Boolean(token), timeoutMs,
-    get: (p, o) => request("GET", p, undefined, o), post: (p, b) => request("POST", p, b ?? {}), patch: (p, b) => request("PATCH", p, b ?? {}), del: (p) => request("DELETE", p),
+    get: (p, o) => request("GET", p, undefined, o), post: (p, b, o) => request("POST", p, b ?? {}, o), patch: (p, b, o) => request("PATCH", p, b ?? {}, o), del: (p, o) => request("DELETE", p, undefined, o),
     /** A raw fetch for the event stream: same auth, caller-managed lifetime. */
     stream: (p, signal) => fetch(`${u.origin}${p}`, { headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), accept: "text/event-stream" }, signal }),
   };

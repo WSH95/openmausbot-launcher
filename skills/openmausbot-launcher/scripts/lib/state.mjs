@@ -1,11 +1,8 @@
 // The per-project state file and its lock.
 //
-// <project>/.omb/state.json holds ids only, never tokens. Every write is a
-// read-modify-write transaction under <project>/.omb/lock/, a directory:
-// mkdir is atomic and fails with EEXIST. A stale lock (dead owner, or no
-// owner record and older than the stale window) is reclaimed by RENAME, not
-// removal: exactly one reclaimer's rename succeeds, so two reclaimers can
-// never remove a newer owner's lock (design, "State file").
+// JSON remains the source of truth. A persistent SQLite file is only a
+// mutex: BEGIN IMMEDIATE serializes writers, including across processes,
+// and process death releases the OS lock. Never unlink or rotate that file.
 import fs from "node:fs";
 import path from "node:path";
 import { EXIT, Fail } from "./cli.mjs";
@@ -16,7 +13,7 @@ export const STATE_VERSION = 1;
 export function statePaths(projectDir, override) {
   const file = override ? path.resolve(override) : path.join(path.resolve(projectDir), ".omb", "state.json");
   const dir = path.dirname(file);
-  return { dir, file, lock: path.join(dir, "lock") };
+  return { dir, file, lock: path.join(dir, "lock"), lockDb: path.join(dir, "lock.sqlite") };
 }
 
 export function initState(projectDir) {
@@ -40,66 +37,49 @@ function writeState(paths, doc) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; } };
 
-function lockIsStale(lockDir, { staleMs, hardStaleMs }) {
-  let record = null;
-  try { record = JSON.parse(fs.readFileSync(path.join(lockDir, "owner.json"), "utf8")); } catch {}
-  const now = Date.now();
-  if (record && Number.isInteger(record.pid)) {
-    if (!alive(record.pid)) return { stale: true, why: `owner pid ${record.pid} is dead` };
-    if (now - (record.startedAt ?? now) > hardStaleMs) return { stale: true, why: `owner pid ${record.pid} has held it for more than ${Math.round(hardStaleMs / 1000)} s` };
-    return { stale: false, record };
+export class LockTimeout extends Fail {
+  constructor(file, waitMs) {
+    super(EXIT.PRECONDITION, "the state lock is held", { hint: `waited ${waitMs} ms for ${file}; wait for the other launcher or stop it` });
   }
-  let mtime = now;
-  try { mtime = fs.statSync(lockDir).mtimeMs; } catch (e) { if (e.code === "ENOENT") return { stale: false, gone: true }; throw e; }
-  if (now - mtime > staleMs) return { stale: true, why: "no owner record and older than the stale window" };
-  return { stale: false, record: null };
-}
-
-/** Rename-to-claim: exactly one caller wins the rename; the winner removes what it renamed. */
-function reclaim(lockDir) {
-  const target = `${lockDir}.stale.${process.pid}.${Date.now()}`;
-  try { fs.renameSync(lockDir, target); } catch (e) { if (e.code === "ENOENT") return false; throw e; }
-  fs.rmSync(target, { recursive: true, force: true });
-  return true;
 }
 
 /** Run `fn` while holding the project lock. */
 export async function withLock(paths, fn, opts = {}) {
   const waitMs = opts.waitMs ?? Number(process.env.OMB_LOCK_WAIT_MS || 60_000);
   const retryMs = opts.retryMs ?? 100;
-  const staleMs = opts.staleMs ?? 60_000;
-  const hardStaleMs = opts.hardStaleMs ?? 10 * 60_000;
-  fs.mkdirSync(paths.dir, { recursive: true, mode: 0o700 });
-  const deadline = Date.now() + waitMs;
-  let holder = null;
-  let ino = null;
-  for (;;) {
-    try {
-      fs.mkdirSync(paths.lock);
-      fs.writeFileSync(path.join(paths.lock, "owner.json"), JSON.stringify({ pid: process.pid, startedAt: Date.now() }));
-      ino = fs.statSync(paths.lock).ino;
-      break;
-    } catch (e) {
-      if (e.code !== "EEXIST") throw e;
-      const s = lockIsStale(paths.lock, { staleMs, hardStaleMs });
-      if (s.stale) { reclaim(paths.lock); continue; }
-      if (s.gone) continue;
-      holder = s.record;
-      if (Date.now() >= deadline) {
-        throw new Fail(EXIT.PRECONDITION, holder ? `the state lock is held by pid ${holder.pid}` : "the state lock is held", { hint: `waited ${Math.round(waitMs / 1000)} s for ${paths.lock}; if no launcher is running, remove that directory` });
-      }
-      await sleep(retryMs);
-    }
-  }
+  if (!Number.isFinite(waitMs) || waitMs < 0 || !Number.isFinite(retryMs) || retryMs <= 0) throw new Fail(EXIT.USAGE, "lock wait must be nonnegative and retry must be positive");
+  // An old launcher does not participate in the SQLite mutex. Upgrade all
+  // runnable copies with commands and automations stopped before removing
+  // its lock, whether it is a file, an empty directory, or an owner record.
   try {
+    fs.lstatSync(paths.lock);
+    throw new Fail(EXIT.PRECONDITION, "an older launcher's legacy lock is present", { hint: `stop every launcher command and automation, update all installations, then remove ${paths.lock}` });
+  } catch (e) { if (e.code !== "ENOENT") throw e; }
+  fs.mkdirSync(paths.dir, { recursive: true, mode: 0o700 });
+  const file = paths.lockDb ?? path.join(paths.dir, "lock.sqlite");
+  try { fs.closeSync(fs.openSync(file, "wx", 0o600)); } catch (e) { if (e.code !== "EEXIST") throw e; }
+  fs.chmodSync(file, 0o600);
+  const { DatabaseSync } = await import("node:sqlite");
+  const db = new DatabaseSync(file, { timeout: 0 });
+  const deadline = performance.now() + waitMs;
+  let acquired = false;
+  let attempted = false;
+  try {
+    for (;;) {
+      if (attempted && performance.now() >= deadline) throw new LockTimeout(file, waitMs);
+      attempted = true;
+      try { db.exec("BEGIN IMMEDIATE"); acquired = true; break; }
+      catch (e) {
+        if (e.errcode !== 5) throw e; // SQLITE_BUSY only: corruption/I/O must surface.
+        const remaining = deadline - performance.now();
+        if (remaining <= 0) throw new LockTimeout(file, waitMs);
+        await sleep(Math.min(retryMs, remaining));
+      }
+    }
     return await fn();
   } finally {
-    // Release only what we created: a reclaimer that took our lock (only
-    // possible after hardStaleMs) has renamed it away, so the path now
-    // belongs to someone else.
-    try { if (fs.statSync(paths.lock).ino === ino) fs.rmSync(paths.lock, { recursive: true, force: true }); } catch {}
+    try { if (acquired) db.exec("ROLLBACK"); } finally { db.close(); }
   }
 }
 

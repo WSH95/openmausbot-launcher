@@ -26,7 +26,8 @@ dependencies. Every verb prints one JSON object; `--brief` prints one line
 for a phone. `--project <dir>` names the project (default: the git root of
 the working directory); the driver keeps its state in
 `<project>/.omb/state.json`, so later calls need only `--project`.
-`--dry-run` shows mutations without sending them.
+`--dry-run` previews actions without HTTP, process, Git, or state mutations;
+it never runs the project's tests or creates a lock database.
 
 Exit codes: 0 ok; 1 network or HTTP error; 2 usage; 3 precondition
 (server down or not owned, bot busy, repository not reconciled, state
@@ -62,6 +63,11 @@ folder, models, and approval level only where they differ, and refuses
 while a bot works. `facts` rewrites the lead's Project facts block; the
 dev-team pack's fields are in `references/dev-team.md`.
 
+Use Node 24. Local task and report commands need the server's readable,
+matching data directory. A restarted server needs a fresh import or adopt
+binding. A live or unverified owned server must be resolved before selecting
+another server; `up --fresh` reserves a unique directory.
+
 ## 3. Per task
 
 One run per team at a time. Start it in the lead's own chat, never in a
@@ -88,6 +94,9 @@ omb watch --project <dir> --max-seconds 100 [--brief]
 budget ends (exit 4, run still going: call it again; the state file
 carries the cursor). Never declare a run finished from `status` alone: a
 single snapshot cannot see the 30 s of quiet that settlement needs.
+If `checkpointed:false`, the returned observation was not saved; call
+`watch` again. Observation uses `--max-seconds`, followed by at most one
+second waiting for a checkpoint lock. Quiet starts afresh each invocation.
 
 ## 4. Reading `watch`
 
@@ -115,7 +124,10 @@ line. Relay the lead's own words; do not paraphrase decisions.
   a textual answer then falls back to chat automatically, an allow or deny
   does not: tell the bot in chat what you decided.
 - Connector, credential, skill, and routine requests are reported as
-  unsupported with the route they need; hand them to the user.
+  unsupported with the route they need; hand them to the user. Skill and
+  routine cards never receive a response POST from this driver. Read
+  `pending[].cardKind`, full `text`, `options`, and payload metadata;
+  upstream options messages have no `card.kind`. The brief is a summary.
 - `omb interrupt` stops the run's current turn; nothing else.
 - Keep the user's words. Never answer on the user's behalf.
 
@@ -128,10 +140,17 @@ omb cleanup --project <dir> --kill              # sandbox processes left in dele
 omb down --project <dir>
 ```
 
-`report` runs the project's test command itself, verifies the record
-step (task log entry, bead closed, one `docs(team)` commit), and closes
-the run as passed, incomplete, or failed; append its markdown to the
-evidence file. A stopped task keeps its worktree on purpose: remove it
+`report` runs the project's test command itself, checks the root afterward,
+verifies requested record evidence, and closes a settled run as passed,
+incomplete, or failed; append its markdown to the evidence file. Missing or
+skipped required evidence stays unknown and cannot pass; inspect `unknown`
+and `failedChecks`. `--check-042` requires all nine pack checks.
+
+`report --run last` reads archived run context without contacting the server.
+It appends a reanalysis while preserving the original result. Add
+`--dry-run` for a read-only reanalysis: no tests and no state writes. An
+older run whose roster and environment cannot be corroborated is incomplete.
+A stopped task keeps its worktree on purpose: remove it
 only when the user says so, with `reconcile --remove <slug>`.
 
 ## 7. Guardrails
@@ -149,6 +168,10 @@ only when the user says so, with `reconcile --remove <slug>`.
   reports the active thread and waits for an explicit `--thread`.
 - Tokens live only in `OMB_TOKEN` or the 0600 token file, never in a
   command line or a message.
+- Never delete or replace `.omb/lock.sqlite` to clear a busy writer. For
+  the legacy `.omb/lock` upgrade refusal, stop every launcher command and
+  automation, update every installed copy, then remove only the legacy
+  path. See `references/limits-and-pitfalls.md` for recovery details.
 
 ## 8. Hosts and phone mode
 

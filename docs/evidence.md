@@ -60,3 +60,51 @@ Record step: task log yes, record commit 4fe344e, bead slg-ceo is closed. Tests:
 Closing report from Sudo: "**T12 (separator validation, bead `slg-ceo`) is done and merged.** - **Plan** (Sage → Vale): one revision round — fixed a missing invalid-`sep` fixture gap, a `TypeError`-vs-`ValueError` edge case, and an underspecified test-fix step; revised plan approved. - **Implementation** (Nova): added `sep` validation to `slugify` (rejects non-string, empty, or letter/digit separators, inherited by `unique_"
 
 Reading: the pack's loop ran unattended end to end (plan with one revision round, implementation, one review round, fast-forward merge 2f6d9d5..9127a0a, cleanup gate, record step with the entry at the top of the task log timed by `date -u`, bead closed, one `docs(team)` commit, closing report in chat and the room). Of the three 0.4.2 wording fixes, two are validated (the worktree was created after Vale's verdict; the record entry is first and carries the `date -u` time) and one is not: the Sonnet lead still called the host's `ListAgents` alongside `list_bots`. Host checks the same day: Claude Code lists the skill and drove this run; Codex CLI 0.153.4 found it at `~/.agents/skills/openmausbot-launcher/SKILL.md` and ran `status` from inside its workspace-write sandbox; Grok Build 1.0.13 found it at the same path and ran `status`.
+
+## 2026-09-08 — M1.1 offline reanalysis of the recorded T12 approval
+
+This is a reanalysis of the archive above, with **zero new bot turns**.
+OpenMausBot version remains 0.1.56. Run `61e709700923670a`, lead thread
+`eb9e6184-f4ed-4670-8515-a3d474006f50`, reviewer Vale
+`f20e06c4-4775-44f3-9809-fa7b2b367d43`. The archive contains 1,340 lead
+native entries and 85 stored lead-thread messages. The legacy run's exact
+roster and environment were corroborated. Original history and report both
+remain `incomplete`; state bytes were unchanged after the read.
+
+The corrected report helpers find Vale's correlated `ask_bot` reply at
+**03:10:22.421Z**, before worktree creation at **03:10:32.046Z**. The old
+report's 03:10:27.585Z was Sudo's paraphrase; retain the original report above
+as historical output, with this attribution correction. The other archive
+checks still show the correct 03:22:54Z record timestamp and the unwanted
+host `ListAgents` call alongside `mcp__agents__list_bots`.
+
+The planned full `report --run last --check-042 --dry-run` command includes
+Git inspection. This session's active Beads hook prohibited Git operations,
+so the equivalent attribution check used the report helpers directly, with
+no HTTP, test command, Git, or state writes. The six remaining repository
+and test checks were not re-run; the previously recorded 8/9 result stands.
+Run from the launcher repository:
+
+```javascript
+// node --input-type=module (script on stdin)
+import fs from 'node:fs';
+import path from 'node:path';
+import { readNdjson, historicalContext, archivedMessages, check042 }
+  from './skills/openmausbot-launcher/scripts/lib/report.mjs';
+const project = '/home/wsh/.cache/agent-team/validate-0.4.1/slugkit';
+const data = '/home/wsh/.cache/agent-team/omb-launcher-data-20260907-2300';
+const state = JSON.parse(fs.readFileSync(path.join(project, '.omb/state.json')));
+const run = state.history.find(h => h.runId === '61e709700923670a');
+const context = historicalContext(run, state, data);
+const reviewer = context.team.bots.find(b => /plan review/i.test(b.title));
+console.log(check042({
+  native: readNdjson(path.join(data, 'native', `${run.leadThreadId}.ndjson`)),
+  messages: await archivedMessages(data, run.leadThreadId),
+  leadThreadId: run.leadThreadId, reviewer, sentAt: run.sentAt,
+  taskLogText: fs.readFileSync(path.join(project, context.facts.taskLog), 'utf8'),
+}));
+```
+
+M1's formal host gate is also incomplete: recorded discovery/status and
+survival spikes do not establish the specified doctor/status/send sequence
+on all three hosts. M1.1 makes no new all-host or 9/9 validation claim.

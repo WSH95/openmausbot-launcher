@@ -4,10 +4,9 @@ import { startFake, makeRepo, runOmb, ROOT } from "./helpers.mjs";
 import path from "node:path";
 import { statePaths, loadState, updateState } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
 import { createClient } from "../skills/openmausbot-launcher/scripts/lib/http.mjs";
-import { snapshot, evaluate, brief, isLeadText, isEcho, messageNeedsInput, dispatchFailedAfterLatestUser, markerRe, summarize } from "../skills/openmausbot-launcher/scripts/lib/snapshot.mjs";
+import { snapshot, evaluate, brief, isLeadText, isEcho, messageNeedsInput, dispatchFailedAfterLatestUser, markerRe, summarize, evidenceOf } from "../skills/openmausbot-launcher/scripts/lib/snapshot.mjs";
 
 const PKG = path.join(ROOT, "tests", "fixtures", "dev-team.package.json");
-const env = { OMB_TOKEN: "" };
 const LEAD = "lead1";
 const T0 = 1_000_000_000;
 const task = { runId: "r1", tag: "oml:abcd1234", sentAt: T0, slug: "T10", title: "T10", leadThreadId: "lt" };
@@ -102,6 +101,7 @@ test("evaluate: the state table", () => {
 
 test("snapshot against the fake: team bots, discovered specialists, tails, outcomes, pending, marker, receipts", async (t) => {
   const f = await startFake(); t.after(() => f.close());
+  const env = { OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir };
   const { dir } = makeRepo();
   assert.equal((await runOmb(["import", PKG, "--project", dir, "--url", f.url], { env })).code, 0);
   const st = loadState(statePaths(dir));
@@ -163,6 +163,7 @@ test("snapshot against the fake: team bots, discovered specialists, tails, outco
 
 test("status: without a run, with a dispatched run, and carrying a terminal verdict", async (t) => {
   const f = await startFake(); t.after(() => f.close());
+  const env = { OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir };
   const { dir } = makeRepo();
   assert.equal((await runOmb(["import", PKG, "--project", dir, "--url", f.url], { env })).code, 0);
   let r = await runOmb(["status", "--project", dir], { env });
@@ -181,6 +182,9 @@ test("status: without a run, with a dispatched run, and carrying a terminal verd
   assert.equal(r.json.state, "running", "one snapshot cannot settle"); assert.equal(r.json.bots.length, 5); assert.equal(r.json.tail.length, 2);
   const s = await snapshot(client, { team: st.team, task: loadState(statePaths(dir)).task }, {});
   await updateState(statePaths(dir), (d) => { d.task.lastEval = { state: "done", lastLeadMessageId: s.leadText.id, outcomes: [], quietSince: Date.now() - 60_000, lastChangeAt: Date.now() - 60_000 }; return d; });
+  r = await runOmb(["status", "--project", dir], { env });
+  assert.equal(r.json.state, "running", "legacy watermarks lack sufficient evidence to carry done");
+  await updateState(statePaths(dir), (d) => { d.task.lastEval.evidence = evidenceOf(s); return d; });
   r = await runOmb(["status", "--project", dir], { env });
   assert.equal(r.json.state, "done"); assert.match(r.json.reasons[0], /from the last watch/);
   await f.control({ op: "leadSay", threadId, text: "one more thing" });

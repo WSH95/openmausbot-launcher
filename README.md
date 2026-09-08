@@ -5,13 +5,16 @@ An Agent Skill that turns any AI agent host into the operator of a headless
 stop the server, import a team package, bind the team to a project, brief
 the lead bot, watch the delegation chain, relay the lead's questions and the
 user's answers, reconcile the repository between tasks, clean up, and report.
-The same skill directory loads in Claude Code, Codex CLI, Grok Build,
-OpenClaw, Hermes Agent, and DeepSeek Harness; with OpenClaw on the
-workstation it works from a phone over Telegram.
+The skill includes install guidance for Claude Code, Codex CLI, Grok Build,
+OpenClaw, Hermes Agent, and DeepSeek Harness. The OpenClaw phone recipe
+uses a workstation gateway and Telegram; it is documented but unverified.
 
 Status: 0.1.0. The driver's fourteen verbs are implemented and tested
 against a contract fake; one real task ran through the dev-team pack 0.4.2
-on OpenMausBot 0.1.56 (`docs/evidence.md`). The design is `docs/design.md`.
+on OpenMausBot 0.1.56 ([evidence](docs/evidence.md)), with 8/9 pack checks.
+M1.1 repairs dry runs, serialization, monitoring, identity, cleanup, and
+report attribution. Full host validation and the pack's ListAgents residual
+remain open. The design is [docs/design.md](docs/design.md).
 
 ## Layout
 

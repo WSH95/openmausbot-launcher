@@ -25,8 +25,9 @@ workstation the same skill works from a phone over Telegram.
   complete snapshots inside one invocation; done means the lead emitted the
   run's marker line; everything else is `attention`, `stalled`, or
   `needs-user`, never a silent false done.
-- Safe state: a per-project state file under a rename-reclaimed lock, with
-  run ids, so automations and interactive agents can share it.
+- Safe state: atomic per-project JSON under a persistent SQLite mutex,
+  with run and revision checks so automations and interactive agents can
+  share it. Decision 0003 supersedes the original directory lock.
 - Safe lifecycle: `up` proves ownership by process ancestry before recording
   it; `down` and `cleanup --kill` never signal a process they cannot verify.
 - The first real run doubles as the dev pack's 0.4.2 validation.
@@ -51,5 +52,6 @@ workstation the same skill works from a phone over Telegram.
 - Lifecycle management needs `/proc` (Linux). Windows unsupported.
 - Bots run real CLIs on the user's subscriptions: real runs are counted and
   recorded.
-- Never push. Commits follow Conventional Commits and include
-  `.project-steward/` at checkpoints (commit policy auto).
+- Local Git operations are permitted. Create Conventional Commits at tested
+  checkpoints and include `.project-steward/`. Every `git push` requires
+  explicit user permission for that push (Decision 0005).

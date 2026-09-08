@@ -5,7 +5,7 @@ import path from "node:path";
 import { startFake, freePort, tmpDir, makeRepo, runOmb, sleep, FAKE } from "./helpers.mjs";
 import net from "node:net";
 import { statePaths, loadState, updateState } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
-import { procInfo } from "../skills/openmausbot-launcher/scripts/lib/server.mjs";
+import { procInfo, verifyOwned, proveOwnership } from "../skills/openmausbot-launcher/scripts/lib/server.mjs";
 
 const linux = process.platform === "linux";
 const healthOk = async (url) => { try { return (await (await fetch(`${url}/api/health`)).json()).app === "openmausbot"; } catch { return false; } };
@@ -41,6 +41,7 @@ test("doctor: the Project Steward stop-hook check and the loopback token warning
   assert.equal(r.json.checks.find((c) => c.id === "token").ok, false);
   r = await runOmb(["doctor", "--project", dir, "--url", "https://maus.example.com"], { env: { OMB_TOKEN: "" } });
   assert.equal(r.json.mode, "remote"); assert.ok(!r.json.checks.some((c) => c.id === "binary"), "remote mode needs no binary");
+  assert.match(r.json.checks.find((c) => c.id === "node").detail, /needs 24\+/);
 });
 
 test("up starts a detached server that outlives the driver, proves ownership, and down stops it", { skip: !linux && "needs /proc" }, async (t) => {
@@ -51,7 +52,7 @@ test("up starts a detached server that outlives the driver, proves ownership, an
   const dry = await runOmb(["up", "--project", dir, "--port", String(port), "--data-dir", dataDir, "--dry-run"], { env });
   assert.equal(dry.code, 0); assert.equal(dry.json.dryRun, true); assert.ok(dry.json.command.includes("serve")); assert.equal(await healthOk(`http://127.0.0.1:${port}`), false);
   const up = await runOmb(["up", "--project", dir, "--port", String(port), "--data-dir", dataDir, "--ask-timeout-ms", "1234"], { env });
-  t.after(async () => { const s = loadState(statePaths(dir))?.server; if (s?.supervisorPid) { try { process.kill(s.supervisorPid, "SIGKILL"); } catch {} } });
+  t.after(async () => { const s = loadState(statePaths(dir))?.server; for (const pid of [s?.healthPid, s?.supervisorPid]) if (pid) { try { process.kill(pid, "SIGKILL"); } catch {} } });
   assert.equal(up.code, 0, up.stdout + up.stderr);
   assert.equal(up.json.status, "owned"); assert.equal(up.json.changed, true);
   assert.notEqual(up.json.supervisorPid, up.json.healthPid);
@@ -60,6 +61,11 @@ test("up starts a detached server that outlives the driver, proves ownership, an
   assert.equal(await healthOk(`http://127.0.0.1:${port}`), true, "the server survives the driver's exit");
   const state = loadState(statePaths(dir));
   assert.equal(state.server.owned, true); assert.equal(state.server.healthPid, up.json.healthPid);
+  const missingEnvironment = await verifyOwned(state.server, { get: async (url) => url === "/api/health" ? { app: "openmausbot", pid: up.json.healthPid } : null });
+  assert.equal(missingEnvironment.ok, false, "missing live environment identity cannot authorize a signal");
+  const missingRecordedEnvironment = await verifyOwned({ ...state.server, environmentId: null }, { get: async (url) => url === "/api/health" ? { app: "openmausbot", pid: up.json.healthPid } : { environmentId: up.json.environmentId } });
+  assert.equal(missingRecordedEnvironment.ok, false, "missing recorded environment identity cannot authorize a signal");
+  await assert.rejects(proveOwnership({ supervisorPid: up.json.supervisorPid, dataDir, url: up.json.url, client: { get: async (url) => url === "/api/health" ? { app: "openmausbot", pid: up.json.healthPid } : null } }), /environment.*verif|identity/i);
   assert.ok(fs.existsSync(path.join(dataDir, "serve.log")));
   const again = await runOmb(["up", "--project", dir], { env });
   assert.equal(again.code, 0); assert.equal(again.json.status, "owned"); assert.equal(again.json.changed, false); assert.equal(again.json.healthPid, up.json.healthPid);
@@ -91,7 +97,7 @@ test("up starts a detached server that outlives the driver, proves ownership, an
 test("up attaches to a server it did not start; down refuses it; --fresh refuses a busy port", async (t) => {
   const f = await startFake(); t.after(() => f.close());
   const { dir } = makeRepo();
-  const env = { OMB_BIN: FAKE, OMB_TOKEN: "" };
+  const env = { OMB_BIN: FAKE, OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir };
   const up = await runOmb(["up", "--project", dir, "--port", String(f.port)], { env });
   assert.equal(up.code, 0, up.stdout); assert.equal(up.json.status, "attached"); assert.equal(up.json.owned, false); assert.equal(up.json.healthPid, process.pid);
   assert.equal(up.json.environmentId, f.environmentId);
@@ -99,6 +105,15 @@ test("up attaches to a server it did not start; down refuses it; --fresh refuses
   assert.equal(fresh.code, 3); assert.match(fresh.json.error, /does not own/);
   const down = await runOmb(["down", "--project", dir], { env });
   assert.equal(down.code, 3); assert.match(down.json.error, /attached, not owned/);
+});
+
+test("up refuses attachment when the readable data directory belongs to another environment", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const other = await startFake(); t.after(() => other.close());
+  const { dir } = makeRepo();
+  const r = await runOmb(["up", "--project", dir, "--port", String(f.port), "--data-dir", other.dataDir], { env: { OMB_BIN: FAKE, OMB_TOKEN: "" } });
+  assert.equal(r.code, 3, r.stdout);
+  assert.equal(loadState(statePaths(dir)), null);
 });
 
 test("down refuses stale or reused identities", { skip: !linux && "needs /proc" }, async () => {

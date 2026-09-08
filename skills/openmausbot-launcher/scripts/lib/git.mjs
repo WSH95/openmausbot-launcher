@@ -46,7 +46,7 @@ export function taskBranches(cwd, prefix = "task/") {
 }
 
 export function dirtyEntries(cwd) {
-  const out = git(["status", "--porcelain", "--untracked-files=normal"], cwd);
+  const out = git(["--no-optional-locks", "status", "--porcelain", "--untracked-files=normal"], cwd);
   return out ? out.split("\n").filter(Boolean) : [];
 }
 

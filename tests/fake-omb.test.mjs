@@ -347,3 +347,36 @@ test("serve spawns a child that answers health with its own pid; SIGTERM to the 
   await assert.rejects(fetch(`http://127.0.0.1:${port}/api/health`), "the child is gone after the supervisor stops");
   if (process.platform === "linux") assert.equal(fs.existsSync(`/proc/${h.pid}`), false);
 });
+
+test("real cards use options messages and typed payloads instead of card.kind", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const { bots } = await importTeam(f); const threadId = bots[0].threadId;
+  for (const kind of ["question", "approval", "skill", "routine"]) {
+    const { message } = await f.control({ op: "card", threadId, kind, choices: ["Table", "List"], text: "Choose a layout", requestId: kind });
+    assert.equal(message.kind, "options");
+    assert.equal(message.card.kind, undefined);
+    assert.equal(typeof message.card.title, "string");
+    assert.equal(message.card.subtitle, "Choose a layout");
+    if (kind === "question") { assert.equal(message.card.tool, undefined); assert.deepEqual(message.card.options, ["Table", "List"]); }
+    if (kind === "approval") assert.equal(message.card.tool, "ask_bot");
+    if (kind === "skill") assert.ok(message.card.skillRequest);
+    if (kind === "routine") {
+      const request = message.card.routineRequest;
+      assert.equal(request.version, 1);
+      assert.equal(request.requestId, "routine");
+      assert.equal(request.threadId, threadId);
+      assert.equal(request.operation.action, "create");
+      assert.equal(request.operation.routine.runOn, "maus");
+      assert.deepEqual(message.card.options, ["Confirm", "Cancel"]);
+    }
+  }
+  let r = await j(await post(`${f.url}/api/threads/${threadId}/respond`, { requestId: "skill", behavior: "allow" }));
+  assert.equal(r.status, 409); assert.equal(r.body.error, "reviewedSha256 must match the skill shown on the approval card");
+  r = await j(await post(`${f.url}/api/threads/${threadId}/respond`, { requestId: "skill", behavior: "deny" }));
+  assert.equal(r.body.outcome, "rejected");
+  r = await j(await post(`${f.url}/api/threads/${threadId}/respond`, { requestId: "routine", behavior: "answer", message: "yes" }));
+  assert.equal(r.status, 400); assert.equal(r.body.error, "Routine confirmations must be confirmed or cancelled");
+  r = await j(await post(`${f.url}/api/threads/${threadId}/respond`, { requestId: "routine", behavior: "allow" }));
+  assert.equal(r.body.outcome, "allowed-once");
+  assert.equal(r.body.routineAction, "create"); assert.equal(typeof r.body.resultId, "string");
+});

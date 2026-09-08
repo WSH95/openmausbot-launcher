@@ -14,7 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
 
 const BUSY = new Set(["working", "waiting-on-you", "no-signal"]); // S: server/store.ts:407-409
 const ECHO_PREFIX = "replied to the delegated task"; // S: server/index.ts:3386
@@ -310,10 +310,28 @@ export async function createFake(opts = {}) {
     const list = messagesFor(threadId);
     const msg = list.find((m) => m.card?.requestId === body.requestId);
     if (!msg || !msg.card) return json(res, 200, { ok: true, outcome: "unavailable" });
+    if (!["allow", "deny", "answer"].includes(body.behavior)) return json(res, 400, { error: "behavior must be allow, deny, or answer" });
+    // Special requests are intercepted before adapter answers (S: index.ts:10981-11013).
+    // Model the valid staged proposal cases used by these fixtures, including
+    // the hash review gate (S: index.ts:6466-6526). No blanket rejection route.
+    if (msg.card.skillRequest || msg.card.routineRequest) {
+      // Routine answers are rejected before settlement checks (S: routine-requests.ts:812-818).
+      if (msg.card.routineRequest && body.behavior === "answer") return json(res, 400, { error: "Routine confirmations must be confirmed or cancelled" });
+      if (msg.card.answered || msg.card.dismissed) return json(res, 200, { ok: true, outcome: msg.card.answered === "allow" ? "allowed-once" : "rejected", alreadySettled: true });
+      if (msg.card.skillRequest && body.behavior === "allow" && body.reviewedSha256 !== msg.card.skillRequest.sha256) return json(res, 409, { error: "reviewedSha256 must match the skill shown on the approval card" });
+      msg.card.answered = body.behavior === "allow" ? "allow" : "deny";
+      msg.card.dismissed = body.behavior !== "allow";
+      broadcast({ kind: "message.patch", threadId, message: msg });
+      // The fixture represents a valid staged create (S: index.ts:4814-4828;
+      // routine-requests.ts:919-925). It does not implement the routine scheduler.
+      const routine = msg.card.routineRequest;
+      if (routine && body.behavior === "allow") { routine.appliedAt = now(); routine.resultId = newId(); }
+      return json(res, 200, { ok: true, outcome: body.behavior === "allow" ? "allowed-once" : "rejected", ...(routine && body.behavior === "allow" ? { routineAction: routine.operation.action, resultId: routine.resultId } : {}) });
+    }
     if (msg.card.answered || msg.card.dismissed) return json(res, 200, { ok: true, outcome: "unavailable" });
     if (msg.card.dead) { msg.card.answered = true; broadcast({ kind: "message.patch", threadId, message: msg }); return json(res, 200, { ok: true, outcome: "unavailable" }); }
     let outcome;
-    if (body.behavior === "answer") { if (msg.card.kind !== "question") return json(res, 400, { error: "this card takes allow or deny" }); outcome = "answered"; msg.card.answer = body.message; }
+    if (body.behavior === "answer") { if (msg.card.tool) return json(res, 400, { error: "this card takes allow or deny" }); outcome = "answered"; msg.card.answer = body.message; }
     else if (body.behavior === "allow") outcome = "allowed-once";
     else if (body.behavior === "deny") outcome = "rejected";
     else return json(res, 400, { error: "behavior must be allow, deny, or answer" });
@@ -414,7 +432,22 @@ export async function createFake(opts = {}) {
         const variants = { empty: `Delegation to @${op.name} completed without a text reply`, failed: `Delegation to @${op.name} failed — ${op.reason ?? "the delegated turn did not finish"}`, busy: `Delegation to @${op.name} waiting — they're busy (retry 1/3 when they finish)`, dropped: `Delegation to @${op.name} dropped — the queueing turn was interrupted`, canceled: `Delegation to @${op.name} canceled`, denied: `Delegation to @${op.name} denied — peer contact was not approved` };
         return { message: appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: variants[op.variant ?? "empty"], ok: op.variant === "empty" } }) }; }
       case "errorActivity": return { message: appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: `error: ${op.text ?? "the provider refused the turn"}`, ok: false } }) };
-      case "card": return { message: appendMessage(threadId, { role: "bot", kind: "text", text: op.text ?? "May I contact Quill?", card: { requestId: op.requestId ?? newId(), kind: op.kind ?? "approval", tool: op.tool ?? "ask_bot", subtitle: op.text ?? "", answered: false, dismissed: false, dead: op.dead === true } }) };
+      case "card": { // S: index.ts:2917-2945, 2881-2896, 6420-6430; store.ts:63-66.
+        const kind = op.kind ?? "approval";
+        const card = { title: kind === "question" ? "Your bot has a question" : "Approval needed", subtitle: op.text ?? "May I contact Quill?", options: kind === "question" ? (op.choices ?? []) : ["Allow", "Deny"], requestId: op.requestId ?? newId(), answered: false, dismissed: false, dead: op.dead === true };
+        if (kind === "approval") Object.assign(card, { tool: op.tool ?? "ask_bot", ...(op.held !== undefined ? { held: op.held } : {}), ...(op.approvalScope ? { approvalScope: op.approvalScope } : {}), ...(op.allowKey ? { allowKey: op.allowKey } : {}) });
+        if (kind === "skill") {
+          const preview = "# Example skill\nA fixture proposal.\n";
+          card.tool = "learn_skill"; card.options = ["Enable", "Deny"];
+          card.skillRequest = { botId: state.bots.find((b) => b.tasks.some((t) => t.threadId === threadId))?.id, stagedId: newId(), name: "example", action: "create", gist: op.text ?? "Example", preview, sha256: createHash("sha256").update(preview).digest("hex") };
+        }
+        if (kind === "routine") {
+          // Valid stored proposal and card shape (S: routine-requests.ts:119-157, 745-751).
+          card.tool = "create_routine"; card.options = ["Confirm", "Cancel"];
+          card.routineRequest = { version: 1, requestId: card.requestId, botId: state.bots.find((b) => b.tasks.some((t) => t.threadId === threadId))?.id, threadId, createdAt: now(), operation: { action: "create", routine: { name: "Example", instructions: "A fixture proposal.", schedule: { type: "interval", everyMinutes: 60 }, runOn: "maus", durationMinutes: 5 } } };
+        }
+        return { message: appendMessage(threadId, { role: "bot", kind: "options", card }) };
+      }
       case "connector": return { message: appendMessage(threadId, { role: "bot", kind: "text", text: "Connect Slack to continue", connector: { id: newId(), status: "pending", dismissed: false, resumed: false } }) };
       case "secret": return { message: appendMessage(threadId, { role: "bot", kind: "text", text: "A credential is needed", secret: { id: newId(), provided: false, dismissed: false } }) };
       case "receipt": return { receipt: recordReceipt(op) };

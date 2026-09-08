@@ -3,6 +3,7 @@ import path from "node:path";
 import { verb, EXIT, Fail, VERBS } from "../cli.mjs";
 import { resolveConfig } from "../config.mjs";
 import { reconcileCheck, removeTask } from "../git.mjs";
+import { loadState } from "../state.mjs";
 import { scanOrphans, killOrphan } from "../proc.mjs";
 
 export const DEFAULT_ORPHAN_PATTERN = "codex-linux-sandbox";
@@ -15,15 +16,15 @@ verb("reconcile", {
     const removed = [];
     for (const slug of flags.remove ?? []) {
       if (!/^[\w.-]+$/.test(slug)) throw new Fail(EXIT.USAGE, `bad slug ${slug}`);
-      removed.push(removeTask(cfg.projectDir, slug));
+      removed.push(cfg.dryRun ? { slug, dryRun: true, worktreeRemoved: false, branchDeleted: false, errors: [] } : removeTask(cfg.projectDir, slug));
     }
     const check = reconcileCheck(cfg.projectDir, cfg.state?.facts);
     const errors = removed.flatMap((r) => r.errors);
     const code = check.clean && errors.length === 0 ? EXIT.OK : EXIT.PRECONDITION;
     return {
       code, ok: code === EXIT.OK,
-      result: { ...check, removed, hint: check.clean ? undefined : "the lead cleans up after its gate; a stopped task keeps its worktree until you pass --remove <slug>" },
-      brief: `reconcile · ${check.clean ? "clean" : check.problems.join("; ")}${removed.length ? ` · removed ${removed.map((r) => r.slug).join(", ")}` : ""}`,
+      result: { ...check, dryRun: cfg.dryRun, removed, hint: check.clean ? undefined : "the lead cleans up after its gate; a stopped task keeps its worktree until you pass --remove <slug>" },
+      brief: `reconcile · ${check.clean ? "clean" : check.problems.join("; ")}${removed.length ? ` · ${cfg.dryRun ? "would remove" : "removed"} ${removed.map((r) => r.slug).join(", ")}` : ""}`,
     };
   },
 });
@@ -46,7 +47,7 @@ verb("cleanup", {
       for (const o of scan.orphans) {
         if (!o.deleted) { killed.push({ pid: o.pid, killed: false, why: "its worktree still exists" }); continue; }
         if (cfg.dryRun) { killed.push({ pid: o.pid, killed: false, why: "dry run" }); continue; }
-        killed.push(await killOrphan(o));
+        killed.push(await killOrphan(o, { worktreesDir: path.join(cfg.projectDir, ".worktrees"), protectPids: () => { const current = loadState(cfg.paths)?.server; return [current?.supervisorPid, current?.healthPid].filter(Number.isInteger); } }));
       }
     }
     const check = reconcileCheck(cfg.projectDir, cfg.state?.facts);

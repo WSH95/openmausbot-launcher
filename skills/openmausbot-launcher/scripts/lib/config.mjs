@@ -70,6 +70,6 @@ export function resolveConfig(flags = {}, env = process.env, cwd = process.cwd()
   const loopback = isLoopback(url);
   const mode = flags.remote || !loopback ? "remote" : "local";
   let dataDirReadable = false;
-  try { fs.accessSync(dataDir, fs.constants.R_OK); dataDirReadable = true; } catch {}
+  try { fs.accessSync(dataDir, fs.constants.R_OK); dataDirReadable = fs.statSync(dataDir).isDirectory(); } catch {}
   return { projectDir, paths, state, url, token, tokenSource, dataDir, dataDirReadable, loopback, mode, flags, env, allowInsecureHttp: flags["allow-insecure-http"] === true, dryRun: flags["dry-run"] === true };
 }

@@ -12,6 +12,7 @@ auto_handoff_min_edits = 5
 # commit_policy: "ask" (propose only), "auto" (agent may run `wrap
 # --commit`), "never".
 commit_policy = "auto"
+# No automated pushes. The user may explicitly authorize an individual git push.
 never_push = true
 
 [backend]

@@ -52,30 +52,50 @@ test("a held lock makes a writer wait, then fail with a precondition error", asy
   assert.equal(loadState(paths).after, true);
 });
 
-test("a stale lock (dead owner) is reclaimed by rename, leaving no debris", async () => {
-  const paths = statePaths(tmpDir());
-  fs.mkdirSync(paths.lock, { recursive: true });
-  fs.writeFileSync(path.join(paths.lock, "owner.json"), JSON.stringify({ pid: 999999, startedAt: Date.now() - 5000 }));
-  const doc = await updateState(paths, (d) => { d.marks = ["reclaimed"]; return d; }, { waitMs: 2000 });
-  assert.deepEqual(doc.marks, ["reclaimed"]);
-  assert.equal(fs.existsSync(paths.lock), false);
-  assert.deepEqual(fs.readdirSync(paths.dir).filter((f) => f.startsWith("lock")), []);
+test("legacy lock directories and files require a stopped-launcher upgrade", async () => {
+  for (const kind of ["file", "empty", "dead-owner"]) {
+    const paths = statePaths(tmpDir());
+    fs.mkdirSync(paths.dir, { recursive: true });
+    if (kind === "file") fs.writeFileSync(paths.lock, "old");
+    else {
+      fs.mkdirSync(paths.lock);
+      if (kind === "dead-owner") fs.writeFileSync(path.join(paths.lock, "owner.json"), JSON.stringify({ pid: 999999, startedAt: 0 }));
+      fs.utimesSync(paths.lock, new Date(0), new Date(0));
+    }
+    await assert.rejects(updateState(paths, (d) => { d.bad = true; }, { waitMs: 20, retryMs: 5 }),
+      (e) => e instanceof Fail && e.code === 3 && /older launcher|legacy/i.test(e.message) && /stop/i.test(e.hint ?? ""));
+    assert.equal(loadState(paths), null);
+    assert.equal(fs.existsSync(paths.lock), true, "legacy path is never removed automatically");
+  }
 });
 
-test("a lock with no owner record is held while fresh and reclaimed once older than the stale window", async () => {
+test("SQLite contention retries asynchronously and never enters a live holder's transaction", async () => {
+  const { DatabaseSync } = await import("node:sqlite");
   const paths = statePaths(tmpDir());
-  fs.mkdirSync(paths.lock, { recursive: true });
-  await assert.rejects(updateState(paths, (d) => d, { waitMs: 200, retryMs: 20, staleMs: 60_000 }), /lock/);
-  const old = new Date(Date.now() - 120_000);
-  fs.utimesSync(paths.lock, old, old);
-  const doc = await updateState(paths, (d) => { d.ok = true; return d; }, { waitMs: 1000, retryMs: 20, staleMs: 60_000 });
-  assert.equal(doc.ok, true);
+  fs.mkdirSync(paths.dir, { recursive: true });
+  const db = new DatabaseSync(path.join(paths.dir, "lock.sqlite"), { timeout: 0 });
+  db.exec("BEGIN IMMEDIATE");
+  let released = false;
+  const timer = setTimeout(() => { released = true; db.exec("ROLLBACK"); }, 50);
+  try {
+    await withLock(paths, () => assert.equal(released, true, "cannot enter while SQLite owner holds the lock"), { waitMs: 1000, retryMs: 5 });
+  } finally { clearTimeout(timer); if (!released) db.exec("ROLLBACK"); db.close(); }
 });
 
-test("two reclaimers racing on a dead owner's lock both write once and never remove each other's lock", async () => {
+test("SQLite lock remains private and persistent after releasing", async () => {
   const paths = statePaths(tmpDir());
-  fs.mkdirSync(paths.lock, { recursive: true });
-  fs.writeFileSync(path.join(paths.lock, "owner.json"), JSON.stringify({ pid: 999999, startedAt: Date.now() - 5000 }));
+  await updateState(paths, (d) => d);
+  const file = path.join(paths.dir, "lock.sqlite");
+  assert.equal(fs.existsSync(file), true);
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  assert.equal(fs.statSync(paths.dir).mode & 0o777, 0o700);
+  const ino = fs.statSync(file).ino;
+  await updateState(paths, (d) => d);
+  assert.equal(fs.statSync(file).ino, ino, "never rotate the lock database");
+});
+
+test("two processes serialize transactions without losing checkpoints", async () => {
+  const paths = statePaths(tmpDir());
   const script = `
     import { statePaths, updateState } from ${JSON.stringify(STATE_MJS)};
     const paths = statePaths(process.argv[1]);
@@ -96,7 +116,7 @@ test("two reclaimers racing on a dead owner's lock both write once and never rem
   assert.equal(doc.rev, 4);
   assert.deepEqual([...doc.marks].sort(), ["A", "A2", "B", "B2"]);
   assert.equal(fs.existsSync(paths.lock), false);
-  assert.deepEqual(fs.readdirSync(paths.dir).filter((f) => f.startsWith("lock")), []);
+  assert.deepEqual(fs.readdirSync(paths.dir).filter((f) => f.startsWith("lock")), ["lock.sqlite"]);
 });
 
 test("a mutation that throws leaves the document untouched and releases the lock", async () => {
@@ -128,4 +148,57 @@ test("ensureExclude appends each entry once to .git/info/exclude", () => {
   assert.deepEqual(ensureExclude(dir, [".worktrees/", ".omb/"]), []);
   const text = fs.readFileSync(path.join(dir, ".git", "info", "exclude"), "utf8");
   assert.equal((text.match(/^\.omb\/$/gm) ?? []).length, 1);
+});
+
+test("a killed SQLite owner releases the mutex without manual reclamation", { timeout: 5000 }, async () => {
+  const paths = statePaths(tmpDir());
+  fs.mkdirSync(paths.dir, { recursive: true });
+  const ready = path.join(paths.dir, "ready");
+  const child = spawn(process.execPath, ["--input-type=module", "-e", `
+    import fs from 'node:fs';
+    import { DatabaseSync } from 'node:sqlite';
+    const db = new DatabaseSync(${JSON.stringify(path.join(paths.dir, "lock.sqlite"))}, { timeout: 0 });
+    db.exec('BEGIN IMMEDIATE');
+    fs.writeFileSync(${JSON.stringify(ready)}, 'ready');
+    setInterval(() => {}, 1000);
+  `], { stdio: ["ignore", "ignore", "ignore"] });
+  const closed = new Promise((resolve) => child.once("close", resolve));
+  try {
+    const until = performance.now() + 2000;
+    while (!fs.existsSync(ready) && performance.now() < until) await sleep(5);
+    assert.equal(fs.existsSync(ready), true, "owner became ready");
+    await assert.rejects(withLock(paths, () => assert.fail("concurrent entry"), { waitMs: 40, retryMs: 5 }), /lock/);
+    child.kill("SIGKILL"); await closed;
+    const doc = await updateState(paths, (d) => { d.recovered = true; }, { waitMs: 500 });
+    assert.equal(doc.recovered, true);
+  } finally { if (child.signalCode === null && child.exitCode === null) { child.kill("SIGKILL"); await closed; } }
+});
+
+test("a malformed lock database fails without replacing the artifact or writing state", async () => {
+  const paths = statePaths(tmpDir());
+  fs.mkdirSync(paths.dir, { recursive: true });
+  const file = path.join(paths.dir, "lock.sqlite");
+  const content = Buffer.alloc(4096, "broken sqlite");
+  fs.writeFileSync(file, content, { mode: 0o600 });
+  await assert.rejects(updateState(paths, (d) => { d.bad = true; }), /database|file/i);
+  assert.deepEqual(fs.readFileSync(file), content);
+  assert.equal(loadState(paths), null);
+});
+
+test("an overdue retry never enters the callback after its lock deadline", async () => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const paths = statePaths(tmpDir());
+  fs.mkdirSync(paths.dir, { recursive: true });
+  const db = new DatabaseSync(path.join(paths.dir, "lock.sqlite"), { timeout: 0 });
+  db.exec("BEGIN IMMEDIATE");
+  let released = false;
+  const timer = setTimeout(() => {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+    db.exec("ROLLBACK"); released = true;
+  }, 20);
+  try {
+    let entered = false;
+    await assert.rejects(withLock(paths, () => { entered = true; }, { waitMs: 40, retryMs: 30 }), /lock/);
+    assert.equal(entered, false);
+  } finally { clearTimeout(timer); if (!released) db.exec("ROLLBACK"); db.close(); }
 });

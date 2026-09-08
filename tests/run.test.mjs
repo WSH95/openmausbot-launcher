@@ -12,7 +12,7 @@ const fleet = async (f) => (await (await fetch(`${f.url}/api/bots?messages=0`)).
 const thread = async (f, id) => (await (await fetch(`${f.url}/api/threads/${id}/messages`)).json()).messages;
 
 async function setup(t) {
-  const f = await startFake(); t.after(() => f.close());
+  const f = await startFake(); t.after(() => f.close()); env.OMB_DATA_DIR = f.dataDir;
   const { dir, git } = makeRepo();
   assert.equal((await runOmb(["import", PKG, "--project", dir, "--url", f.url], { env })).code, 0);
   assert.equal((await runOmb(["bind", "--project", dir, "--default", "claude/claude-sonnet-5"], { env })).code, 0);
@@ -174,4 +174,20 @@ test("interrupt targets the run thread and reports a bot busy elsewhere", async 
   await f.control({ op: "busyElsewhere", botId: lead.id, where: "room Dev Room" });
   r = await runOmb(["interrupt", "--project", dir], { env });
   assert.equal(r.code, 3); assert.match(r.json.error, /working in room Dev Room/); assert.match(r.json.hint, /not interrupted/);
+});
+
+test("skill and routine requests refuse every response mode before posting", async (t) => {
+  const { f, dir } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const posts = [];
+  f.server.on("request", (req) => { if (req.method === "POST" && req.url.endsWith("/respond")) posts.push(req.url); });
+  for (const kind of ["skill", "routine"]) {
+    await f.control({ op: "card", threadId: run.json.leadThreadId, kind, requestId: kind });
+    for (const mode of [["--allow"], ["--deny"], ["--message", "yes"]]) {
+      const r = await runOmb(["answer", ...mode, "--request", kind, "--project", dir], { env });
+      assert.equal(r.code, 5, r.stdout);
+      assert.match(r.json.error, new RegExp(`${kind} request`));
+    }
+  }
+  assert.deepEqual(posts, [], "even a rejected response POST is forbidden for unsupported requests");
 });

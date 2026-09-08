@@ -105,6 +105,48 @@ than none: the hook fires in a degenerate state (dev pack `HANDOFF.md`,
 
 ## Driver rules restated
 
+### State lock upgrades and recovery
+
+Writers use Node 24's built-in SQLite support and a persistent
+`.omb/lock.sqlite` mutex; `state.json` remains the authoritative state.
+The SQLite file is private (0600) and never removed or rotated by the driver.
+A live writer is never displaced based on age. SQLite releases its lock
+when that process exits; a hung writer must be stopped before retrying.
+Never unlink the database while another command could hold it: that would
+allow separate databases to admit concurrent writers.
+
+An existing legacy `.omb/lock` file or directory causes a refusal. To
+upgrade, stop all launcher commands and scheduled automations, update every
+installed launcher copy, then remove only that legacy path. Removing it
+while an older launcher can still run defeats serialization. Permission or
+database-corruption errors are reported; they are not treated as contention
+and do not trigger automatic removal. Node may print an experimental SQLite
+warning on stderr; JSON stays on stdout.
+
+### Bounded observation and report evidence
+
+`watch` shares one monotonic deadline across identity checks, SSE setup,
+message paging, polling, and reconnects. Each HTTP request is capped at
+15 seconds or the remaining budget. A final checkpoint waits up to one more
+second; `checkpointed:false` means its observation was not saved (for
+example, another writer held the lock or the run was replaced). Call again;
+the next invocation reloads state and establishes its own quiet window.
+Read-only commands and dry runs do not create the lock database.
+
+Every run thread is paged back through dispatch, including idle specialists.
+A deadline or failed page makes the snapshot incomplete. Known outcomes
+survive receipt pruning; uncertain ordering never proves completion. Status
+can carry a prior verdict only when complete evidence is unchanged.
+
+`report --run last --check-042 --dry-run` works offline from archived context
+and local evidence. It sends no HTTP requests, executes no tests, and writes
+no state. Previously passing tests stay in the original report; they do not
+turn this skipped test check into a new pass. Required unknown evidence
+produces `incomplete`; inspect `unknown` and `failedChecks`. Without dry-run,
+historical reports append a reanalysis instead of replacing the original.
+
+### Observation rules
+
 - **Receipts are informational.** A 202 `steered` or `queued` says the server
   took the text, not that the lead acted on it. No terminal state is ever
   derived from one.

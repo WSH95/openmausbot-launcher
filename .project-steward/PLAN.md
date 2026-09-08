@@ -1,25 +1,26 @@
 # Plan
 
-Milestones only; the task list lives in beads (`bd ready`, epic `M1` and its
-fourteen step tasks, one per implementation step in `docs/design.md`).
+Milestones only. Beads owns the task list (`bd ready`); M1.1 is epic `oml-t8u`.
 
 ## M1: driver, skill, and the 0.4.2 validation run
 
-The fourteen implementation steps of `docs/design.md`, one commit each:
-scaffold; contract fake and harness; state store; HTTP and lifecycle with
-the detached-survival spike; git helpers; import, bind, facts; snapshot and
-evaluation; task, send, answer, interrupt; watch; report with `--check-042`;
-references; hosts and the final SKILL.md; installs, host checks, and the
-0.4.2 validation run; dev pack follow-ups.
+Implementation exists. Formal validation remains incomplete: T12 recorded
+8/9 pack checks, with a ListAgents residual, and the specified
+`doctor`/`status`/`send` sequence is not fully verified on Claude Code,
+Codex, and Grok. Evidence: `docs/evidence.md`; remaining gate: `oml-axr.15`.
 
-Exit criteria: `npm test` green on the fake; `doctor`, `status`, and one
-`send` verified from Claude Code, Codex, and Grok Build; one real task run
-recorded in `docs/evidence.md` with `report --check-042` passed; the dev
-pack's `docs/setup-guide.md` points at the skill.
+## M1.1: correctness review repairs
+
+Complete: 153 tests pass and independent reviews approved; see `VERIFY.md`.
+SQLite serialization, mutation-free previews, real card classification,
+conservative monitoring, verified server identity, safe cleanup, and offline
+historical report evidence. Completion requires focused regression checks,
+independent review, integrated tests, archived T12 attribution reanalysis,
+and current operator/design/handoff documents. Details and status are in
+`oml-t8u`; this pass spends no new bot turns or host validation runs.
 
 ## Later
 
-- OpenClaw, Hermes, and DSH verified (install, phone recipes, `--announce`
-  on empty output).
-- `pair`, macOS lifecycle, the unsupported request types in `answer`,
-  parallel runs per team.
+OpenClaw, Hermes, and DSH installation and phone recipes remain unverified.
+The existing v2 beads cover pairing, macOS lifecycle, unsupported request
+types, and parallel runs. Pack fixes remain in the dev-pack repository.

@@ -79,8 +79,62 @@ test("cleanup finds a matching process in a deleted worktree, protects the serve
   r = await runOmb(["cleanup", "--project", dir, "--pattern", marker, "--kill"], { env });
   assert.equal(r.code, 0, r.stdout);
   const k = Object.fromEntries(r.json.killed.map((x) => [x.pid, x]));
-  assert.equal(k[orphan.pid].killed, true); assert.equal(k[notOrphan.pid].killed, false); assert.match(k[notOrphan.pid].why, /still exists/);
+  assert.equal(k[orphan.pid].killed, true, r.stdout); assert.equal(k[notOrphan.pid].killed, false); assert.match(k[notOrphan.pid].why, /still exists/);
   await sleep(100);
   assert.equal(fs.existsSync(`/proc/${orphan.pid}`) && fs.readFileSync(`/proc/${orphan.pid}/stat`, "utf8").split(") ")[1][0] !== "Z", false, "the orphan is gone");
   assert.equal(fs.existsSync(`/proc/${notOrphan.pid}`), true); assert.equal(fs.existsSync(`/proc/${elsewhere.pid}`), true);
+});
+
+test("cleanup treats a live directory literally named (deleted) as live", { skip: !linux }, async (t) => {
+  const { dir } = makeRepo(); const worktreesDir = path.join(dir, ".worktrees");
+  const cwd = path.join(worktreesDir, "literal (deleted)"); fs.mkdirSync(cwd, { recursive: true });
+  const marker = `oml-literal-${process.pid}`;
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", marker], { cwd, stdio: "ignore" });
+  t.after(() => child.kill("SIGKILL")); await sleep(100);
+  const scan = scanOrphans({ pattern: marker, worktreesDir });
+  const rec = scan.orphans.find((o) => o.pid === child.pid);
+  assert.equal(rec.cwd, cwd); assert.equal(rec.deleted, false);
+});
+
+test("cleanup observes process exit even when its cwd disappears while SIGTERM takes effect", { skip: !linux }, async (t) => {
+  const { killOrphan } = await import("../skills/openmausbot-launcher/scripts/lib/proc.mjs");
+  const { procInfo } = await import("../skills/openmausbot-launcher/scripts/lib/server.mjs");
+  const { dir } = makeRepo(); const worktreesDir = path.join(dir, ".worktrees");
+  const cwd = path.join(worktreesDir, "exiting"); fs.mkdirSync(cwd, { recursive: true });
+  const child = spawn(process.execPath, ["-e", "process.on('SIGTERM', () => setTimeout(() => process.exit(0), 50)); process.send('ready'); setInterval(() => {}, 1000)"], { cwd, stdio: ["ignore", "ignore", "ignore", "ipc"] });
+  t.after(() => child.kill("SIGKILL")); await new Promise((resolve) => child.once("message", resolve));
+  const record = { pid: child.pid, startTicks: procInfo(child.pid).startTicks, cwd, deleted: true };
+  fs.rmdirSync(cwd);
+  const readlink = fs.readlinkSync; let reads = 0;
+  t.mock.method(fs, "readlinkSync", (file, ...args) => {
+    if (file === `/proc/${child.pid}/cwd` && ++reads > 2) throw Object.assign(new Error("cwd vanished during exit"), { code: "ENOENT" });
+    return readlink(file, ...args);
+  });
+  const result = await killOrphan(record, { worktreesDir, graceMs: 500 });
+  assert.equal(result.killed, true, JSON.stringify(result)); assert.equal(result.signal, "SIGTERM");
+});
+
+test("killOrphan rechecks cwd before the first signal", { skip: !linux }, async (t) => {
+  const { killOrphan } = await import("../skills/openmausbot-launcher/scripts/lib/proc.mjs");
+  const { procInfo } = await import("../skills/openmausbot-launcher/scripts/lib/server.mjs");
+  const { dir } = makeRepo(); const worktreesDir = path.join(dir, ".worktrees");
+  const cwd = path.join(worktreesDir, "live"); fs.mkdirSync(cwd, { recursive: true });
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { cwd, stdio: "ignore" });
+  t.after(() => child.kill("SIGKILL")); await sleep(100);
+  const result = await killOrphan({ pid: child.pid, startTicks: procInfo(child.pid).startTicks, cwd: path.join(worktreesDir, "other"), deleted: true }, { worktreesDir, graceMs: 50 });
+  assert.equal(result.killed, false); assert.match(result.why, /cwd/); assert.equal(procInfo(child.pid)?.alive, true);
+});
+
+test("a process that changes cwd after SIGTERM is not escalated or reported dead", { skip: !linux }, async (t) => {
+  const { killOrphan } = await import("../skills/openmausbot-launcher/scripts/lib/proc.mjs");
+  const { procInfo } = await import("../skills/openmausbot-launcher/scripts/lib/server.mjs");
+  const { dir } = makeRepo(); const worktreesDir = path.join(dir, ".worktrees");
+  const cwd = path.join(worktreesDir, "gone"); fs.mkdirSync(cwd, { recursive: true });
+  const ready = path.join(dir, "ready");
+  const child = spawn(process.execPath, ["-e", `require('node:fs').writeFileSync(${JSON.stringify(ready)}, 'ready'); process.on('SIGTERM', () => process.chdir(${JSON.stringify(dir)})); setInterval(() => {}, 1000);`], { cwd, stdio: "ignore" });
+  t.after(() => child.kill("SIGKILL"));
+  const until = Date.now() + 2000; while (!fs.existsSync(ready) && Date.now() < until) await sleep(10);
+  assert.ok(fs.existsSync(ready)); fs.rmdirSync(cwd);
+  const result = await killOrphan({ pid: child.pid, startTicks: procInfo(child.pid).startTicks, cwd, deleted: true }, { worktreesDir, graceMs: 100 });
+  assert.equal(result.killed, false); assert.match(result.why, /cwd/); assert.equal(procInfo(child.pid)?.alive, true);
 });

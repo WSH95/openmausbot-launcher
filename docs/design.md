@@ -1,6 +1,6 @@
 # openmausbot-launcher design
 
-Approved plan of 2026-09-08 (two Codex gpt-6-astra review rounds folded in). This file is the design authority for the repository; the implementation steps at the end are tracked as beads.
+Approved design of 2026-09-08, including the M1.1 correctness review. This file is the design authority; Beads owns implementation tracking (`oml-t8u` for M1.1).
 
 
 ## Context
@@ -87,7 +87,8 @@ openmausbot-launcher/
 Invoked by path (`<skill>/scripts/omb.mjs <verb> …`) so exec allowlists can
 name one file. Stdout is one JSON object (`{ok, verb, …}` or
 `{ok:false, error, status?, hint?}`), or one line with `--brief`. Every HTTP
-request carries `AbortSignal.timeout` (15 s); the event stream uses a
+request carries cancellation and a timeout capped at 15 s or the remaining
+observation budget; the event stream uses a
 resettable idle watchdog (45 s without a frame aborts and reconnects).
 
 **Configuration** (first wins): URL `--url` > state `server.url` > `OMB_URL`
@@ -100,16 +101,24 @@ state > `OMB_DATA_DIR` > `~/.openmausbot`; binary `OMB_BIN` (path to
 `<project>/.omb/state.json`. Non-loopback URLs must be `https` unless
 `--allow-insecure-http`. Global flags: `--brief`, `--dry-run`, `--verbose`.
 
-**Modes.** *Local*: the data dir is readable and the server identity is
-verifiable; every verb. *Remote* (`--remote`, or the data dir is not
-readable): `import --adopt`, `status`, `watch`, `send`, `answer`,
-`interrupt`, `state`; the others need server-side paths or the data dir and
-exit 3 with a hint. An SSH tunnel to loopback is still remote (no data dir).
+**Modes.** `--remote` or a non-loopback URL selects remote operation;
+loopback defaults to local. Missing data does not change modes: `doctor`
+and `up` must be able to bootstrap a new directory. Local `import <pkg>`,
+`bind`, `facts`, `task`, and live `report` require a readable directory whose
+`environment-id` matches the server. HTTP-only remote operations are
+`import --adopt`, `status`, `watch`, `send`, `answer`, and `interrupt`, plus
+read-only `state` and diagnostic `doctor`. Remote observations ignore local
+receipts. An SSH tunnel to another machine must use `--remote`.
 Session scope is checked separately from location: client-scope sessions can
 send, answer, watch, and open tasks but not import, bind, or change models
 (`request-auth.ts:185-250`); a bearer token beats loopback trust
 (`request-auth.ts:326`), so `doctor` warns when `OMB_TOKEN` is set on a
-loopback URL.
+loopback URL. Supported runtime: Node 24.
+
+**Dry runs.** All verbs preview without HTTP mutations, signals, test
+execution, state writes, or lock creation. Git reads disable optional index
+locking; `reconcile --remove --dry-run` preserves both worktree and branch.
+Dry runs may still make HTTP reads and report failed preconditions.
 
 **Exit codes**: 0 ok or condition reached; 1 HTTP/network error; 2 usage;
 3 precondition failed (server down or not owned, bot busy, repo not
@@ -119,7 +128,7 @@ is needed; 6 stalled or failed.
 
 | Verb | Arguments | Does | OMB surface |
 |---|---|---|---|
-| `doctor` | `[--server]` | bootstrap: Node ≥ 24 when local (OMB `engines`), binary and version, git, project is a git repo, Stop-hook check only when `.project-steward/` exists (parse `[session] auto_handoff_mode`; must be `off`; runtime dir excluded), state summary, `OMB_TOKEN` on loopback warning; `--server` adds readiness: health, session scope, engines and effort levels, provider key variables absent from `/proc/<pid>/environ` (`unknown` when unreadable) | `/api/health`, `/api/auth/session`, `/api/instances` |
+| `doctor` | `[--server]` | bootstrap: Node ≥ 24 (supported runtime), binary and version, git, project is a git repo, Stop-hook check only when `.project-steward/` exists (parse `[session] auto_handoff_mode`; must be `off`; runtime dir excluded), state summary, `OMB_TOKEN` on loopback warning; `--server` adds readiness: health, session scope, engines and effort levels, provider key variables absent from `/proc/<pid>/environ` (`unknown` when unreadable) | `/api/health`, `/api/auth/session`, `/api/instances` |
 | `up` | `[--port] [--data-dir] [--fresh] [--label] [--ask-timeout-ms 600000] [--timeout 60]` | if the recorded owned instance is alive and verified: `owned`, no change; if an unrecorded server answers: `attached` (`--fresh` exits 3 instead of adopting); else spawns `<bin> serve --port --data-dir --no-pair` detached (setsid, unref, stdio to `<dataDir>/serve.log`) with `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`/`XAI_API_KEY`/`OMB_TOKEN` removed (the CLI forwards its whole environment, `cli.ts:434`) and `OMB_ASK_BOT_TIMEOUT_MS` set; waits for health; **proves ownership before recording it**: the health pid's parent (`/proc/<pid>/status` PPid) is the supervisor it spawned (`cli.ts:455`), then records supervisor pid and start time, health pid and start time (`/proc/<pid>/stat` field 22), url, data dir, and the persistent `environmentId` (`environment.ts:58`, written once per data dir) | CLI, `/api/health`, well-known |
 | `down` | `[--timeout 15]` | refuses unless owned and verified: loopback URL, both pids alive with the recorded start times, health pid's parent is the supervisor, health answers with the recorded pid, environment id matches; then SIGTERM the supervisor (it stops its child, `cli.ts:462-473`), wait, verify exit; read-only orphan scan | `/api/health`, `/proc` |
 | `import` | `<package.json> [--lead NAME]` or `--adopt <section-or-lead>` | `POST /api/teams/import?mode=add`; keeps the returned ids; maps package keys to returned bots by input order and name with numbered-suffix tolerance ("Sudo 2"); lead = the returned bot with `chiefOfStaff: true`, else `--lead` required; zero or many rooms; `--adopt` is the read-only attach for an existing team (also remote); records the server `environmentId` | `/api/teams/import`, `/api/bots` |
@@ -133,7 +142,7 @@ is needed; 6 stalled or failed.
 | `interrupt` | `[--bot]` | stops the run's turn only: always sends `{threadId: <run thread>}`; a 409 (the bot is busy in a room or routine, `index.ts:11044`) is reported, never overridden | `POST /api/bots/:id/interrupt` |
 | `reconcile` | `[--check]` (default) `[--remove <slug>]…` | exactly one worktree, no `task/*` branch, clean `git status --porcelain --untracked-files=normal`, on the default branch; `--remove` = `git worktree remove` then `git branch -D`, explicit slugs only | git |
 | `cleanup` | `[--kill] [--pattern codex-linux-sandbox] [--down]` | processes matching the pattern whose cwd is under `<project>/.worktrees/` and deleted; never a pid recorded as the owned server; identity (pid, start time, cwd) rechecked before SIGTERM and again before SIGKILL (5 s later); Linux only, macOS reports | `/proc`, `pgrep` |
-| `report` | `[--md] [--check-042]` | turns and tokens from **every run thread's** `events/<thread>.ndjson`, outcomes for the run, lead text, decisions, `git log <sentSha>..HEAD`, worktree list; verifies the record step; runs the project test command independently; `--check-042` adds the pack-validation checks (below); `--md` renders the evidence section; **closes the run**: moves `task` to `history` by `runId` with a result of `passed`, `incomplete`, or `failed` | data dir, git, `bd show` |
+| `report` | `[--md] [--check-042] [--run last\|ID] [--no-tests] [--close\|--no-close]` | turns and tokens from **every run thread's** `events/<thread>.ndjson`, outcomes for the run, lead text, decisions, `git log <sentSha>..HEAD`, worktree list; verifies the record step; runs the project test command independently; `--check-042` adds the pack-validation checks (below); `--md` renders the evidence section; **closes the run**: moves `task` to `history` by `runId` with a result of `passed`, `incomplete`, or `failed` | data dir, git, `bd show` |
 | `state` | `--show` | read the state | file |
 
 Deferred to v2: `pair` (documented as `openmausbot pair` plus one `curl`
@@ -143,7 +152,7 @@ skill and routine requests in `answer`.
 
 ### Task lifecycle (`task`)
 
-1. Read-only preconditions: state present and server identity unchanged;
+1. Inside the command transaction, check state and server identity;
    no run in `preparing` or `dispatched` (else exit 3 with the hint to
    `task --resume` or `task --abandon`); no team bot busy and nothing queued
    or running in team-map for team bots; `reconcile --check` passes.
@@ -173,11 +182,11 @@ sentence "I'll send a closing report after your answer" cannot match.
 
 ### Snapshot and evaluation (pure functions, table-tested)
 
-`snapshot()` gathers in parallel `GET /api/bots?messages=0`, `GET
-/api/team-map`, and the tail of **every run thread** (each team bot's run
-thread, `limit=10`; the lead's `limit=20`, paged with `before` until both
-the lead's last own text and the latest user message have been seen); the
-receipts file when local. Unresolved requests are kept across pages. A
+`snapshot()` gathers `GET /api/bots?messages=0`, `GET /api/team-map`, and
+messages from **every run thread**, including idle specialists. Each thread
+pages backward through dispatch (timestamp ties included), with no arbitrary
+page cap. A shared deadline bounds all reads; receipts are read only from a
+verified local data directory. Unresolved requests are kept across pages. A
 failed or partial fetch marks the snapshot `incomplete`: no terminal state
 is ever derived from an incomplete snapshot. Team membership = the imported
 ids plus bots created since in the same section; team-map edges count only
@@ -186,7 +195,7 @@ when both ends are team bots.
 Lead-authored text on the lead's thread: `role:"bot"`, `kind:"text"`, and no
 `from` (direct turn text carries none, `index.ts:2731-2736`; only room
 messages and echoes carry `from`). Outcomes on the lead thread, persisted as
-`{id, at, kind}` in message order: echoes (`from.botId` other than the
+full records keyed by `id`, in message order: echoes (`from.botId` other than the
 lead's, text `@<name> replied to the delegated task`, `index.ts:3383-3388`;
 names may contain spaces), delegation activity messages (`Delegation to @X
 completed without a text reply`, `failed`, `waiting — they're busy`,
@@ -196,6 +205,20 @@ dropped, canceled, denied variants, `index.ts:3392-3401`,
 deduplicated, capped at 100 and pruned after 48 h,
 `delegations.ts:98-129`, so ids are accumulated in state). Counts are
 informational only.
+
+Timestamp ties use current hydrated message order only. Receipt ties or
+unavailable order remain unknown; an old sequence index cannot prove a new
+ordering. `evidenceOf` captures all evaluation inputs, including content,
+identities and order. The shared `carriedVerdict` rule used by status and
+report requires complete, unchanged evidence with no pending or in-flight
+work. Legacy checkpoints without evidence cannot carry a verdict.
+
+Request cards are `kind: "options"` messages with no `card.kind` and may
+have no message text. Classification checks `routineRequest`, then
+`skillRequest`, then permission `tool`; otherwise it is a question.
+JSON retains full title, subtitle/text, options, request id, tool, and typed
+payload metadata; only the brief is shortened. Skill and routine answers
+exit 5 before any POST; their real upstream protocols remain in the fake.
 
 ```
 busy     = team bots with busy, or activity in {working, waiting-on-you, no-signal}
@@ -230,8 +253,10 @@ Notifications are wake-ups only (a bot's notifications can be off,
 
 ### `watch` loop
 
-1. Open the SSE stream first (`?screens=off`, bearer header when a token is
-   set, `since=<last applied frame id>` when resuming) and buffer frames.
+1. Open and start reading the SSE stream first (`?screens=off`, bearer
+   header when set, `since=<last covered frame id>` when resuming).
+   Begin initial hydration only after reading starts or polling fallback
+   is explicitly selected; connection setup consumes the same deadline.
 2. Take a complete REST snapshot (always, including cold start:
    `hello.resumed` is false then too).
 3. Drain the buffered frames as invalidations (`bot` for team bots,
@@ -250,9 +275,19 @@ Notifications are wake-ups only (a bot's notifications can be off,
 5. Return on a terminal state, on `--until change` when the state, the
    lead's last own message id, the outcome list, or the pending set changed,
    or at the deadline with `timeout` (exit 4).
-6. Every return writes `task.lastEval {state, cursor, lastLeadMessageId,
-   lastChangeAt, outcomes, lastReported}` under the lock, only when
-   `task.runId` still matches; `task.status` is never changed by `watch`.
+6. Each non-dry return attempts a checkpoint with at most a one-second
+   lock wait. It writes `task.lastEval {state, cursor, lastLeadMessageId,
+   lastChangeAt, outcomes, evidence, lastReported}` only for the same open
+   run and binding. Lock timeout or a replaced run returns
+   `checkpointed:false`; other state errors propagate. `watch` never
+   changes `task.status`.
+
+One monotonic deadline bounds identity, SSE setup/read/replay, coalescing,
+pagination, polling, reconnects and optional nudges. Continuous events
+cannot extend it. Every relevant frame resets quiet, including unchanged
+REST signatures. Quiet has its own wake deadline instead of waiting for the
+next poll. The received cursor advances on frames; the covered cursor
+advances only after their complete snapshot and alone is persisted.
 
 `--quiet-if-unchanged` prints nothing when nothing changed; `--nudge` sends
 `status?` once per run on the stalled signal (persisted watermark, fixed
@@ -269,6 +304,28 @@ T10 · ATTENTION · settled without the run marker · Sudo: "BLOCKED: …" → r
 T10 · STALLED · outcome newer than Sudo's last text, idle 3m → omb send "status?"
 ```
 
+### Report evidence and history
+
+Tests are required even when no command is configured, `--no-tests` is set,
+or dry-run skips execution. Only the exact generated suffix
+` (run inside the task's worktree)` is stripped from commands. The root is
+checked after tests. Every applicable check must be true for `passed`;
+`unknown` and `failedChecks` name the missing and failed evidence without
+duplicates. Actual failed tests or a failed run return exit 6. Ordinary
+reports omit genuinely unrequested record/bead requirements; `--check-042`
+requires all nine checks. Approval uses the last attributable reviewer reply
+before worktree creation, with explicit final verdicts and conservative
+handling of contradictions and conditions.
+
+New runs retain token-free server/team/facts context; closure archives the
+context used for the report. `--run` reports use this archive without a live
+server check or snapshot. A legacy run uses current bindings only when the
+exact run roster and environment identity corroborate them; otherwise
+context stays unknown and current test commands are not executed. Archived
+thread messages come from read-only `messages.db` or legacy JSON. Historical
+reanalysis appends a separate entry and preserves the original result.
+Concurrent replacement of the run or binding refuses a closing write.
+
 ## State file `<project>/.omb/state.json`
 
 Excluded through `.git/info/exclude` (same mechanism as `.worktrees/`), ids
@@ -276,24 +333,33 @@ only, never tokens. Chosen over `~/.config` because sandboxed hosts can
 write inside the workspace but often not to the home directory, and over the
 data dir because `--fresh` rotates it.
 
-**Concurrency.** Every write is a read-modify-write transaction under the
-lock `<project>/.omb/lock/` (a directory: `mkdir` is atomic and fails with
-`EEXIST`; the owner record `{pid, startedAt}` is written inside after
-creation). Writers wait up to 60 s (retry every 100 ms). A lock is stale
-when its owner pid is dead or the record is missing and the directory is
-older than 60 s. **Reclamation is by rename, not removal**: a reclaimer
-renames the stale lock to `lock.stale.<pid>.<time>`; exactly one rename
-succeeds, the loser gets `ENOENT` and retries the normal acquisition; the
-winner then creates a fresh lock (a third contender may win the `mkdir`, in
-which case the reclaimer retries too) and removes only the directory it
-renamed. So two reclaimers can never remove a newer owner's lock. The
-document carries `rev`; a writer re-reads under the lock and fails with
-exit 3 if `rev` moved since its read and the keys overlap. `task` holds the
-lock across its whole preparation, so competing dispatches serialize
-instead of racing; `watch` holds it only for its write and only when
-`task.runId` matches. A changed server identity (`environmentId`, or health
-pid and start time differ from `state.server`) invalidates `team` and
-`task`: verbs exit 3 with the hint to `import --adopt` or re-import.
+**Concurrency.** `state.json` remains authoritative, atomically renamed,
+and version 1. A persistent private (0600) `.omb/lock.sqlite` database is
+used solely as a mutex. Node's built-in SQLite is loaded only for a write.
+`BEGIN IMMEDIATE` uses zero busy timeout; only `SQLITE_BUSY` is retried,
+with asynchronous sleeps and a monotonic deadline (normally 60 s). Rollback
+and close release ownership even after callback failure. Never unlink or
+rotate this database; a live writer is never displaced by age. Process exit
+releases the SQLite lock. Corruption and permission errors propagate.
+
+Any legacy `.omb/lock` file or directory is refused. Migration requires all
+commands and automations stopped and all installed copies updated before
+removing only that legacy path. No automatic reclaim or state-format bump.
+
+Mutating commands acquire the mutex before preflights and hold it through
+their associated effects. They re-read and reject a changed `rev`; run
+resume/abandon and report closure verify the intended run. Watch locks only
+for a nudge or final checkpoint. Read-only commands never initialize SQLite.
+
+Every live command verifies the environment id, URL, health pid, and on
+local Linux the process start ticks. Missing identity fails closed.
+`import` and `up` protect existing ownership before selecting or mutating a
+server: a verified live owned server is retained only at its URL; unknown
+ownership blocks replacement. Replacement is allowed when both recorded
+processes are proven stopped. `up --fresh` reserves its directory atomically.
+Cleanup verifies true unlinked cwd identity, containment, pid/start ticks,
+and current protected server pids before each signal; a live directory
+literally ending in ` (deleted)` is preserved.
 
 ```jsonc
 { "version": 1, "rev": 17,
@@ -383,7 +449,7 @@ assumed.
 **Phone mode, same machine (OpenClaw).** Telegram → gateway → `exec
 <abs>/scripts/omb.mjs` → loopback OMB. Session flow: "start the team on
 ~/proj and do T10 (bead slg-a9x)" → `doctor`, `up --fresh`, `doctor
---server`, `import`/`bind`/`facts` only when `state.team` is missing, `task
+--server`, `import`/`bind`/`facts` for that fresh server, `task
 --todo T10 --bead slg-a9x`, reply with the brief line. Progress: (a) an
 automation `openclaw automations create "*/5 * * * *" --command "<abs>/scripts/omb.mjs
 watch --brief --max-seconds 240 --until change --quiet-if-unchanged --nudge"
@@ -392,7 +458,9 @@ admin-authored command, separate from the agent's exec allowlist; disable it
 after done; whether an empty output is announced is unverified); or (b) the
 agent runs `watch --max-seconds 1500 --until change` in the background and
 relays each result. Answers: "tell Sudo: …" → `send`; "approve" → `answer
---allow --request <id>`; "what's happening" → `status --brief`.
+--allow --request <id>`; "what's happening" → `status --brief`. Reuse a team
+binding only on the same verified server; after a restart, re-import or
+adopt to establish the new identity even when old team state is present.
 
 **Hermes**: a short `~/.hermes/scripts/omb-watch.sh` adapter (cron
 `--script` takes a filename there, not an absolute path) that runs `watch
@@ -440,8 +508,8 @@ no bot busy, marker present, absent, or from a previous run, marker text
 inside a longer sentence, pruning that shrinks the file, notifications off,
 specialist blocked on a card, incomplete snapshot yields no terminal state,
 pending input precedence over dispatch failure); state store interleavings
-(two writers, two reclaimers racing on a stale lock, crash between `mkdir`
-and the owner record, rev conflict, run id mismatch, crash after
+(concurrent SQLite writers, asynchronous busy waits, owner death, legacy
+lock refusal, corruption, bounded checkpoints, rev conflict, run id mismatch, crash after
 `preparing`, crash after one thread created, crash after send, ambiguous
 tagged threads, `--resume` idempotency); `watch` over SSE to done, question
 (5), cold-start hydration, buffered busy frame before a terminal result,
@@ -490,46 +558,19 @@ Host checks: Claude Code (symlink, triggers on "run T10 through the team",
 with escalation, state file writable); Grok (discovered through
 `~/.claude/skills`, one `status` and one `send`).
 
-## Implementation steps (one commit each, tests first)
+## Implementation and validation tracking
 
-1. Scaffold the repo: `git init`, `package.json`, `.gitignore`, `LICENSE`,
-   `README.md`, `bd init --prefix oml`, Project Steward init (project-init
-   skill) with `auto_handoff_mode = "off"`, `.claude/settings.json` and
-   `.codex/` mirrors, `docs/design.md` from this plan.
-2. Contract fixtures first: `tests/fixtures/fake-omb.mjs` with the
-   field-specific 409 model, supervisor and child, receipts pruning, `id:`
-   frames and replay, the control route; the test harness (free port, temp
-   git repo); `tests/size.test.mjs`; the skill skeleton (frontmatter,
-   section stubs, `agents/openai.yaml`, reference headings).
-3. `lib/state.mjs` (lock directory, rename reclamation, rev, run id,
-   identity invalidation); interleaving and reclamation tests.
-4. `lib/http.mjs` (timeouts, bearer from env or file, error mapping,
-   dry-run), `lib/server.mjs` (`spawnServer`, ancestry proof, identity
-   record, `waitHealthy`, `binaryVersion`), `doctor`, `up`, `down`; the
-   detached-survival spike on the three hosts with the fake and the real
-   server; tests.
-5. `lib/git.mjs`, `reconcile`, `cleanup`; tests.
-6. `import` (with `--adopt`, key mapping), `bind`, `facts`; tests.
-7. `lib/snapshot.mjs` (`snapshot`, outcomes, `evaluate`, `brief`),
-   `status`; table-driven tests.
-8. `task` (lifecycle above), `send`, `answer`, `interrupt`; crash and
-   resume tests.
-9. `lib/watch.mjs` (`sse`, invalidation model, idle watchdog, polling
-   fallback, bounds, watermarks); tests.
-10. `lib/report.mjs`, `report` with `--check-042` and run closing; tests on
-    synthetic data.
-11. `references/api.md`, `limits-and-pitfalls.md`, `dev-team.md` (brief
-    template with the run marker, roster, facts, record step, expected
-    outcomes per mode as a guide, not a rule), `evidence.md`.
-12. `references/hosts.md`, final `SKILL.md` text (humanizer pass), size test
-    green, `skills-ref validate`.
-13. Install on the three hosts, host checks, the 0.4.2 validation run,
-    evidence.
-14. Devpack follow-ups: `docs/setup-guide.md` section 5 points at the skill;
-    `omb-watch.sh` and `omb-chain-status.sh` become wrappers around `watch`
-    and `status` only after a compatibility check, else stay; beads for
-    OpenClaw/Hermes/DSH verification, for `pair`, for macOS lifecycle, for
-    the unsupported request types, and for retiring the scripts.
+Beads owns detailed work; `oml-t8u` tracks the M1.1 repair. The original
+fourteen implementation steps are historical. Repairs use failing
+regressions, focused implementation, independent review, and an integrated
+suite. Commit coherent, tested checkpoints without a separate permission
+question. Every `git push`, including automated or force pushes, requires
+the user's explicit permission for that push.
+
+M1 implementation exists, but its formal validation gate is incomplete:
+T12 remains 8/9 because the pack lead used host ListAgents, and the specified
+doctor/status/send sequence across all three hosts is not fully recorded.
+M1.1 adds no paid bot run and no new host claims.
 
 ## Risks and unknowns
 
@@ -551,5 +592,6 @@ with escalation, state file writable); Grok (discovered through
    window before declaring settlement, which `--max-seconds 100` allows.
 7. Numbered names on re-import ("Sudo 2") are handled by ids, but a
    `--adopt` by name must be told which team.
-8. Node 24 is required where OMB runs; a remote-only host may run the
-   driver on Node 22 (`fetch`, `parseArgs` present), unverified.
+8. Node 24 is the supported runtime for local and remote operation.
+   SQLite may emit an experimental warning on stderr. See the lock upgrade
+   procedure above; mixed launcher versions must not run concurrently.

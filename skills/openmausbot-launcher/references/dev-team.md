@@ -166,35 +166,43 @@ per run).
 
 ## The record step and `report --check-042`
 
-Without `--check-042`, `report` already verifies the record
-(`scripts/lib/verbs/run.mjs:330-333`): a commit since dispatch touched the task log; one
+Without `--check-042`, `report` verifies requested record evidence
+(`scripts/lib/verbs/report.mjs`): a commit since dispatch touched the task log; one
 commit's subject matches `docs(team): … merged as <sha>` and its files are all the task
 log or under `.beads/`; `bd show <id> --json` says closed.
 
-`--check-042` adds nine checks (`scripts/lib/report.mjs:55-77`, `scripts/lib/verbs/run.mjs:341-350`).
+`--check-042` requires nine checks (`scripts/lib/report.mjs`, `scripts/lib/verbs/report.mjs`).
 The first three are the 0.4.2 wording release: each fixes a deviation seen in the 0.4.1
 validation (`EVIDENCE.md`, "Deviations and findings").
 
 | Check | What it proves |
 |---|---|
-| `worktree-after-approval` | `git worktree add` in the lead's native log comes after the plan reviewer's verdict — 0.4.1's lead created T10's worktree at step 1, before the plan |
+| `worktree-after-approval` | The last attributable reviewer reply before the first `git worktree add` explicitly approves. Correlate `ask_bot.bot_id` and its tool result id, or a server-authored delegation echo's `from.botId`; the lead's paraphrase is not evidence. Negative, conditional, contradictory, or ambiguous verdicts cannot pass |
 | `record-time-from-date-u` | the task log's first heading carries the timestamp the lead's last `date -u` returned — 0.4.1's T11 entry went to the bottom of the file with an invented time |
 | `no-host-listagents` | no host `ListAgents` among the lead's tool calls, and `list_bots` present — 0.4.1's lead called `ListAgents` first, nine times across two tasks |
 | `bead-closed` | the brief's bead is closed |
 | `record-commit` | the `docs(team)` commit exists and touched only the task log and `.beads` |
 | `merged-ancestor` | the sha the closing report names as merged is an ancestor of the default branch (the task branch is gone by then, so the check uses the commit id) |
 | `task-branch-and-worktree-absent` | the cleanup gate ran: no `task/*` branch, exactly one worktree |
-| `root-clean` | the root is on the default branch with nothing modified or untracked |
+| `root-clean` | after tests, the root is on the default branch with nothing modified or untracked |
 | `tests-pass` | the Project facts test command passes when `report` runs it itself |
 
-Result: `passed` (state `done`, record ok, tests green, root clean, no check `false`),
-`incomplete`, or `failed`. Either way `report` closes the run into the state's history.
+Result: `passed` requires every applicable check to be `true`. Missing or
+skipped tests and unavailable evidence remain unknown; inspect `unknown`
+and `failedChecks`. Outside pack validation, only genuinely unrequested
+record/bead checks are optional. A settled run closes into history as
+`passed`, `incomplete`, or `failed`; failed runs or failed tests return 6.
 
-Unverified: 0.4.2 is a wording release not yet exercised live — the 0.4.1 entry ends "not
-validated live, the next run does", and the launcher's own validation run (`docs/design.md`,
-"Real run = the 0.4.2 pack validation", bead `atw-yyd.9`) is that run. The tool name the third
-check expects in a Claude lead's native log (`mcp__agents__list_bots`) is unconfirmed against a
-real log.
+`report --run last` reads archived context offline and appends a separate
+reanalysis. `--dry-run` skips tests and all writes, so cannot newly pass
+required tests. The original result is preserved. Legacy history needs
+corroborating roster and environment identity; current facts are not silently
+substituted for an unknown historical context.
+
+Recorded validation: T12 on 2026-09-08 exercised 0.4.2 and passed 8/9 checks.
+The lead called both `ListAgents` and `mcp__agents__list_bots`. M1.1's offline
+reanalysis attributes Vale's real approval at 03:10:22.421Z; it preserves
+that pack residual. See this repository's `docs/evidence.md`.
 
 ## Cleanup
 

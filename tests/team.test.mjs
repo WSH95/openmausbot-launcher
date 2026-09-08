@@ -23,7 +23,7 @@ test("helpers: engine specs and the facts block", () => {
 });
 
 test("import maps package keys to returned bots, records the chief as lead, rooms, and the environment", async (t) => {
-  const f = await startFake(); t.after(() => f.close());
+  const f = await startFake(); t.after(() => f.close()); env.OMB_DATA_DIR = f.dataDir;
   const { dir } = makeRepo();
   const dry = await runOmb(["import", PKG, "--project", dir, "--url", f.url, "--dry-run"], { env });
   assert.equal(dry.code, 0, dry.stdout); assert.deepEqual(dry.json.package.agents, ["sudo", "sage", "vale", "nova", "quill"]);
@@ -48,7 +48,7 @@ test("import maps package keys to returned bots, records the chief as lead, room
 });
 
 test("import --lead when the package names no chief; --adopt recovers a team by section or lead name", async (t) => {
-  const f = await startFake(); t.after(() => f.close());
+  const f = await startFake(); t.after(() => f.close()); env.OMB_DATA_DIR = f.dataDir;
   const { dir } = makeRepo();
   const pkg = JSON.parse(fs.readFileSync(PKG, "utf8")); delete pkg.package.chiefOfStaff;
   const file = path.join(dir, "pkg.json"); fs.writeFileSync(file, JSON.stringify(pkg));
@@ -69,7 +69,7 @@ test("import --lead when the package names no chief; --adopt recovers a team by 
 });
 
 test("bind sets cwd, models, and approval only where they differ, skips grok auto, refuses busy bots, reports conflicts", async (t) => {
-  const f = await startFake(); t.after(() => f.close());
+  const f = await startFake(); t.after(() => f.close()); env.OMB_DATA_DIR = f.dataDir;
   const { dir } = makeRepo();
   assert.equal((await runOmb(["import", PKG, "--project", dir, "--url", f.url], { env })).code, 0);
   const team = loadState(statePaths(dir)).team;
@@ -112,7 +112,7 @@ test("bind sets cwd, models, and approval only where they differ, skips grok aut
 });
 
 test("facts replaces the marker block, keeps unspecified fields, infers the branch, guards the length", async (t) => {
-  const f = await startFake(); t.after(() => f.close());
+  const f = await startFake(); t.after(() => f.close()); env.OMB_DATA_DIR = f.dataDir;
   const { dir } = makeRepo({ branch: "trunk" });
   assert.equal((await runOmb(["import", PKG, "--project", dir, "--url", f.url], { env })).code, 0);
   let r = await runOmb(["facts", "--project", dir, "--test", "npm test", "--tracker", "beads", "--task-log", ".project-steward/PROGRESS.md"], { env });

@@ -133,6 +133,7 @@ the identical thread, text and `sendId`, and never rewrites any of the three.
 | `delegation-receipts.json` | `[{id, sourceThreadId, toBotId, toBotName, status, finishedAt, result?}]` — newest first, deduplicated by `id`, capped at 100, pruned after 48 h, `result` truncated to 4000 chars (`delegations.ts:96-129`). Fleet-wide: filter by `sourceThreadId`. |
 | `events/<threadId>.ndjson` | Normalised `RuntimeEvent` lines (`thread-events.ts:5-6`): `turn.started`, `turn.completed` with `ok` and `usage{input, output, cachedInput}`, `session.started` with `model`, `item.started/updated/completed`, `request.opened/resolved`, `thread.token-usage.updated`, `runtime.error` (`contracts.ts:95-153`). Only `turn.completed.usage` may be summed; `thread.token-usage.updated` is a live indicator whose meaning differs per driver (`contracts.ts:113-117`). |
 | `native/<threadId>.ndjson` | `{at, dir:"in"\|"out", source, msg}`, the provider's own protocol verbatim and secret-redacted (`thread-events.ts:7-9,18-23`; `drivers/native.ts:11-21`). Claude lines carry `message.content[]` with `tool_use` and `tool_result` blocks; Codex lines carry its own thread start and resume protocol. |
+| `messages.db` | SQLite message store; archived reports open it read-only and select the run thread's JSON in row order (`message-db.ts:21,119-127`). Legacy `messages-<threadId>.json` is the fallback. |
 | `bots.json`, `groups.json`, `messages-<threadId>.json` | The store (`store.ts:562-564`). Alongside them: `sessions.json`, `decisions.ndjson` (`decision-log.ts:68`), `skills/`. |
 
 ## Message shapes on a thread
@@ -142,6 +143,23 @@ Fields the driver reads (`store.ts:101-183`): `id`, `at`, `role`
 `from{botId,name,color}`, `card`, `connector`, `secret`,
 `tool{name, ok, spoken?, setup?}`, `sendId`, `steered`, `queued`/`queueId`,
 `turnId`, `via`.
+
+Cards are `kind: "options"` messages, often without a top-level `text`.
+The card has `title`, `subtitle`, `options`, `requestId`, and no `kind`.
+Permission cards have `tool` and may have `held`, `approvalScope`, or
+`allowKey`; question cards omit `tool` (`index.ts:2881-2896,2917-2945`).
+Classify `routineRequest` and `skillRequest` before testing `tool`.
+
+Learned-skill cards contain the bot/staged ids, name, action, gist, preview,
+and sha256; allowing one requires the matching `reviewedSha256`, otherwise
+409 (`index.ts:6420-6430,6466-6526`). Routine cards use Confirm/Cancel and
+carry a versioned proposal with request/bot/thread ids, creation time, and
+structured `operation` (`routine-requests.ts:119-157,745-751`). Their
+response rejects `answer` with 400; a successful allow returns
+`routineAction` and `resultId` (`routine-requests.ts:812-818`,
+`index.ts:4799-4828`). Both are intercepted before ordinary adapter answers
+(`index.ts:10981-11013`). The v1 driver reports these payloads and refuses
+all answer modes before posting; the fake models the real staged protocol.
 
 - `from` is set only on a bot message in a group thread
   (`index.ts:2731-2732`) and on a delegation echo (`index.ts:3389`). Direct

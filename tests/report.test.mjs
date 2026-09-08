@@ -38,27 +38,30 @@ test("check042 on a synthetic native log", () => {
   const stamp = "2026-09-08T01:30:00Z";
   const native = [
     { at: iso(t0 + 1000), msg: { type: "assistant", message: { content: [{ type: "tool_use", id: "l", name: "mcp__agents__list_bots", input: {} }] } } },
+    { at: iso(t0 + 4000), msg: { type: "assistant", message: { content: [{ type: "tool_use", id: "d", name: "mcp__agents__ask_bot", input: { bot_id: "vale" } }] } } },
     { at: iso(t0 + 5000), msg: { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "d", content: "@Vale replied to the delegated task:\n\nPlan approved: ready." }] } } },
     { at: iso(t0 + 9000), msg: { type: "assistant", message: { content: [{ type: "tool_use", id: "w", name: "Bash", input: { command: "git worktree add -b task/t10 .worktrees/t10 main" } }] } } },
     { at: iso(t0 + 20_000), msg: { type: "assistant", message: { content: [{ type: "tool_use", id: "t", name: "Bash", input: { command: "date -u +%FT%TZ" } }] } } },
     { at: iso(t0 + 21_000), msg: { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t", content: `${stamp}\n` }] } } },
   ];
-  let checks = check042({ native, taskLogText: `# Progress\n\n### ${stamp} — Sudo\nT10 merged.\n\n### 2026-09-01T00:00:00Z — old\n`, reviewerName: "Vale", sentAt: t0 });
+  let checks = check042({ native, taskLogText: `# Progress\n\n### ${stamp} — Sudo\nT10 merged.\n\n### 2026-09-01T00:00:00Z — old\n`, reviewer: { id: "vale", name: "Vale" }, sentAt: t0 });
   const by = Object.fromEntries(checks.map((c) => [c.id, c]));
   assert.equal(by["worktree-after-approval"].ok, true); assert.equal(by["record-time-from-date-u"].ok, true); assert.equal(by["no-host-listagents"].ok, true);
   const early = native.map((e) => (e.msg.message.content[0].id === "w" ? { ...e, at: iso(t0 + 2000) } : e));
-  checks = check042({ native: early, taskLogText: `### ${stamp} — Sudo`, reviewerName: "Vale", sentAt: t0 });
-  assert.equal(checks.find((c) => c.id === "worktree-after-approval").ok, false);
-  checks = check042({ native: [...native, { at: iso(t0 + 3000), msg: { type: "assistant", message: { content: [{ type: "tool_use", id: "x", name: "ListAgents", input: {} }] } } }], taskLogText: `### 2026-09-08T01:31:00Z — Sudo`, reviewerName: "Vale", sentAt: t0 });
+  checks = check042({ native: early, taskLogText: `### ${stamp} — Sudo`, reviewer: { id: "vale", name: "Vale" }, sentAt: t0 });
+  assert.equal(checks.find((c) => c.id === "worktree-after-approval").ok, null);
+  checks = check042({ native: [...native, { at: iso(t0 + 3000), msg: { type: "assistant", message: { content: [{ type: "tool_use", id: "x", name: "ListAgents", input: {} }] } } }], taskLogText: `### 2026-09-08T01:31:00Z — Sudo`, reviewer: { id: "vale", name: "Vale" }, sentAt: t0 });
   assert.equal(checks.find((c) => c.id === "no-host-listagents").ok, false); assert.equal(checks.find((c) => c.id === "record-time-from-date-u").ok, false);
-  checks = check042({ native: [], taskLogText: null, reviewerName: "Vale", sentAt: t0 });
+  checks = check042({ native: [], taskLogText: null, reviewer: { id: "vale", name: "Vale" }, sentAt: t0 });
   assert.ok(checks.every((c) => c.ok === null || c.id === "no-host-listagents"));
 });
 
 test("report: a full synthetic run passes --check-042, renders markdown, and closes the run; a failing suite fails it", async (t) => {
   const f = await startFake(); t.after(() => f.close());
   const { dir, git } = makeRepo();
-  const env = { OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir };
+  const bin = fs.mkdtempSync("/tmp/oml-report-bin-"); t.after(() => fs.rmSync(bin, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(bin, "bd"), '#!/bin/sh\nprintf \'[{"status":"closed"}]\\n\'\n', { mode: 0o755 });
+  const env = { OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir, PATH: `${bin}:${process.env.PATH}` };
   fs.writeFileSync(path.join(dir, "PROGRESS.md"), "# Progress log\n\n### 2026-09-01T00:00:00Z — seed\nSeed entry.\n");
   fs.mkdirSync(path.join(dir, ".beads")); fs.writeFileSync(path.join(dir, ".beads", "issues.jsonl"), "{}\n");
   git("add", "-A"); git("commit", "-q", "-m", "seed");
@@ -78,6 +81,7 @@ test("report: a full synthetic run passes --check-042, renders markdown, and clo
   fs.mkdirSync(path.join(f.dataDir, "native"), { recursive: true });
   const nat = [
     { at: iso(t0 + 2000), msg: { type: "assistant", message: { content: [{ type: "tool_use", id: "l", name: "mcp__agents__list_bots", input: {} }] } } },
+    { at: iso(t0 + 20_000), msg: { type: "assistant", message: { content: [{ type: "tool_use", id: "d", name: "mcp__agents__ask_bot", input: { bot_id: st.team.bots.find((b) => /plan review/i.test(b.title)).id } }] } } },
     { at: iso(t0 + 30_000), msg: { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "d", content: "@Vale replied to the delegated task:\n\nready" }] } } },
     { at: iso(t0 + 40_000), msg: { type: "assistant", message: { content: [{ type: "tool_use", id: "w", name: "Bash", input: { command: "git worktree add -b task/t10 .worktrees/t10 main" } }] } } },
     { at: iso(t0 + 165_000), msg: { type: "assistant", message: { content: [{ type: "tool_use", id: "dt", name: "Bash", input: { command: "date -u +%FT%TZ" } }] } } },
@@ -102,10 +106,10 @@ test("report: a full synthetic run passes --check-042, renders markdown, and clo
   assert.equal(r.code, 0, r.stdout + r.stderr);
   assert.equal(r.json.state, "done"); assert.equal(r.json.result, "passed", JSON.stringify(r.json.check042));
   assert.equal(r.json.closed, true); assert.equal(r.json.mergedSha, merged); assert.equal(r.json.ancestor, true);
-  assert.equal(r.json.record.commit.length, 40); assert.equal(r.json.record.taskLogChanged, true); assert.equal(r.json.record.bead.ok, null);
+  assert.equal(r.json.record.commit.length, 40); assert.equal(r.json.record.taskLogChanged, true); assert.equal(r.json.record.bead.ok, true);
   assert.equal(r.json.tests.ok, true);
   assert.equal(r.json.threads.find((x) => x.bot === "Sudo").turns, 2); assert.equal(r.json.threads.find((x) => x.bot === "Nova").totals.input, 500);
-  assert.ok(r.json.check042.every((c) => c.ok !== false), JSON.stringify(r.json.check042));
+  assert.ok(r.json.check042.every((c) => c.ok === true), JSON.stringify(r.json.check042));
   const after = loadState(statePaths(dir));
   assert.equal(after.task, null); assert.equal(after.history.at(-1).result, "passed"); assert.equal(after.history.at(-1).runId, run.json.runId);
   const md = renderMarkdown(r.json);
@@ -114,7 +118,7 @@ test("report: a full synthetic run passes --check-042, renders markdown, and clo
   assert.equal(r.code, 3); assert.match(r.json.error, /no open run/); assert.match(r.json.hint, /--run last/);
   r = await runOmb(["report", "--project", dir, "--run", "last", "--check-042"], { env });
   assert.equal(r.code, 0, r.stdout); assert.equal(r.json.reReported, true); assert.equal(r.json.result, "passed"); assert.equal(r.json.runId, run.json.runId);
-  assert.equal(loadState(statePaths(dir)).history.at(-1).report.reReportedAt !== undefined, true);
+  assert.equal(loadState(statePaths(dir)).history.at(-1).reanalysis?.at(-1).at !== undefined, true);
   // a second run whose suite fails
   const run2 = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
   assert.equal(run2.code, 0, run2.stdout);
@@ -134,4 +138,111 @@ test("bareCommand strips a trailing note; mergedShaFrom falls back to the record
   assert.equal(mergedShaFrom("fast-forward into main (2f6d9d5..9127a0a)", "docs(team): T12 merged as 9127a0a"), "9127a0a");
   assert.equal(mergedShaFrom("fast-forward into main (`2f6d9d5..9127a0a`)", null), "9127a0a");
   assert.equal(mergedShaFrom("nothing merged", null), null);
+});
+
+const reviewStart = Date.UTC(2026, 8, 8);
+const toolCall = (at, id, name, input) => ({ at: iso(reviewStart + at), msg: { message: { role: "assistant", content: [{ type: "tool_use", id, name, input }] } } });
+const toolReply = (at, id, content) => ({ at: iso(reviewStart + at), msg: { message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content }] } } });
+const worktree = toolCall(10000, "w", "Bash", { command: "git worktree add .worktrees/t task/t" });
+const reviewCheck = (native, messages = []) => check042({ native, messages, leadThreadId: "lead-thread", reviewer: { id: "vale", name: "Vale" }, sentAt: reviewStart }).find((c) => c.id === "worktree-after-approval");
+
+test("approval comes from the named reviewer's correlated reply, never a lead paraphrase", () => {
+  const ask = toolCall(1000, "ask", "mcp__agents__ask_bot", { bot_id: "vale" });
+  assert.equal(reviewCheck([ask, toolReply(2000, "ask", "Verdict: approved."), worktree]).ok, true);
+  assert.equal(reviewCheck([ask, toolReply(2000, "unrelated", "@Vale Verdict: approved."), worktree]).ok, null);
+  assert.equal(reviewCheck([toolCall(1000, "ask", "mcp__agents__ask_bot", { bot_id: "nova" }), toolReply(2000, "ask", "@Vale Verdict: approved."), worktree]).ok, null);
+  assert.equal(reviewCheck([{ at: iso(reviewStart + 2000), msg: { message: { role: "assistant", content: "Vale approved the plan, ready." } } }, worktree]).ok, null);
+});
+
+test("the last attributable pre-worktree reply controls approval, including not ready and ambiguity", () => {
+  const ask = toolCall(1000, "ask", "mcp__agents__ask_bot", { bot_id: "vale" });
+  for (const text of ["Verdict: not ready.", "Verdict: revise.", "Verdict: rejected."]) assert.equal(reviewCheck([ask, toolReply(2000, "ask", text), worktree]).ok, false, text);
+  for (const text of ["Not sure it is ready.", "Verdict: approved, but not ready.", "Ready after you fix the blockers."]) assert.equal(reviewCheck([ask, toolReply(2000, "ask", text), worktree]).ok, null, text);
+  const ask2 = toolCall(3000, "ask2", "mcp__agents__ask_bot", { bot_id: "vale" });
+  assert.equal(reviewCheck([ask, toolReply(2000, "ask", "Approved."), ask2, toolReply(4000, "ask2", "Verdict: not ready."), worktree]).ok, false);
+  assert.equal(reviewCheck([ask, toolReply(2000, "ask", "Approved."), ask2, toolReply(11000, "ask2", "Verdict: not ready."), worktree]).ok, true);
+  assert.equal(reviewCheck([ask, toolReply(-1, "ask", "Approved."), worktree]).ok, null);
+});
+
+test("a delegate verdict must be a server-authored echo on the run thread from reviewer id", () => {
+  // OpenMausBot 0.1.56 server/index.ts:3383-3390 authors this echo and from.botId.
+  const echo = { id: "echo", at: reviewStart + 2000, role: "bot", kind: "text", from: { botId: "vale", name: "Vale" }, text: "@Vale replied to the delegated task:\n\nVerdict: ready." };
+  assert.equal(reviewCheck([worktree], [echo]).ok, true);
+  assert.equal(reviewCheck([worktree], [{ ...echo, from: { botId: "nova", name: "Vale" } }]).ok, null);
+  assert.equal(reviewCheck([worktree], [{ ...echo, threadId: "other-thread" }]).ok, null);
+  assert.equal(reviewCheck([worktree], [{ ...echo, from: undefined }]).ok, null);
+});
+
+test("missing native evidence is unknown, and shell parentheses are executable syntax", () => {
+  assert.ok(check042({ native: null, reviewer: { id: "vale", name: "Vale" } }).every((c) => c.ok === null));
+  assert.equal(bareCommand("date\n(npm test)"), "date\n(npm test)");
+  assert.equal(bareCommand("(npm test)"), "(npm test)");
+  assert.equal(bareCommand("npm test (some other note)"), "npm test (some other note)");
+});
+
+test("approval checks use only native calls and results within the run, and reject failed tool results", () => {
+  const ask = toolCall(1000, "ask", "mcp__agents__ask_bot", { bot_id: "vale" });
+  const failed = toolReply(2000, "ask", "Approved."); failed.msg.message.content[0].is_error = true;
+  assert.equal(reviewCheck([ask, failed, worktree]).ok, null);
+  assert.equal(reviewCheck([toolCall(-1000, "ask", "mcp__agents__ask_bot", { bot_id: "vale" }), toolReply(2000, "ask", "Approved."), worktree]).ok, null);
+});
+
+test("archive reader obtains reviewer provenance from read-only SQLite and legacy message files", async (t) => {
+  const { archivedMessages } = await import("../skills/openmausbot-launcher/scripts/lib/report.mjs");
+  const { DatabaseSync } = await import("node:sqlite");
+  const dataDir = fs.mkdtempSync("/tmp/oml-report-messages-"); t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  // OpenMausBot 0.1.56 server/message-db.ts:21,39-48,119-127 stores full JSON by thread_id.
+  const db = new DatabaseSync(path.join(dataDir, "messages.db"));
+  db.exec("CREATE TABLE messages (thread_id TEXT, json TEXT)");
+  const echo = { id: "echo", at: reviewStart + 2000, role: "bot", kind: "text", from: { botId: "vale", name: "Vale" }, text: "@Vale replied to the delegated task:\n\nVerdict: approved." };
+  db.prepare("INSERT INTO messages VALUES (?, ?)").run("lead-thread", JSON.stringify(echo)); db.close();
+  assert.equal(reviewCheck([worktree], await archivedMessages(dataDir, "lead-thread")).ok, true);
+  fs.writeFileSync(path.join(dataDir, "messages-legacy.json"), JSON.stringify({ messages: [echo] }));
+  assert.deepEqual(await archivedMessages(dataDir, "legacy"), [echo]);
+  assert.equal(await archivedMessages(dataDir, "missing"), null);
+});
+
+for (const [label, reply, expected] of [
+  ["a final negative explanation", "Approved.\nFinal verdict: not ready because the rollback is unsafe.", false],
+  ["a trailing condition", "Approved.\nOnly after you fix the blocking race.", null],
+  ["a superseding final rejection", "Prior verdict:\nApproved.\nFinal verdict: rejected — unresolved blockers.", false],
+  ["an ambiguous final verdict", "Approved.\nFinal verdict: undecided pending the rollback design.", null],
+  ["a condition after the final verdict", "Final verdict: approved.\nOnly after the failing test is fixed.", null],
+  ["a conditional final approval", "Approved.\nFinal verdict: approved if the rollback passes.", null],
+  ["a contradiction in the final verdict", "Final verdict: approved, but not ready.", null],
+  ["a final rejection after an earlier explicit approval", "Verdict: approved.\nFinal verdict: reject because the tests fail.", false],
+  ["an unresolved contradiction before final approval", "This is not ready because the rollback is unsafe.\nFinal verdict: approved.", null],
+]) test(`approval never passes ${label}`, () => {
+  const ask = toolCall(1000, "ask", "mcp__agents__ask_bot", { bot_id: "vale" });
+  assert.equal(reviewCheck([ask, toolReply(2000, "ask", reply), worktree]).ok, expected);
+});
+
+test("the archived T12 reviewer reply has an unqualified final approve verdict", () => {
+  // Archived 0.1.56 native eb9e6184-f4ed-4670-8515-a3d474006f50:
+  // Vale ask_bot 03:09:05.609Z -> correlated result 03:10:22.421Z, before worktree creation.
+  const reply = "Vale replied:\nI’m rechecking the revised plan against the same repository evidence, with attention to the remaining accounting, test coverage, and whether the stated risks match the actual edits. I’ll remain read-only.\n1. **Low (non-blocking)** — The risk section says “six edits,” but Step 3 lists seven affected test methods/edit groups. Clarify the count for consistency.\n\nAll substantive issues are addressed: the invalid fixtures are fully accounted for, non-string separators are covered, acceptance criteria and tests are complete, scope is minimal, and no human decision remains.\n\n**Verdict: approve**";
+  const ask = toolCall(1000, "ask", "mcp__agents__ask_bot", { bot_id: "vale" });
+  assert.equal(reviewCheck([ask, toolReply(2000, "ask", reply), worktree]).ok, true);
+});
+
+for (const preamble of [
+  "I cannot approve this plan as written.",
+  "The plan still needs changes before work can begin.",
+  "Approval depends on fixing issue 17 first.",
+  "I can't recommend proceeding with this plan.",
+  "The implementation should wait for the race fix.",
+  "The rollback must be corrected.",
+  "This requires another review pass.",
+  "Proceed if the migration checks pass.",
+  "Approval is contingent upon resolving the race.",
+  "Assuming the blocker is fixed, proceed.",
+  "The design is not acceptable.",
+  "Approval is withheld until the evidence arrives.",
+  "There are outstanding changes to make.",
+  "I disapprove of the proposed rollback.",
+  "Approval is denied for this implementation.",
+  "No approval is granted for starting work.",
+]) test(`approval is unknown despite final approval when context says: ${preamble}`, () => {
+  const ask = toolCall(1000, "ask", "mcp__agents__ask_bot", { bot_id: "vale" });
+  assert.equal(reviewCheck([ask, toolReply(2000, "ask", `${preamble}\nVerdict: approved.`), worktree]).ok, null);
 });

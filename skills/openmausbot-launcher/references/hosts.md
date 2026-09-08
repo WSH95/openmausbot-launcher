@@ -20,15 +20,16 @@ the hosts' own documentation and are marked so.
 the hosts it knows; check discovery on each host afterwards (`/skills`,
 `$openmausbot-launcher`, `hermes skills list`) rather than assuming it.
 
-The driver needs Node 24 on the machine where OpenMausBot runs (OpenMausBot
-itself requires it). `up`, `down`, and `cleanup --kill` read `/proc`, so
+The driver supports Node 24, including remote writers that use its built-in
+SQLite mutex (OpenMausBot itself also requires Node 24). `up`, `down`, and `cleanup --kill` read `/proc`, so
 they are Linux-only; on macOS use `up` to attach to a server you started
 yourself.
 
 ## Time budgets per shell call
 
-`watch` blocks for at most `--max-seconds` (default 100) and returns a
-cursor; call it again to continue. Each call must observe its own 30 s
+`watch` observes for at most `--max-seconds` (default 100), followed by up
+to one second waiting for its checkpoint lock. If `checkpointed:false`, the
+returned cursor was not saved; call again to reload state. Each call observes its own 30 s
 quiet window before it can declare a run settled, so never go below
 `--max-seconds 35`.
 
@@ -48,12 +49,15 @@ Codex's workspace-write sandbox denies listening sockets: `up` fails with
 `listen EPERM: operation not permitted`. Two ways out:
 
 1. Run `up` as an escalated command (Codex asks for approval to run outside
-   the sandbox); after that every other verb works from inside the sandbox.
+   the sandbox). Later commands still follow that host's filesystem and
+   process permissions; only the recorded reads below are verified.
 2. Start the server elsewhere (a terminal, a `systemd --user` unit) and run
    `up` to attach; `down` then refuses, stop it where you started it.
 
-Long `watch` calls and loopback HTTP reads from inside the sandbox were not
-exercised in the spike.
+Codex and Grok discovery/status reads were recorded after the spike. Long
+Codex SSE watches and the formal doctor/status/send sequence on all three
+hosts remain unverified. OpenClaw, Hermes, and DSH are documentation only;
+no additional host verification was performed during M1.1.
 
 ## Phone mode with OpenClaw on the same machine (documented only)
 
@@ -64,8 +68,11 @@ independent, so a fresh session or an automation can continue a run.
 1. Install the skill and allow the script path for the agent (table above).
 2. Session flow. "start the team on ~/proj and do T10 (bead slg-a9x)" →
    `doctor --project ~/proj`, `up --fresh`, `doctor --server`, then
-   `import`, `bind`, and `facts` only when the state has no team, then
+   `import`, `bind`, and `facts` for that fresh server, then
    `task --todo T10 --bead slg-a9x`, and reply with the `--brief` line.
+   When attaching to the same verified server, reuse its binding. After a
+   restart, re-import or adopt to establish the new identity before a task;
+   the presence of old team state alone is insufficient.
 3. Progress reaches the phone either way:
    - An automation, disabled after the run is done:
      `openclaw automations create "*/5 * * * *" --command "<abs>/scripts/omb.mjs watch --brief --max-seconds 240 --until change --quiet-if-unchanged --nudge" --command-cwd /home/you/proj --announce --channel telegram --to <chat id>`.
@@ -117,5 +124,6 @@ for one call; never put it on a command line. A client-scope session
 bind, or change models. A bearer token also wins over loopback trust, so
 `doctor` warns when `OMB_TOKEN` is set on a loopback URL. Prefer running
 the driver on the OpenMausBot machine through an OpenClaw node, or an SSH
-tunnel to loopback, which needs no token. Never bind the server publicly:
+tunnel to loopback, which needs no token; pass `--remote` when the driver
+runs on another machine through that tunnel. Never bind the server publicly:
 loopback is owner trust, not isolation.

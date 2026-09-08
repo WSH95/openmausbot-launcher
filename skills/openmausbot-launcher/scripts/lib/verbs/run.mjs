@@ -1,10 +1,11 @@
+import { stateCommand, requireSameEnvironment, requireDataDir, serverIdentity, protectServerSelection, runContext } from "../session.mjs";
 // status (and, in later steps, task, send, answer, interrupt, watch).
 import fs from "node:fs";
 import path from "node:path";
 import { verb, EXIT, Fail, VERBS } from "../cli.mjs";
 import { resolveConfig } from "../config.mjs";
 import { createClient } from "../http.mjs";
-import { snapshot, evaluate, brief, TERMINAL } from "../snapshot.mjs";
+import { snapshot, evaluate, brief, carriedVerdict, withinDeadline } from "../snapshot.mjs";
 
 export function requireTeam(cfg) {
   if (!cfg.state?.team) throw new Fail(EXIT.PRECONDITION, "no team is recorded for this project", { hint: "run import <package.json> or import --adopt <section>" });
@@ -22,8 +23,9 @@ verb("status", {
     const cfg = resolveConfig(flags);
     const team = requireTeam(cfg);
     const client = createClient(cfg);
+    await requireSameEnvironment(cfg, client);
     const task = cfg.state.task && cfg.state.task.status !== "closed" ? cfg.state.task : null;
-    const snap = await snapshot(client, { team, task }, { dataDir: cfg.dataDirReadable ? cfg.dataDir : null });
+    const snap = await snapshot(client, { team, task }, { dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null });
     if (!task) {
       const busy = snap.bots.filter((b) => b.busy).map((b) => b.name);
       return { result: { run: null, complete: snap.complete, incomplete: snap.incomplete, bots: snap.bots, busy, pending: snap.pending }, brief: `status · no run · ${busy.length ? `${busy.join(", ")} working` : "team idle"}${snap.pending.length ? ` · ${snap.pending.length} pending request(s)` : ""}` };
@@ -31,9 +33,8 @@ verb("status", {
     const carried = carriedInputs(task);
     // A single snapshot cannot establish settlement; keep the last watch's terminal verdict when nothing moved since.
     let ev = evaluate(snap, task, carried);
-    const last = task.lastEval;
-    const unchanged = last && last.lastLeadMessageId === (snap.leadText?.id ?? null) && (last.outcomes?.length ?? 0) === snap.outcomes.length && !snap.pending.length;
-    if (ev.state === "running" && last && TERMINAL.has(last.state) && unchanged && !ev.inflight) ev = { ...ev, state: last.state, reasons: [`from the last watch: ${last.state}`, ...ev.reasons], carried: true };
+    const prior = carriedVerdict(snap, task);
+    if (ev.state === "running" && prior) ev = { ...ev, state: prior, reasons: [`from the last watch: ${prior}`, ...ev.reasons], carried: true };
     const line = brief(ev, snap, task);
     const tail = Number(flags.tail ?? 0);
     return {
@@ -47,7 +48,7 @@ const summarizeLong = (m) => (m.text ?? m.tool?.name ?? "").replace(/\s+/g, " ")
 
 // ── task, send, answer, interrupt (design: "Task lifecycle") ──
 import { createHash, randomBytes } from "node:crypto";
-import { withLock, loadState, commitState, updateState, initState } from "../state.mjs";
+import { withLock, loadState, commitState, updateState, initState, assertRun, LockTimeout } from "../state.mjs";
 import { HttpError, precondition } from "../http.mjs";
 import { reconcileCheck, git } from "../git.mjs";
 import * as srv from "../server.mjs";
@@ -67,11 +68,6 @@ export function composeBrief({ leadName, brief, todo, bead, facts, tag }) {
   return `${text.trimEnd()}\n\nWhen the task is finished, end your closing report with a line containing only \`${markerLine(tag)}\`.`;
 }
 
-async function requireSameEnvironment(cfg, client) {
-  const env = await srv.environment(client);
-  const recorded = cfg.state?.team?.environmentId;
-  if (recorded && env?.environmentId && env.environmentId !== recorded) throw new Fail(EXIT.PRECONDITION, "the server is not the one this team was imported on", { hint: "re-import the package or run import --adopt" });
-}
 
 /** The tasks on a bot whose title carries this run's tag. */
 const taggedTasks = (bot, tag) => (bot.tasks ?? []).filter((t) => typeof t.title === "string" && t.title.includes(`[${tag}]`));
@@ -79,15 +75,15 @@ const taggedTasks = (bot, tag) => (bot.tasks ?? []).filter((t) => typeof t.title
 verb("task", {
   options: { todo: { type: "string" }, bead: { type: "string" }, title: { type: "string" }, resume: { type: "boolean" }, abandon: { type: "boolean" }, "no-fresh-threads": { type: "boolean" } },
   allowPositionals: true,
-  handler: async ({ flags, positionals }) => {
-    const cfg = resolveConfig(flags);
+  handler: stateCommand(async ({ flags, positionals, cfg, save }) => {
     if (cfg.mode === "remote") throw new Fail(EXIT.PRECONDITION, "task needs the project checkout on the server's machine", { hint: "remote hosts can status, watch, send, answer, and interrupt" });
+    requireDataDir(cfg, "task");
     const team = requireTeam(cfg);
     const current = cfg.state.task && cfg.state.task.status !== "closed" ? cfg.state.task : null;
     if (flags.abandon) {
       if (!current) throw new Fail(EXIT.PRECONDITION, "no open run to abandon");
       if (cfg.dryRun) return { result: { dryRun: true, abandon: current.runId } };
-      const doc = await updateState(cfg.paths, (d) => { const t = { ...d.task, status: "closed", result: "abandoned", closedAt: new Date().toISOString() }; d.history = [...(d.history ?? []), t]; d.task = null; return d; });
+      const doc = await save( (d) => { assertRun(d, current.runId); const t = { ...d.task, status: "closed", result: "abandoned", closedAt: new Date().toISOString() }; d.history = [...(d.history ?? []), t]; d.task = null; return d; });
       return { result: { abandoned: current.runId, title: current.title, history: doc.history.length }, brief: `task · abandoned ${current.title}` };
     }
     const client = createClient(cfg);
@@ -114,21 +110,25 @@ verb("task", {
     const leadLive = live.find((b) => b.id === team.lead.id);
     if (!leadLive) throw new Fail(EXIT.PRECONDITION, `the lead ${team.lead.name} is not on the server`);
     const sentSha = git(["rev-parse", "HEAD"], cfg.projectDir);
+    if (cfg.dryRun && flags.resume) {
+      const toCreate = live.filter((b) => !current.threads?.[b.id] && (!current.freshThreads || taggedTasks(b, current.tag).length !== 1)).map((b) => b.name);
+      return { result: { dryRun: true, resume: current.runId, status: current.status, threadsToCreate: toCreate, wouldSend: current.status === "preparing" } };
+    }
     if (cfg.dryRun && !flags.resume) {
       const runId = randomBytes(8).toString("hex"); const tag = tagOf(runId);
       const title = flags.title ?? flags.todo ?? briefArg.split("\n")[0].slice(0, 60);
       return { result: { dryRun: true, title, tag, brief: composeBrief({ leadName: team.lead.name, brief: briefArg, todo: flags.todo, bead: flags.bead, facts: cfg.state.facts, tag }), threadsFor: live.map((b) => b.name) } };
     }
     // Everything from here runs under the lock (design steps 2-4).
-    return withLock(cfg.paths, async () => {
+    return (async () => {
       let doc = loadState(cfg.paths) ?? initState(cfg.projectDir);
       let run = doc.task && doc.task.status !== "closed" ? doc.task : null;
-      if (flags.resume) { if (!run) throw new Fail(EXIT.PRECONDITION, "the run was closed by another launcher"); }
+      if (flags.resume) { assertRun(doc, current.runId); if (!run) throw new Fail(EXIT.PRECONDITION, "the run was closed by another launcher"); }
       else {
         if (run) throw new Fail(EXIT.PRECONDITION, `a run is ${run.status}: ${run.title}`, { hint: "another launcher started it; task --resume or task --abandon" });
         const runId = randomBytes(8).toString("hex"); const tag = tagOf(runId);
         const title = flags.title ?? flags.todo ?? briefArg.split("\n")[0].slice(0, 60);
-        run = { runId, status: "preparing", slug: slugify(title), title, tag, brief: composeBrief({ leadName: team.lead.name, brief: briefArg, todo: flags.todo, bead: flags.bead, facts: doc.facts, tag }), bead: flags.bead ?? null,
+        run = { runId, context: runContext(cfg), status: "preparing", slug: slugify(title), title, tag, brief: composeBrief({ leadName: team.lead.name, brief: briefArg, todo: flags.todo, bead: flags.bead, facts: doc.facts, tag }), bead: flags.bead ?? null,
           sendId: `task-${runId}`, sentAt: null, sentSha, sendReceipt: null, leadThreadId: null, threads: {}, freshThreads: !flags["no-fresh-threads"], createdAt: new Date().toISOString(), nudgedAt: null, lastEval: null };
         doc.task = run; doc = commitState(cfg.paths, doc);
       }
@@ -165,8 +165,8 @@ verb("task", {
       }
       return { result: { runId: run.runId, status: run.status, title: run.title, slug: run.slug, tag: run.tag, leadThreadId: run.leadThreadId, threads: run.threads, sentAt: run.sentAt, sentSha: run.sentSha, sendReceipt: run.sendReceipt, resumed: flags.resume === true, brief: run.brief },
         brief: `task · ${run.title} · ${run.status} · lead thread ${run.leadThreadId} · ${Object.keys(run.threads).length} fresh thread(s)` };
-    }, { waitMs: 60_000 });
-  },
+    })();
+  }),
 });
 
 const sendIdFor = (scope, threadId, text) => `send-${createHash("sha1").update(`${scope}|${threadId}|${text}`).digest("hex").slice(0, 16)}`;
@@ -188,12 +188,12 @@ async function deliver(client, cfg, { botId, threadId, text, sendId }) {
 verb("send", {
   options: { bot: { type: "string" }, thread: { type: "string" } },
   allowPositionals: true,
-  handler: async ({ flags, positionals }) => {
-    const cfg = resolveConfig(flags);
+  handler: stateCommand(async ({ flags, positionals, cfg, save }) => {
     const team = requireTeam(cfg);
     const text = positionals.join(" ").trim();
     if (!text) throw new Fail(EXIT.USAGE, 'usage: send "<text>" [--bot <name>] [--thread <id>]');
     const client = createClient(cfg);
+    await requireSameEnvironment(cfg, client);
     const bot = flags.bot ? findBot(team, flags.bot) : team.lead;
     if (!bot) throw new Fail(EXIT.USAGE, `no team bot named ${flags.bot}`);
     const task = cfg.state.task && cfg.state.task.status !== "closed" ? cfg.state.task : null;
@@ -201,18 +201,18 @@ verb("send", {
     if (!threadId) { const live = (await client.get("/api/bots?messages=0")).bots?.find((b) => b.id === bot.id); threadId = live?.threadId; }
     const sendId = sendIdFor(task?.runId ?? "no-run", threadId, text);
     const r = await deliver(client, cfg, { botId: bot.id, threadId, text, sendId });
-    if (!r.dryRun && task) await updateState(cfg.paths, (d) => { if (d.task?.runId === task.runId) d.task.lastEval = { ...(d.task.lastEval ?? {}), lastChangeAt: Date.now() }; return d; });
+    if (!r.dryRun && task) await save( (d) => { if (d.task?.runId === task.runId) d.task.lastEval = { ...(d.task.lastEval ?? {}), lastChangeAt: Date.now() }; return d; });
     return { result: { bot: bot.name, ...r, sendId }, brief: `send · ${bot.name} · ${r.queued ? "queued" : r.steered ? "steered" : "delivered"}` };
-  },
+  }),
 });
 
 verb("answer", {
   options: { allow: { type: "boolean" }, deny: { type: "boolean" }, message: { type: "string" }, request: { type: "string" } },
   allowPositionals: true,
-  handler: async ({ flags, positionals }) => {
-    const cfg = resolveConfig(flags);
+  handler: stateCommand(async ({ flags, positionals, cfg, save }) => {
     const team = requireTeam(cfg);
     const client = createClient(cfg);
+    await requireSameEnvironment(cfg, client);
     const bare = positionals.join(" ").trim();
     const modes = [flags.allow && "allow", flags.deny && "deny", flags.message !== undefined && "answer"].filter(Boolean);
     if (modes.length > 1) throw new Fail(EXIT.USAGE, "pass one of --allow, --deny, --message");
@@ -230,6 +230,7 @@ verb("answer", {
     else if (cards.length === 0) throw new Fail(EXIT.PRECONDITION, "nothing is pending", { hint: 'a plain-text question is answered with send "…"' });
     else throw new Fail(EXIT.PRECONDITION, `${cards.length} requests are pending; pass --request`, { hint: cards.map((c) => `${c.requestId ?? c.kind}: ${c.botName} ${c.text}`).join(" | ") });
     if (target.kind !== "card") throw new Fail(EXIT.NEEDS_USER, `${target.botName} has a ${target.kind} request the driver cannot answer`, { hint: target.kind === "connector" ? "connect the app in OpenMausBot's UI (connector cards use /api/bots/:id/connector-cards)" : "provide the credential in OpenMausBot's UI (secret cards use /api/bots/:id/secret-cards)" });
+    if (target.cardKind === "skill" || target.cardKind === "routine") throw new Fail(EXIT.NEEDS_USER, `${target.botName} has a ${target.cardKind} request the driver cannot answer`, { hint: target.cardKind === "skill" ? "review the learned skill in OpenMausBot's app; its response requires reviewedSha256 matching the displayed preview" : "review and resolve the routine proposal in OpenMausBot's app" });
     const behavior = modes[0];
     if (behavior === "answer" && target.cardKind && target.cardKind !== "question") throw new Fail(EXIT.USAGE, `request ${target.requestId} is an approval card: use --allow or --deny`);
     if (behavior !== "answer" && target.cardKind === "question") throw new Fail(EXIT.USAGE, `request ${target.requestId} is a question: use --message`);
@@ -246,15 +247,15 @@ verb("answer", {
       }
     }
     return { result: { requestId: target.requestId, threadId: target.threadId, bot: target.botName, behavior, outcome, fellBackToSend, sent }, brief: `answer · ${target.botName} · ${behavior} → ${outcome}${fellBackToSend ? " (sent as chat instead)" : ""}` };
-  },
+  }, { lockWhen: ({ flags }) => flags.allow || flags.deny || flags.message !== undefined }),
 });
 
 verb("interrupt", {
   options: { bot: { type: "string" } },
-  handler: async ({ flags }) => {
-    const cfg = resolveConfig(flags);
+  handler: stateCommand(async ({ flags, cfg, save }) => {
     const team = requireTeam(cfg);
     const client = createClient(cfg);
+    await requireSameEnvironment(cfg, client);
     const bot = flags.bot ? findBot(team, flags.bot) : team.lead;
     if (!bot) throw new Fail(EXIT.USAGE, `no team bot named ${flags.bot}`);
     const task = cfg.state.task && cfg.state.task.status !== "closed" ? cfg.state.task : null;
@@ -262,7 +263,7 @@ verb("interrupt", {
     if (!threadId) throw new Fail(EXIT.PRECONDITION, `no run thread is recorded for ${bot.name}`, { hint: "interrupt only stops the run's own turn" });
     try { await client.post(`/api/bots/${bot.id}/interrupt`, { threadId }); } catch (e) { throw precondition(e, "the bot is busy somewhere else (a room or a routine); it was not interrupted"); }
     return { result: { bot: bot.name, threadId, interrupted: true }, brief: `interrupt · ${bot.name}` };
-  },
+  }),
 });
 
 // ── watch ──
@@ -282,108 +283,45 @@ verb("watch", {
     const client = createClient(cfg);
     const num = (v, d) => (v === undefined ? d : Number(v));
     const log = (m) => { if (flags.verbose) process.stderr.write(`[watch] ${m}\n`); };
-    const nudge = flags.nudge ? async () => { await client.post(`/api/bots/${team.lead.id}/messages`, { text: "status?", threadId: task.leadThreadId, sendId: `nudge-${task.runId}` }); } : null;
-    const r = await watchRun({ client, team, task, dataDir: cfg.dataDirReadable ? cfg.dataDir : null, maxSeconds: num(flags["max-seconds"], 100), until, pollMs: num(flags.poll, 30) * 1000, stallMs: num(flags["stall-minutes"], 40) * 60_000, quietMs: num(flags["quiet-seconds"], 30) * 1000, dropMs: num(flags["drop-seconds"], 120) * 1000, nudge, log });
-    await updateState(cfg.paths, (d) => { if (d.task?.runId === task.runId && d.task.status !== "closed") { d.task.lastEval = r.watermarks; if (r.nudged && !d.task.nudgedAt) d.task.nudgedAt = new Date().toISOString(); } return d; });
+    const maxSeconds = num(flags["max-seconds"], 100);
+    const deadline = performance.now() + maxSeconds * 1000;
+    try { await withinDeadline((opts) => requireSameEnvironment(cfg, client, opts), deadline); }
+    catch (e) {
+      if (performance.now() < deadline && !/observation deadline/.test(e.message)) throw e;
+      return { code: EXIT.TIMEOUT, result: { state: "timeout", checkpointed: false, complete: false, pending: [], cursor: task.lastEval?.cursor ?? null, reasons: ["watch deadline reached before server identity was verified"] }, brief: "watch · timed out before server identity was verified" };
+    }
+    const nudge = flags.nudge && !cfg.dryRun ? async (opts) => withLock(cfg.paths, async () => {
+      const doc = loadState(cfg.paths); assertRun(doc, task.runId);
+      if (doc.task.nudgedAt) return;
+      await requireSameEnvironment({ ...cfg, state: doc }, client, opts);
+      await client.post(`/api/bots/${team.lead.id}/messages`, { text: "status?", threadId: task.leadThreadId, sendId: `nudge-${task.runId}` }, opts);
+      doc.task.nudgedAt = new Date().toISOString(); commitState(cfg.paths, doc);
+    }, { waitMs: Math.min(1000, opts.timeoutMs) }) : null;
+    const r = await watchRun({ client, team, task, dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null, maxSeconds, deadline, until, pollMs: num(flags.poll, 30) * 1000, stallMs: num(flags["stall-minutes"], 40) * 60_000, quietMs: num(flags["quiet-seconds"], 30) * 1000, dropMs: num(flags["drop-seconds"], 120) * 1000, nudge, log });
+    let checkpointed = false;
+    if (!cfg.dryRun) {
+      try {
+        await withLock(cfg.paths, () => {
+          const doc = loadState(cfg.paths);
+          if (doc?.task?.runId !== task.runId || doc.task.status === "closed") return;
+          if (JSON.stringify(doc.server) !== JSON.stringify(cfg.state.server) || doc.team?.lead?.id !== team.lead.id) throw new Fail(EXIT.PRECONDITION, "the server binding changed before the watch checkpoint", { hint: "re-read the state" });
+          doc.task.lastEval = r.watermarks;
+          if (r.nudged && !doc.task.nudgedAt) doc.task.nudgedAt = new Date().toISOString();
+          commitState(cfg.paths, doc); checkpointed = true;
+        }, { waitMs: 1000 });
+      } catch (e) { if (!(e instanceof LockTimeout)) throw e; }
+    }
     const state = r.timedOut && !TERMINAL_STATES.has(r.ev.state) ? "timeout" : r.ev.state;
     const code = state === "timeout" ? EXIT.TIMEOUT : r.outcome === "change" || r.outcome === "question" ? (TERMINAL_STATES.has(r.ev.state) ? EXIT_FOR[r.ev.state] : EXIT.OK) : EXIT_FOR[r.ev.state] ?? EXIT.OK;
     const line = briefLine(r.ev, r.snap, task);
     const unchanged = flags["quiet-if-unchanged"] && !r.changedSinceReport;
     return {
       code, ok: code === EXIT.OK,
-      result: { state, outcome: r.outcome, reasons: r.ev.reasons, hint: r.ev.hint, changes: r.changes, lead: r.snap.leadText, lastUser: r.snap.lastUser, pending: r.snap.pending, outcomes: r.snap.outcomes.length, busy: r.ev.busy, inflight: r.ev.inflight, quietFor: r.ev.quietFor, cursor: r.cursor, elapsedSec: r.elapsedSec, pollingOnly: r.pollingOnly, nudged: r.nudged, complete: r.snap.complete, incomplete: r.snap.incomplete, brief: line, ...(unchanged ? { silent: true } : {}) },
+      result: { state, checkpointed, dryRun: cfg.dryRun, outcome: r.outcome, reasons: r.ev.reasons, hint: r.ev.hint, changes: r.changes, lead: r.snap.leadText, lastUser: r.snap.lastUser, pending: r.snap.pending, outcomes: r.snap.outcomes.length, busy: r.ev.busy, inflight: r.ev.inflight, quietFor: r.ev.quietFor, cursor: r.cursor, elapsedSec: r.elapsedSec, pollingOnly: r.pollingOnly, nudged: r.nudged, complete: r.snap.complete, incomplete: r.snap.incomplete, brief: line, ...(unchanged ? { silent: true } : {}) },
       brief: unchanged ? "" : state === "timeout" ? `${line} · watch timed out after ${r.elapsedSec}s, call again` : line,
     };
   },
 });
 
-// ── report ──
-import { readNdjson, turnsFromEvents, nativeCalls, check042, beadStatus, commitsSince, runTests, renderMarkdown, mergedShaFrom } from "../report.mjs";
-import { reconcileCheck as rootCheck, git as gitRun } from "../git.mjs";
-import * as srvInfo from "../server.mjs";
-
-verb("report", {
-  options: { md: { type: "boolean" }, "check-042": { type: "boolean" }, "no-tests": { type: "boolean" }, close: { type: "boolean" }, "no-close": { type: "boolean" }, run: { type: "string" } },
-  handler: async ({ flags }) => {
-    const cfg = resolveConfig(flags);
-    if (cfg.mode === "remote" || !cfg.dataDirReadable) throw new Fail(EXIT.PRECONDITION, "report needs the data dir and the project checkout", { hint: cfg.dataDirReadable ? "run it on the server's machine" : `${cfg.dataDir} is not readable: pass --data-dir` });
-    const team = requireTeam(cfg);
-    const open = cfg.state.task && cfg.state.task.status !== "closed" ? cfg.state.task : null;
-    const history = cfg.state.history ?? [];
-    let task = open; let fromHistory = false;
-    if (flags.run) {
-      task = flags.run === "last" ? history.at(-1) ?? null : history.find((h) => h.runId === flags.run || h.runId?.startsWith(flags.run)) ?? null;
-      if (!task) throw new Fail(EXIT.PRECONDITION, `no closed run ${flags.run} in the history`, { hint: history.length ? `known: ${history.map((h) => `${h.runId?.slice(0, 8)} ${h.title}`).join(", ")}` : "the history is empty" });
-      fromHistory = true;
-    }
-    if (!task) throw new Fail(EXIT.PRECONDITION, "no open run to report", { hint: history.length ? "report --run last re-reports the last closed run" : "the history is empty" });
-    const client = createClient(cfg);
-    const snap = await snapshot(client, { team, task }, { dataDir: cfg.dataDir });
-    let ev = evaluate(snap, task, carriedInputs(task));
-    if (fromHistory && !snap.complete && task.report?.state) ev = { ...ev, state: task.report.state, reasons: ["from the closed run's report", ...ev.reasons], carried: true };
-    const last = task.lastEval;
-    const unchanged = last && last.lastLeadMessageId === (snap.leadText?.id ?? null) && (last.outcomes?.length ?? 0) === snap.outcomes.length;
-    if (ev.state === "running" && last && TERMINAL_STATES.has(last.state) && unchanged && !ev.inflight) ev = { ...ev, state: last.state, carried: true };
-    const sinceMs = task.sentAt ?? 0;
-    const threads = Object.entries(task.threads ?? {}).map(([botId, threadId]) => {
-      const bot = team.bots.find((b) => b.id === botId) ?? (botId === team.lead.id ? team.lead : null);
-      const events = readNdjson(path.join(cfg.dataDir, "events", `${threadId}.ndjson`)) ?? [];
-      const t = turnsFromEvents(events, sinceMs);
-      return { bot: bot?.name ?? botId, threadId, turns: t.turns.length, seconds: t.seconds, totals: t.totals, models: [...new Set(t.turns.map((x) => x.model).filter(Boolean))] };
-    });
-    const native = readNdjson(path.join(cfg.dataDir, "native", `${task.leadThreadId}.ndjson`)) ?? [];
-    const commits = commitsSince(cfg.projectDir, task.sentSha);
-    const facts = cfg.state.facts ?? {};
-    const taskLog = facts.taskLog && facts.taskLog !== "none" ? facts.taskLog : null;
-    const taskLogText = taskLog ? (() => { try { return fs.readFileSync(path.join(cfg.projectDir, taskLog), "utf8"); } catch { return null; } })() : null;
-    const recordCommit = commits.find((c) => /^docs\(team\): .* merged as [0-9a-f]{7,}/.test(c.subject) && c.files.length > 0 && c.files.every((f) => f === taskLog || f.startsWith(".beads/")));
-    const taskLogChanged = taskLog ? commits.some((c) => c.files.includes(taskLog)) : null;
-    const bead = beadStatus(task.bead, cfg.projectDir);
-    const record = { taskLog, taskLogChanged, commit: recordCommit?.sha ?? null, commitSubject: recordCommit?.subject ?? null, bead, ok: taskLog ? Boolean(taskLogChanged && recordCommit) && bead.ok !== false : null };
-    const closing = snap.leadText?.text ?? task.report?.closing ?? null;
-    const mergedSha = mergedShaFrom(closing, recordCommit?.subject);
-    const reconcile = rootCheck(cfg.projectDir, facts);
-    let ancestor = null;
-    if (mergedSha) { try { gitRun(["merge-base", "--is-ancestor", mergedSha, reconcile.defaultBranch], cfg.projectDir); ancestor = true; } catch { ancestor = false; } }
-    const tests = flags["no-tests"] ? { ran: false, ok: null, detail: "skipped with --no-tests" } : runTests(facts.test, cfg.projectDir);
-    let checks = null;
-    if (flags["check-042"]) {
-      const reviewer = team.bots.find((b) => /plan review/i.test(b.title ?? ""))?.name ?? null;
-      checks = check042({ native, taskLogText, reviewerName: reviewer, sentAt: sinceMs, toolNames: [] });
-      checks.push({ id: "bead-closed", ok: bead.ok, detail: bead.detail });
-      checks.push({ id: "record-commit", ok: Boolean(recordCommit), detail: recordCommit ? `${recordCommit.sha.slice(0, 7)} ${recordCommit.subject} (${recordCommit.files.join(", ")})` : "no docs(team) commit touching only the task log and .beads since the dispatch" });
-      checks.push({ id: "merged-ancestor", ok: ancestor, detail: mergedSha ? `${mergedSha.slice(0, 7)} ${ancestor ? "is" : "is not"} an ancestor of ${reconcile.defaultBranch}` : "the closing report names no merged commit" });
-      checks.push({ id: "task-branch-and-worktree-absent", ok: reconcile.taskBranches.length === 0 && reconcile.worktrees.length === 1, detail: `${reconcile.taskBranches.length} task branch(es), ${reconcile.worktrees.length - 1} extra worktree(s)` });
-      checks.push({ id: "root-clean", ok: reconcile.clean, detail: reconcile.clean ? "clean" : reconcile.problems.join("; ") });
-      checks.push({ id: "tests-pass", ok: tests.ok, detail: tests.ran ? `exit ${tests.status} in ${tests.seconds} s` : tests.detail });
-    }
-    const allChecks = checks ? checks.every((c) => c.ok !== false) : true;
-    let result;
-    if (ev.state === "failed" || tests.ok === false) result = "failed";
-    else if (ev.state === "done" && record.ok !== false && tests.ok !== false && reconcile.clean && allChecks) result = "passed";
-    else result = "incomplete";
-    const terminal = TERMINAL_STATES.has(ev.state);
-    const shouldClose = !fromHistory && !flags["no-close"] && (terminal || flags.close);
-    const env = await srvInfo.environment(client);
-    const report = {
-      date: new Date().toISOString().slice(0, 10), runId: task.runId, tag: task.tag, title: task.title, slug: task.slug, project: cfg.projectDir, version: env?.version ?? cfg.state.server?.version ?? null,
-      lead: team.lead.name, leadModel: team.lead.model ?? null, sentAt: task.sentAt ? new Date(task.sentAt).toISOString() : null, sentSha: task.sentSha, state: ev.state, result,
-      threads, outcomes: snap.outcomes, commits, record, tests, reconcile: { clean: reconcile.clean, problems: reconcile.problems, defaultBranch: reconcile.defaultBranch }, mergedSha, ancestor, check042: checks, closing, decisions: null,
-      nativeTools: [...new Set(nativeCalls(native).calls.map((c) => c.name))], durationSec: task.sentAt ? Math.round((Date.now() - task.sentAt) / 1000) : null, closed: false,
-    };
-    if (shouldClose && !cfg.dryRun) {
-      await updateState(cfg.paths, (d) => {
-        if (d.task?.runId !== task.runId) return d;
-        const closedRun = { ...d.task, status: "closed", result, closedAt: new Date().toISOString(), report: { state: ev.state, result, mergedSha, recordCommit: record.commit, tests: tests.ok, durationSec: report.durationSec, closing } };
-        d.history = [...(d.history ?? []), closedRun]; d.task = null; return d;
-      });
-      report.closed = true;
-    }
-    if (fromHistory && !cfg.dryRun) {
-      await updateState(cfg.paths, (d) => { const i = (d.history ?? []).findIndex((h) => h.runId === task.runId); if (i >= 0) d.history[i] = { ...d.history[i], result, report: { ...(d.history[i].report ?? {}), state: ev.state, result, mergedSha, recordCommit: record.commit, tests: tests.ok, closing, reReportedAt: new Date().toISOString() } }; return d; });
-      report.closed = true; report.reReported = true;
-    }
-    const md = renderMarkdown(report);
-    return { code: result === "failed" ? EXIT.STALLED : EXIT.OK, ok: result !== "failed", result: { ...report, markdown: flags.md ? md : undefined }, brief: flags.md ? md : `report · ${task.title} · ${ev.state} · ${result}${report.closed ? " · run closed" : " · run left open"}${tests.ran ? ` · tests ${tests.ok ? "passed" : "FAILED"}` : ""}` };
-  },
-});
+// Register the report verb after the run helpers are defined.
+import "./report.mjs";

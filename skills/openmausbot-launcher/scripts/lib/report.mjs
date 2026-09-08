@@ -3,8 +3,8 @@
 // (design: the report row and "Real run = the 0.4.2 pack validation").
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync, spawnSync } from "node:child_process";
-import { git, reconcileCheck } from "./git.mjs";
+import { spawnSync } from "node:child_process";
+import { git } from "./git.mjs";
 
 export function readNdjson(file) {
   let text; try { text = fs.readFileSync(file, "utf8"); } catch { return null; }
@@ -42,7 +42,7 @@ export function nativeCalls(native) {
     if (!Array.isArray(content)) continue;
     for (const c of content) {
       if (c.type === "tool_use") calls.push({ at: e.at, id: c.id, name: c.name, input: c.input ?? {} });
-      else if (c.type === "tool_result") results.set(c.tool_use_id, { at: e.at, content: typeof c.content === "string" ? c.content : Array.isArray(c.content) ? c.content.map((x) => x.text ?? "").join("\n") : "" });
+      else if (c.type === "tool_result") results.set(c.tool_use_id, { at: e.at, ok: c.is_error !== true, content: typeof c.content === "string" ? c.content : Array.isArray(c.content) ? c.content.map((x) => x.text ?? "").join("\n") : "" });
       else if (c.type === "text" && c.text) texts.push({ at: e.at, role: m.message?.role ?? m.type, text: c.text });
     }
   }
@@ -51,18 +51,74 @@ export function nativeCalls(native) {
 
 const commandOf = (call) => (typeof call.input?.command === "string" ? call.input.command : JSON.stringify(call.input));
 
-/** The 0.4.2 pack checks (docs/design.md, "Real run"). Each check is ok true, false, or null (unknown). */
-export function check042({ native, taskLogText, reviewerName, sentAt, toolNames }) {
+/** The final explicit verdict controls, including an unrecognized verdict.
+ * Approval must be an unqualified final line, with no contradictory or
+ * conditional language elsewhere in the reply. Unknown prose is not a vote. */
+function approvalVerdict(text) {
+  const lines = String(text ?? "").replace(/[*`_]/g, "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (!lines.length) return null;
+  const verdictLine = /^(?:(?:final|plan)\s+)?verdict\s*:\s*(.*)$/i;
+  const index = lines.findLastIndex((line) => verdictLine.test(line));
+  const candidate = index >= 0 ? verdictLine.exec(lines[index])[1] : lines.at(-1).replace(/^plan\s+/i, "");
+  // An explicit refusal may include its reason; it must not be discarded in
+  // favour of an earlier approval. Contradictions in that same line are unknown.
+  if (/^(?:not[ -]?ready|revise|reject(?:ed)?)\b/i.test(candidate)) {
+    return /\b(?:approve|approved)\b/i.test(candidate) ? null : false;
+  }
+  if (!/^(?:approve|approved|ready)(?::\s*(?:approve|approved|ready))?[.!]?$/i.test(candidate)) return null;
+  if (index >= 0 && index !== lines.length - 1) return null;
+  // Do not silently drop a conditional or conflicting line just because it
+  // does not have a short machine-recognizable verdict. Non-blocking findings
+  // are allowed (the archived T12 review has one before its final approval).
+  const context = lines.slice(0, -1).join("\n").replace(/\bnon[ -]blocking\b/gi, "advisory");
+  const unresolved = [
+    // Negation applies to arbitrary verbs, not just "approve" or "ready".
+    /\b(?:not|never|cannot|can['’]t|won['’]t|(?:could|would|should|must|do|does|did|is|are|was|were|has|have|had)n['’]t|withheld|reject(?:ed|ion)?|revise|disapprov(?:e|es|ed|al)|den(?:y|ies|ied|ial)|refus(?:e|es|ed|al)|veto(?:ed)?)\b/i,
+    /\bno\s+(?:approval|permission|authorization|go[- ]ahead)\b/i,
+    // Modal requirements and dependencies make an apparent approval conditional.
+    /\b(?:must|shall|should|ought|needs?|requir(?:e|es|ed|ement|ements)|necessary|mandatory|prerequisites?|depends?|dependent|contingent|conditions?|conditional(?:ly)?|assuming|provided|pending)\b/i,
+    /\b(?:if|unless|until|before|after|once|when|subject to|as long as|have to|has to|had to)\b/i,
+    /(?:^|\s)only\b/i, // excludes descriptive compounds such as "read-only"
+    // An unresolved or uncertain state conflicts with an unqualified approval.
+    /\b(?:still|yet|outstanding|unresolved|block(?:ing|er|ers)|unsafe|undecided|uncertain|ambiguous|maybe|perhaps)\b/i,
+  ];
+  return unresolved.some((pattern) => pattern.test(context)) ? null : true;
+}
+
+const timestamp = (value) => typeof value === "number" ? value : Date.parse(value ?? "");
+
+/** The 0.4.2 pack checks. Each check is true, false, or null (unknown).
+ * `messages` must be server-authored messages from the lead's run thread. */
+export function check042({ native, messages = [], leadThreadId, taskLogText, reviewer, sentAt = 0, toolNames }) {
   const checks = [];
   const put = (id, ok, detail) => checks.push({ id, ok, detail });
-  const { calls, results, texts } = nativeCalls(native);
-  const worktreeAdd = calls.find((c) => c.name === "Bash" && /git worktree add/.test(commandOf(c)));
-  const approval = [...texts, ...[...results.values()].map((r) => ({ at: r.at, text: r.content }))]
-    .filter((t) => Date.parse(t.at) >= (sentAt ?? 0) && reviewerName && new RegExp(reviewerName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).test(t.text ?? "") && /\b(ready|approved)\b/i.test(t.text ?? ""))
-    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))[0];
+  const parsed = nativeCalls(native);
+  const calls = parsed.calls.filter((c) => timestamp(c.at) >= sentAt);
+  const results = parsed.results;
+  const worktreeAdd = calls.filter((c) => c.name === "Bash" && /git worktree add/.test(commandOf(c))).sort((a, b) => timestamp(a.at) - timestamp(b.at))[0];
+  const replies = [];
+  if (reviewer?.id) {
+    // 0.1.56 server/drivers/agents-proxy.ts:249-259 defines ask_bot.bot_id;
+    // drivers/claude.ts:1099-1100 correlates tool_result by tool_use_id.
+    for (const call of calls) {
+      if (!call.id || call.name !== "mcp__agents__ask_bot" || call.input.bot_id !== reviewer.id) continue;
+      const reply = results.get(call.id);
+      if (reply && timestamp(reply.at) >= timestamp(call.at)) replies.push({ at: timestamp(reply.at), text: reply.ok ? reply.content : null });
+    }
+    // 0.1.56 server/index.ts:3383-3390 authors the echo on the source thread
+    // with from.botId. Native prose that merely mentions @Name is not proof.
+    for (const m of messages) {
+      if (m.threadId && m.threadId !== leadThreadId) continue;
+      if (m.role === "bot" && m.kind === "text" && m.from?.botId === reviewer.id && /^@.+? replied to the delegated task:\s*/s.test(m.text ?? "")) {
+        replies.push({ at: timestamp(m.at), text: m.text.replace(/^@.+? replied to the delegated task:\s*/s, "") });
+      }
+    }
+  }
+  const approval = replies.filter((r) => r.at >= sentAt && r.at < timestamp(worktreeAdd?.at)).sort((a, b) => a.at - b.at).at(-1);
+  const verdict = approval ? approvalVerdict(approval.text) : null;
   if (!worktreeAdd) put("worktree-after-approval", null, "no `git worktree add` in the lead's native log");
-  else if (!approval) put("worktree-after-approval", null, `git worktree add at ${worktreeAdd.at}; no plan-review verdict from ${reviewerName ?? "the reviewer"} found in the log`);
-  else put("worktree-after-approval", Date.parse(worktreeAdd.at) > Date.parse(approval.at), `git worktree add at ${worktreeAdd.at}, ${reviewerName}'s verdict at ${approval.at}`);
+  else if (!approval) put("worktree-after-approval", null, `git worktree add at ${worktreeAdd.at}; no attributable pre-worktree reply from ${reviewer?.name ?? "the reviewer"}`);
+  else put("worktree-after-approval", verdict, `${reviewer.name}'s last pre-worktree reply at ${new Date(approval.at).toISOString()}: ${verdict === true ? "approved" : verdict === false ? "not approved" : "verdict unknown"}; git worktree add at ${worktreeAdd.at}`);
   const dateCall = calls.filter((c) => c.name === "Bash" && /date -u/.test(commandOf(c))).at(-1);
   const stamp = dateCall ? (results.get(dateCall.id)?.content ?? "").trim().split("\n").find((l) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(l.trim()))?.trim() : null;
   if (!dateCall) put("record-time-from-date-u", null, "no `date -u` call in the lead's native log");
@@ -73,7 +129,7 @@ export function check042({ native, taskLogText, reviewerName, sentAt, toolNames 
     put("record-time-from-date-u", firstHeading.includes(stamp), `date -u returned ${stamp}; the task log's first entry heading is "${firstHeading.trim()}"`);
   }
   const names = new Set(calls.map((c) => c.name).concat(toolNames ?? []));
-  put("no-host-listagents", !names.has("ListAgents") && names.has("mcp__agents__list_bots"), `tools used: ${[...names].filter((n) => /list_bots|ListAgents/i.test(n)).join(", ") || "neither list_bots nor ListAgents"}`);
+  put("no-host-listagents", names.has("ListAgents") ? false : names.has("mcp__agents__list_bots") && native?.length ? true : null, `tools used: ${[...names].filter((n) => /list_bots|ListAgents/i.test(n)).join(", ") || "neither list_bots nor ListAgents"}`);
   return checks;
 }
 
@@ -91,7 +147,7 @@ export function commitsSince(projectDir, sinceSha) {
 }
 
 /** A Project facts test command may carry a note for the bots, e.g. "npm test (run inside the task's worktree)"; strip it before running. */
-export const bareCommand = (command) => String(command ?? "").replace(/\s*\([^()]*\)\s*$/, "").trim();
+export const bareCommand = (command) => String(command ?? "").replace(/\s*\(run inside the task's worktree\)\s*$/, "").trim();
 
 export function runTests(command, cwd, { timeoutMs = 10 * 60_000 } = {}) {
   command = bareCommand(command);
@@ -123,4 +179,43 @@ export function renderMarkdown(r) {
   if (r.check042) { lines.push("0.4.2 checks:", ""); for (const c of r.check042) lines.push(`- ${c.id}: ${yes(c.ok)} — ${c.detail}`); lines.push(""); }
   lines.push(`Closing report from ${r.lead}: "${(r.closing ?? "").replace(/\s+/g, " ").slice(0, 400)}"`, "");
   return lines.join("\n");
+}
+
+/** Offline transcript access; never imports legacy data or opens a writable DB.
+ * OpenMausBot 0.1.56 server/message-db.ts:21,119-127,141-145. */
+export async function archivedMessages(dataDir, threadId) {
+  if (!dataDir || !threadId) return null;
+  const file = path.join(dataDir, "messages.db");
+  if (fs.existsSync(file)) {
+    let db;
+    try {
+      const { DatabaseSync } = await import("node:sqlite");
+      db = new DatabaseSync(file, { readOnly: true });
+      const rows = db.prepare("SELECT json FROM messages WHERE thread_id = ? ORDER BY rowid").all(threadId);
+      if (rows.length) return rows.map((r) => JSON.parse(r.json));
+    } catch { return null; }
+    finally { db?.close(); }
+  }
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(dataDir, `messages-${threadId}.json`), "utf8"));
+    return Array.isArray(raw) ? raw : Array.isArray(raw?.messages) ? raw.messages : null;
+  } catch { return null; }
+}
+
+/** Legacy metadata is usable only when both roster and archive identity
+ * corroborate that the saved binding is still this run's original binding. */
+export function historicalContext(task, state, dataDirOverride) {
+  const saved = task.context ?? { server: state?.server, team: state?.team, facts: state?.facts };
+  const dataDir = dataDirOverride ?? saved.server?.dataDir;
+  let environmentId = null;
+  try { environmentId = fs.readFileSync(path.join(dataDir, "environment-id"), "utf8").trim(); } catch {}
+  const roster = saved.team?.bots;
+  const ids = roster?.map((b) => b.id);
+  const runIds = Object.keys(task.threads ?? {});
+  const matching = ids?.length > 0 && new Set(ids).size === ids.length && ids.length === runIds.length && ids.every((id) => runIds.includes(id));
+  const identity = saved.team?.environmentId && saved.server?.environmentId && environmentId === saved.team.environmentId && environmentId === saved.server.environmentId;
+  const bound = matching && task.leadThreadId && task.threads?.[saved.team?.lead?.id] === task.leadThreadId;
+  if (task.context && bound && identity) return { ...saved, dataDir, ok: true, source: "run context" };
+  if (!task.context && bound && identity) return { ...saved, dataDir, ok: true, source: "corroborated legacy binding" };
+  return { server: task.context?.server ?? null, team: null, facts: null, dataDir, ok: null, source: "run context unavailable or archive identity does not match" };
 }
