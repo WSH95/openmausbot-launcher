@@ -221,3 +221,13 @@ test("a failed rename leaves no temp file behind", () => {
   assert.throws(() => commitState(paths, initState("/p")), (e) => e.code === "EISDIR");
   assert.deepEqual(fs.readdirSync(paths.dir).filter((f) => f.endsWith(".tmp")), []);
 });
+
+test("updateState under a --state override initializes project.dir from the project, not the state directory's parent", async () => {
+  const { dir } = makeRepo();
+  const override = path.join(tmpDir("oml-state-"), "x", "state.json");
+  const paths = statePaths(dir, override);
+  assert.equal(paths.projectDir, dir); assert.equal(paths.file, override);
+  const doc = await updateState(paths, (d) => d);
+  assert.equal(doc.project.dir, dir);
+  assert.equal(loadState(paths).project.dir, dir);
+});

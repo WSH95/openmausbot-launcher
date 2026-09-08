@@ -14,7 +14,7 @@ export const STATE_VERSION = 1;
 export function statePaths(projectDir, override) {
   const file = override ? path.resolve(override) : path.join(path.resolve(projectDir), ".omb", "state.json");
   const dir = path.dirname(file);
-  return { dir, file, lock: path.join(dir, "lock"), lockDb: path.join(dir, "lock.sqlite") };
+  return { projectDir: path.resolve(projectDir), dir, file, lock: path.join(dir, "lock"), lockDb: path.join(dir, "lock.sqlite") };
 }
 
 export function initState(projectDir) {
@@ -96,7 +96,7 @@ export async function withLock(paths, fn, opts = {}) {
  */
 export async function updateState(paths, mutate, opts = {}) {
   return withLock(paths, async () => {
-    const doc = loadState(paths) ?? initState(path.dirname(paths.dir));
+    const doc = loadState(paths) ?? initState(paths.projectDir ?? path.dirname(paths.dir));
     if (opts.expectRev !== undefined && doc.rev !== opts.expectRev) {
       throw new Fail(EXIT.PRECONDITION, `state rev moved from ${opts.expectRev} to ${doc.rev} since it was read`, { hint: "re-read the state and retry" });
     }

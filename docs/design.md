@@ -105,7 +105,8 @@ so no credential lands in argv or a transcript); data dir `--data-dir` >
 state > `OMB_DATA_DIR` > `~/.openmausbot`; binary `OMB_BIN` (path to
 `cli.js` or `openmausbot`) > `openmausbot` on PATH; project `--project` >
 `OMB_PROJECT` > nearest git root above cwd; state `--state` > `OMB_STATE` >
-`<project>/.omb/state.json`. Non-loopback URLs must be `https` unless
+`<project>/.omb/state.json` (the project directory stays the project's
+whatever the state path). Non-loopback URLs must be `https` unless
 `--allow-insecure-http`. Global flags: `--brief`, `--dry-run`, `--verbose`.
 
 **Modes.** `--remote` or a non-loopback URL selects remote operation;
