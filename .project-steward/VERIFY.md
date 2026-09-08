@@ -10,20 +10,22 @@ Run the relevant checks before marking work as verified in `HANDOFF.md`.
 
 ## M1 fix pass (2026-09-08)
 
-Node v24.11.0, worktree clean at `6f0cd58`. `npm test`: **197 passed, 0
+Node v24.11.0, worktree clean at `02e7945`. `npm test`: **198 passed, 0
 failed, 0 skipped** (~52-57 s; 154 before the pass). `node --test
 tests/docs.test.mjs tests/size.test.mjs`: 4/4. `git diff --check`: clean.
 
-One flake observed, filed as `oml-oqo` and **not** fixed in this pass (it is
-not one of the 26 findings): `tests/dry-run.test.mjs` "watch --dry-run
---nudge neither checkpoints nor sends" failed in 2 of 6 full-suite runs on a
-loaded machine with `error: "observation deadline reached"` instead of
-`checkpointed: false`. The cause is a real driver defect, not a test bug:
-`watchRun` guards the deadline before each snapshot but not during one
-(`lib/watch.mjs:149` calls `snapshot()` unguarded), so a budget that expires
-mid-snapshot escapes as exit 1 with a hintless error instead of the exit 4
-timeout result. The test's 0.1 s budget makes it likely; a real 100 s watch
-needs a slow server at the very end of its budget.
+One flake was observed during the pass and then fixed on the user's
+instruction as `oml-oqo` (commit `02e7945`), outside the 26 findings:
+`tests/dry-run.test.mjs` "watch --dry-run --nudge neither checkpoints nor
+sends" failed in 2 of 6 full-suite runs on a loaded machine with
+`error: "observation deadline reached"` instead of `checkpointed: false`.
+The cause was a real driver defect: `withinDeadline` floored the remaining
+budget, so under a millisecond left already read as spent, while
+`watchRun`'s `expired()` compared raw times and still called it live; in
+that window the guarded stream wait rethrew and `watch` exited 1 with a
+hintless error instead of exit 4. `outOfBudget` is now the single predicate
+both ask. A sweep of 19 deadlines across the window reproduces the old
+behaviour 12-16 times with no load, and passes 19/19 after the fix.
 
 Fix commits, one per finding (test first, Conventional Commit):
 

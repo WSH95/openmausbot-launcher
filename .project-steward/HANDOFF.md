@@ -14,17 +14,16 @@ findings 1, 6–17 and 21–26 by one test-first commit each, findings 2, 4 and
 5 on the review's tier 2/3 evidence, finding 3 on tier 3 plus the T13 run,
 18 by the documentation pass, 19 by killing pid 426150 at the user's
 decision, 20 by the full-team run T13. `npm test`: 197 passed, 0 failed, 0
-skipped — with one load-dependent flake observed and filed as `oml-oqo`
-(`watch` can exit 1 "observation deadline reached" instead of exit 4 when the
-budget expires inside a snapshot; `lib/watch.mjs:149`). It is a real driver
-defect but not one of the 26 findings, so this pass filed it rather than
-widening its own scope. Nothing else is in flight; no OpenMausBot server is
+skipped (198 tests). One load-dependent flake found during the pass was
+filed as `oml-oqo` and then fixed on the user's instruction (`02e7945`):
+`watch` could exit 1 "observation deadline reached" instead of exit 4
+because the budget guard and the observation loop disagreed about a
+sub-millisecond remainder. Nothing is in flight; no OpenMausBot server is
 running.
 
 Next work comes from `bd ready`: the v2 beads (OpenClaw, Hermes and DSH
 verification; `pair`; macOS lifecycle; unsupported request types; parallel
-runs; long SSE inside Codex's sandbox) and the newly filed `oml-oqo`. The
-devpack's own follow-up, retiring
+runs; long SSE inside Codex's sandbox). The devpack's own follow-up, retiring
 its four scripts (`atw-07l.27`), is now unblocked but belongs to that
 repository.
 

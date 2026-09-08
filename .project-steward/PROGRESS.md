@@ -19,9 +19,10 @@ orphan, `down` verified. Evidence in `docs/evidence.md` and
 pointer committed locally (`ab94d6d`) and `atw-07l.27` noted — the gate is
 met. Documentation drift resolved (README, design, evidence corrections,
 references, AGENTS.md, bead titles) with `tests/docs.test.mjs` as the guard.
-`oml-nqo` closed. One new defect found by the pass's own suite runs and filed
-unfixed as `oml-oqo` (`watch` exits 1 instead of 4 when its budget expires
-inside a snapshot). No push.
+`oml-nqo` closed. One further defect surfaced by the pass's own suite runs,
+`oml-oqo`, was fixed on the user's instruction (`02e7945`): the budget guard
+and the watch loop disagreed about a sub-millisecond remainder, so `watch`
+could exit 1 instead of 4. Suite 198. No push.
 
 ### 2026-09-08 — M1 review complete: all four tiers, 26 findings, no repairs
 Finished the independent review and test of M1 (`oml-nqo`). Tier 3 spent
