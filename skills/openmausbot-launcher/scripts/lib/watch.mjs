@@ -89,11 +89,11 @@ export async function watchRun({ client, team, task, dataDir = null, maxSeconds 
       try {
         const res = await client.stream(`/api/events?screens=off${cursor ? `&since=${encodeURIComponent(cursor)}` : ""}`, controller.signal);
         if (res.status !== 200) throw new Error(`event stream ${res.status}`);
-        streamFailures = 0;
         await readEventStream(res, {
           signal: controller.signal, idleMs,
           onFrame: (frame) => {
             lastFrameAt = Date.now();
+            streamFailures = 0; // a stream that delivers frames is healthy; one that closes at once is not
             if (frame.data?.kind === "ping") return;
             if (frame.data?.kind === "hello" && frame.data.resumed === false && cursor) { resetQuiet = true; }
             const relevant = relevantFrame(frame, { teamIds, threadIds });
