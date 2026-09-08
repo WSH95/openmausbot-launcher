@@ -3,6 +3,32 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-08 — M1 review complete: all four tiers, 26 findings, no repairs
+Finished the independent review and test of M1 (`oml-nqo`). Tier 3 spent
+**5 Sudo turns and 1 Sage turn** on run `d0a01943d403c7af` against real
+OpenMausBot 0.1.56 and exercised the relay path end to end: an approval card
+raised and denied (`rejected`), the `approvePeerComms` peer card
+"@Sudo wants to contact @Sage" allowed once and answered with PONG by Sage, a
+working bot interrupted (`interrupted: true`, idle in 1 s), a background
+`watch --max-seconds 570` returning after 60 s at the next terminal state
+concurrently with a foreground watch, and `report --md` closing the run
+`passed` followed by `report --run last` in both modes. Only Sudo and Sage have
+event files; no delegation occurred.
+
+Records written: `docs/review/2026-09-08-m1-review.md` (verdict, per-tier
+counts, the 26-finding table, what was verified for the first time on real OMB,
+what is still unverified, and a fix order), two `docs/evidence.md` sections for
+Tiers 2 and 3 with the `report --md` block, and
+`docs/validation/2026-09-08-m1-review.json`.
+
+Two documented claims did not survive the test: `up` does not name the sandbox
+cause in its hint on a real sandboxed failure, and Codex cannot run `status`
+from inside workspace-write. Both are filed. Findings 1-26 all stay open; the
+tier tasks `oml-nqo.23` and `oml-nqo.24` are closed. Per the user's decision
+this pass filed findings and fixed nothing, so the suite stays at 154 tests.
+The devpack gate `atw-07l.27` (one more full-team run) remains unmet and no
+file under that repository was touched.
+
 ### 2026-09-08 — M1 review Tier 2 done: real OpenMausBot, zero bot turns
 Ran the Tier 2 sequence against real OpenMausBot 0.1.56 on port 8893 in a
 fresh `/tmp/oml-review-t2-CGG7JR` fixture, spending **no bot turns**. `doctor`

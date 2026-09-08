@@ -1,0 +1,689 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-08T11:32:04.825Z",
+  "purpose": "M1 review tiers 2 and 3: real OpenMausBot 0.1.56 lifecycle, host survival and design host checks with zero bot turns, then a lead-only transport check exercising answer, interrupt, background watch and the historical report modes",
+  "coverage": {
+    "messagePath": "operator-authored text -> this session's shell -> omb task/send -> OMB role:user -> Sudo turn; the peer contact then went Sudo -> ask_bot -> approval card -> operator answer -> Sage turn",
+    "instructions": "Tier 2 host checks gave each native CLI the exact shell command and asked it to print stdout and stop. Tier 3 used no host CLI: the operator drove the driver directly.",
+    "tested": [
+      "full driver setup path against real OMB 0.1.56 (doctor, doctor --server, up --fresh, import, bind, facts, status)",
+      "import --adopt into a second project against a real server, and status there",
+      "provider keys and OMB_TOKEN absent from both server processes, proven from one shell holding three decoy keys",
+      "detached survival of the real server started by Grok Build and by Codex CLI, verified after the host exited and stopped with down from another shell",
+      "Codex workspace-write listen EPERM negative, Codex read-only skill listing, Codex workspace-write state-file writability",
+      "Claude trigger phrase loading the openmausbot-launcher skill as the first tool call",
+      "CLAUDE_SKILL_DIR resolution by load-time text substitution",
+      "answer --deny on a real approval card (rejected) and answer --allow (allowed-once) on both an MCP tool card and the approvePeerComms peer card",
+      "interrupt of a working bot, with the interrupted turn recorded ok:false",
+      "a background watch --max-seconds 570 returning at the next terminal state, concurrent with a foreground watch, both checkpointing",
+      "report --dry-run, report --md closing the run passed, report with no open run, and report --run last in both modes"
+    ],
+    "notTested": [
+      "a full team delegation task",
+      "the three specialist models codex/gpt-5.6-terra/high, claude/claude-opus-5/high and grok/grok-4.6/medium",
+      "delegate_bot, receipts and echoes; teamMap.queued and teamMap.running were empty at every snapshot",
+      "report --check-042",
+      "cleanup --kill actually killing a process on a real server",
+      "watch --nudge, reconcile --remove and send --bot retargeting against a real server",
+      "long Codex SSE inside the sandbox",
+      "the 570 s watch deadline itself",
+      "OpenClaw, Hermes Agent or DeepSeek Harness"
+    ],
+    "newOmbBotTurns": 6,
+    "launcherTaskRunId": "d0a01943d403c7af",
+    "nativeCliSessionsAlsoConsumeSubscriptions": true,
+    "outputProjection": "Selected fields from driver results and runtime events. Raw driver stdout, host transcripts and prompts remain in the session scratchpad under tier2/ and tier3/, identified by SHA-256. No transcript reasoning and no credentials are included here."
+  },
+  "fixture": {
+    "project": "/tmp/oml-review-t2-CGG7JR/project",
+    "adoptedProject": "/tmp/oml-review-t2-CGG7JR/project2",
+    "grokProject": "/tmp/oml-review-t2-CGG7JR/grok-project",
+    "codexProject": "/tmp/oml-review-t2-CGG7JR/codex-project",
+    "rawLogs": "/tmp/oml-review-t2-CGG7JR/logs (copied to the session scratchpad tier2/logs and tier3/logs)",
+    "dataDir": "/tmp/oml-review-t2-CGG7JR/data-20260908T105019-92irGo",
+    "baselineCommit": "40bef591e39ca0e8bd474a74f1c6f7f955c7f6d7",
+    "nodeVersion": "24.11.0",
+    "openmausbotVersion": "0.1.56",
+    "server": {
+      "url": "http://127.0.0.1:8893",
+      "webhookPort": 8894,
+      "webhookPortNote": "OMB binds PORT+1 for webhook ingress (server/index.ts:320, server/cli.ts:438); the driver neither reserves nor reports it (finding 23, oml-nqo.27)",
+      "owned": true,
+      "supervisorPid": 617810,
+      "healthPid": 617817,
+      "environmentId": "98b1f9f2-e973-4c16-819f-aed3ba7fe778",
+      "version": "0.1.56",
+      "askTimeoutMs": 600000,
+      "startedAt": "2026-09-08T10:50:21.566Z"
+    },
+    "package": {
+      "path": "/home/wsh/Documents/agent-team-devpack/packages/dev-team/dev-team.openmaus.json",
+      "sha256Before": "48e4ac637c7afb6d9e82f0ecf035967411d9c75e61ac8e0603ee7b62a3255949",
+      "sha256After": "48e4ac637c7afb6d9e82f0ecf035967411d9c75e61ac8e0603ee7b62a3255949",
+      "unchanged": true,
+      "note": "external test input; read only, never written"
+    },
+    "team": {
+      "section": "Agent Team dev team",
+      "release": "0.4.2",
+      "leadId": "414ffd78-4cb0-4190-8e88-53db14bbb002",
+      "roomId": "5fa03555-5107-4e15-aadc-a43e4e4d407b",
+      "bots": [
+        {
+          "key": "sudo",
+          "name": "Sudo",
+          "id": "414ffd78-4cb0-4190-8e88-53db14bbb002",
+          "model": "codex/gpt-5.6-luna/high",
+          "approvalMode": "ask",
+          "approvePeerComms": true
+        },
+        {
+          "key": "sage",
+          "name": "Sage",
+          "id": "fe2bbf47-7765-40eb-824f-efd32daba949",
+          "model": "claude/claude-sonnet-5/high",
+          "approvalMode": "ask"
+        },
+        {
+          "key": "vale",
+          "name": "Vale",
+          "id": "44a5609a-3d8d-4ce4-a949-c478de5c3075",
+          "model": "codex/gpt-5.6-terra/high",
+          "approvalMode": "ask"
+        },
+        {
+          "key": "nova",
+          "name": "Nova",
+          "id": "58323a8b-7059-4dff-9cec-70a89464f672",
+          "model": "claude/claude-opus-5/high",
+          "approvalMode": "ask"
+        },
+        {
+          "key": "quill",
+          "name": "Quill",
+          "id": "d22c6301-fedd-4a04-91cc-7556f4e13305",
+          "model": "grok/grok-4.6/medium",
+          "approvalMode": "ask"
+        }
+      ]
+    },
+    "run": {
+      "runId": "d0a01943d403c7af",
+      "tag": "oml:d0a01943",
+      "title": "transport-check",
+      "leadThreadId": "aec43e24-af2b-413d-95a6-32cec24e2e1e",
+      "sentAt": "2026-09-08T11:13:41.103Z",
+      "sentSha": "40bef591e39ca0e8bd474a74f1c6f7f955c7f6d7",
+      "closedAt": "2026-09-08T11:24:49.645Z",
+      "result": "passed",
+      "finalState": "done",
+      "briefSha256": "3696a2bbd356a9d4812caa14d7fde6da4081deda8c9c82eab56d23e4137d64a4",
+      "reportMarkdownSha256": "252b563471f344768476959bc90b3512477c8ab5db5d467ebcbc9f48bd62c359",
+      "reanalysisEntries": 1
+    },
+    "driverInvocations": {
+      "count": 38,
+      "record": "commands.ndjson",
+      "sha256": "c6ceab4a54e0ffb91c03b3e56e4978d628177fe9eac05076b01fefd17fc11d06",
+      "note": "report --md and the no-open-run report were run outside the rec helper to capture markdown and the refusal; 40 driver calls in total across tiers 2 and 3"
+    }
+  },
+  "hosts": {
+    "claude": {
+      "version": "2.1.263",
+      "passed": true,
+      "checks": [
+        {
+          "label": "triggerPhrase",
+          "invocation": {
+            "executable": "claude",
+            "args": [
+              "-p",
+              "run T10 through the team",
+              "--output-format",
+              "stream-json",
+              "--verbose",
+              "--max-turns",
+              "2",
+              "--allowedTools",
+              "Skill",
+              "--add-dir",
+              "/tmp/oml-review-t2-CGG7JR/project"
+            ],
+            "startedAt": "2026-09-08T11:09:01.754Z",
+            "endedAt": "2026-09-08T11:09:26.885Z",
+            "exitCode": 1,
+            "exitMeaning": "error_max_turns after 3 turns",
+            "sessionId": "8c6b77b4-7f71-4295-847c-6836c399995d",
+            "transcript": {
+              "file": "claude-trigger.jsonl",
+              "sha256": "560b6f9b8892792a05225d0d27794e734ec9623ca04d2a459d6d981502609ddb"
+            }
+          },
+          "firstToolUse": {
+            "name": "Skill",
+            "input": {
+              "skill": "openmausbot-launcher"
+            }
+          },
+          "alsoObserved": "two Bash attempts were denied by --allowedTools Skill; the nested session's cwd was the launcher repository, whose steward hook also prompted project-steward:resume. The repository was unchanged.",
+          "proves": "the design.md:572 trigger phrase loads the skill"
+        },
+        {
+          "label": "claudeSkillDir",
+          "observedIn": "the interactive Claude Code session's Skill tool, not a claude -p invocation; no transcript file exists",
+          "resolved": true,
+          "mechanism": "load-time text substitution, not an environment variable",
+          "substitutedPath": "/home/wsh/.claude/skills/openmausbot-launcher/scripts/omb.mjs",
+          "announcedBaseDirectory": "/home/wsh/.claude/skills/openmausbot-launcher",
+          "shellVariable": "echo \"${CLAUDE_SKILL_DIR:-unset}\" printed 'unset' in the same session's Bash tool",
+          "symlinkTarget": "/home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs",
+          "botTurns": 0,
+          "proves": "design.md:572-576; an agent must use the substituted path, a shell script cannot read the variable"
+        }
+      ]
+    },
+    "codex": {
+      "version": "0.153.4",
+      "passed": true,
+      "installedSkill": "/home/wsh/.agents/skills/openmausbot-launcher/SKILL.md",
+      "checks": [
+        {
+          "label": "survivalDangerFullAccess",
+          "sandbox": "danger-full-access",
+          "port": 8903,
+          "threadId": "01a080af-8cc4-77c2-9b66-dac9c863f0ea",
+          "startedAt": "2026-09-08T11:03:03.189Z",
+          "endedAt": "2026-09-08T11:03:52.446Z",
+          "exitCode": 0,
+          "server": {
+            "supervisorPid": 625770,
+            "healthPid": 625777,
+            "environmentId": "9606fa72-d3fa-41f3-8217-ec76fd322170"
+          },
+          "healthAfterHostExit": {
+            "reachable": true,
+            "pid": 625777
+          },
+          "stoppedBy": "down from the operator shell",
+          "transcript": {
+            "file": "codex-up2.jsonl",
+            "sha256": "05070cf5d8d0095d4de864e5b07d8675e6abd97bfdcbb8ef57467cc4477c41d3"
+          },
+          "prompt": {
+            "file": "codex-up.prompt.txt",
+            "sha256": "0dc4bdf5c956a913d2f6e16728b84e01419246ac0a6d62469bfa565f05d1be51"
+          },
+          "proves": "detached survival against the REAL server from Codex (design.md:534-538; finding 4)"
+        },
+        {
+          "label": "sandboxNegative",
+          "sandbox": "workspace-write",
+          "port": 8905,
+          "startedAt": "2026-09-08T11:04:32.596Z",
+          "endedAt": "2026-09-08T11:05:13.209Z",
+          "exitCode": 0,
+          "driverExitCode": 1,
+          "driverError": "the server exited during startup",
+          "serverLogMarkers": [
+            "syscall: 'listen'",
+            "code: 'EPERM'",
+            "port: 8905"
+          ],
+          "hintGiven": "see <serve.log>",
+          "hintExpected": "the sandbox escalation hint",
+          "finding": "oml-nqo.28",
+          "transcript": {
+            "file": "codex-up-ww.jsonl",
+            "sha256": "60f53a0592c295af7400c7ea6b9c1cfdf173aa65c8e2cb91539fabfa67321c6c"
+          },
+          "prompt": {
+            "file": "codex-up-ww.prompt.txt",
+            "sha256": "d072c5e2b821abf08628a3d8d232046621619bc007e6fcb9cd2e85bc30a7fd33"
+          },
+          "proves": "the escalation artifact finding 5 lacked"
+        },
+        {
+          "label": "skillListing",
+          "sandbox": "read-only",
+          "exitCode": 0,
+          "listedOpenmausbotLauncher": true,
+          "commandsExecuted": 0,
+          "transcript": {
+            "file": "codex-skills.jsonl",
+            "sha256": "31ed0ae51ae3e82413a3a7965432ab8b0ec89cac89050d5132977b17d1e61b58"
+          },
+          "proves": "design.md:572-576 Codex skill listing"
+        },
+        {
+          "label": "stateWritabilityAndNetwork",
+          "sandbox": "workspace-write",
+          "exitCode": 0,
+          "results": [
+            {
+              "command": "reconcile --project <project2>",
+              "exitCode": 3,
+              "detail": "dirty ['?? .omb/'] because import --adopt never wrote the git exclude entries",
+              "finding": "oml-nqo.29"
+            },
+            {
+              "command": "node -e accessSync(state.json, 2)",
+              "exitCode": 0,
+              "output": "state writable"
+            },
+            {
+              "command": "status --project <project2>",
+              "exitCode": 3,
+              "error": "the server identity could not be verified",
+              "detail": "the server was healthy; the same command exits 0 unsandboxed. A blocked network is misreported as an identity failure",
+              "finding": "oml-nqo.30"
+            }
+          ],
+          "transcript": {
+            "file": "codex-ww-state.jsonl",
+            "sha256": "9b1d103ce262486f5c5f05dd899484d8a6b293f673ce79588bdc164a66e7cb7f"
+          },
+          "prompt": {
+            "file": "codex-ww-state.prompt.txt",
+            "sha256": "0606a1b0876e3cdaa650007f3610c8509f4e6dd7737609b04705a9a3494922da"
+          }
+        }
+      ]
+    },
+    "grok": {
+      "version": "1.0.13",
+      "passed": true,
+      "checks": [
+        {
+          "label": "survival",
+          "permissionMode": "bypassPermissions",
+          "port": 8901,
+          "startedAt": "2026-09-08T10:54:21.386Z",
+          "endedAt": "2026-09-08T10:54:38.514Z",
+          "exitCode": 0,
+          "server": {
+            "supervisorPid": 620924,
+            "healthPid": 620931,
+            "environmentId": "2777264e-a090-4fae-8df9-e6b02352769f"
+          },
+          "healthAfterHostExit": {
+            "reachable": true,
+            "pid": 620931
+          },
+          "supervisorReparentedTo": "systemd --user (pid 1987, child of pid 1)",
+          "stoppedBy": "down from the operator shell",
+          "transcript": {
+            "file": "grok-up2.jsonl",
+            "sha256": "e113785f80771853235109cfbbbcb2b7d66672de397cc4756afbe1bb25dd6334"
+          },
+          "prompt": {
+            "file": "grok-up2.prompt.txt",
+            "sha256": "ea8c54147b85a1434076ba2f549b63cfd7db1ab262b13ce8f7a65537e733d1e4"
+          },
+          "proves": "detached survival against the REAL server from Grok (design.md:534-538; finding 4)"
+        }
+      ]
+    }
+  },
+  "botTurns": [
+    {
+      "botKey": "sudo",
+      "modelBinding": "codex/gpt-5.6-luna/high",
+      "threadId": "aec43e24-af2b-413d-95a6-32cec24e2e1e",
+      "turnId": "293fdd20-4b8e-477f-baa0-0f8a4499bd89",
+      "provider": "codex",
+      "startedAt": "2026-09-08T11:13:41.187Z",
+      "completedAt": "2026-09-08T11:14:54.694Z",
+      "ok": true,
+      "what": "dispatch: ran date -u and list_bots (one approval card), then claimed a denial without calling ask_bot"
+    },
+    {
+      "botKey": "sudo",
+      "modelBinding": "codex/gpt-5.6-luna/high",
+      "threadId": "aec43e24-af2b-413d-95a6-32cec24e2e1e",
+      "turnId": "643c1121-c318-49f9-aeb5-15679eb8e177",
+      "provider": "codex",
+      "startedAt": "2026-09-08T11:18:27.226Z",
+      "completedAt": "2026-09-08T11:18:59.213Z",
+      "ok": true,
+      "what": "called ask_bot; the card was denied; quoted 'user rejected MCP tool call'"
+    },
+    {
+      "botKey": "sudo",
+      "modelBinding": "codex/gpt-5.6-luna/high",
+      "threadId": "aec43e24-af2b-413d-95a6-32cec24e2e1e",
+      "turnId": "0f930fdb-974e-49d7-b5f7-a4c87196f287",
+      "provider": "codex",
+      "startedAt": "2026-09-08T11:20:12.659Z",
+      "completedAt": "2026-09-08T11:21:05.948Z",
+      "ok": true,
+      "what": "called ask_bot again; MCP card and then the peer card were allowed once; reported 'Sage replied: PONG'"
+    },
+    {
+      "botKey": "sudo",
+      "modelBinding": "codex/gpt-5.6-luna/high",
+      "threadId": "aec43e24-af2b-413d-95a6-32cec24e2e1e",
+      "turnId": "90ec489c-3af1-4215-91a8-dfbaee6e6e19",
+      "provider": "codex",
+      "startedAt": "2026-09-08T11:22:33.074Z",
+      "completedAt": "2026-09-08T11:22:57.769Z",
+      "ok": false,
+      "what": "sleep 90; interrupted by the driver's interrupt verb, recorded ok:false"
+    },
+    {
+      "botKey": "sudo",
+      "modelBinding": "codex/gpt-5.6-luna/high",
+      "threadId": "aec43e24-af2b-413d-95a6-32cec24e2e1e",
+      "turnId": "dc3213ea-2b09-4984-8865-00ec6d9addbf",
+      "provider": "codex",
+      "startedAt": "2026-09-08T11:23:28.376Z",
+      "completedAt": "2026-09-08T11:23:37.596Z",
+      "ok": true,
+      "what": "closing report acknowledging the aborted sleep"
+    },
+    {
+      "botKey": "sage",
+      "modelBinding": "claude/claude-sonnet-5/high",
+      "threadId": "e054e856-a05d-412c-9947-e895e9c2ca8d",
+      "turnId": "2ac4b436-60b5-41aa-a927-17b7a8408d88",
+      "provider": "claudeAgent",
+      "startedAt": "2026-09-08T11:20:56.465Z",
+      "completedAt": "2026-09-08T11:21:03.476Z",
+      "ok": true,
+      "what": "answered the allowed peer contact with PONG",
+      "usage": {
+        "input": 19214,
+        "output": 1,
+        "cachedInput": 19212
+      }
+    }
+  ],
+  "approvalRequests": [
+    {
+      "requestId": "9dee0033-cd91-4918-b7a2-fd36b962dab2",
+      "tool": "list_bots",
+      "kind": "mcp tool approval",
+      "options": [
+        "Allow",
+        "Deny"
+      ],
+      "answeredWith": "allow",
+      "outcome": "allowed-once",
+      "decisionsLog": [
+        "card-shown",
+        "user-approved"
+      ]
+    },
+    {
+      "requestId": "523623c0-ae9b-4b0c-a005-28f5680ef66a",
+      "tool": "ask_bot",
+      "kind": "mcp tool approval",
+      "options": [
+        "Allow",
+        "Deny"
+      ],
+      "answeredWith": "deny",
+      "outcome": "rejected",
+      "decisionsLog": [
+        "card-shown",
+        "user-denied"
+      ]
+    },
+    {
+      "requestId": "a89ec38a-f03f-4ca8-932e-11ea2389f998",
+      "tool": "ask_bot",
+      "kind": "mcp tool approval",
+      "options": [
+        "Allow",
+        "Deny"
+      ],
+      "answeredWith": "allow",
+      "outcome": "allowed-once",
+      "decisionsLog": [
+        "card-shown",
+        "user-approved"
+      ]
+    },
+    {
+      "requestId": "ca82697e-7f6d-4ace-99ab-40591e7fcb37",
+      "tool": "ask_bot",
+      "kind": "peer contact (approvePeerComms)",
+      "title": "@Sudo wants to contact @Sage",
+      "options": [
+        "Allow",
+        "Deny",
+        "Always allow"
+      ],
+      "allowKey": "ask_bot:fe2bbf47-7765-40eb-824f-efd32daba949",
+      "answeredWith": "allow",
+      "outcome": "allowed-once",
+      "decisionsLog": [],
+      "note": "the peer decision is absent from /api/decisions; only the three MCP cards are logged there. Always allow was never chosen"
+    }
+  ],
+  "runtimeEventSources": [
+    {
+      "botKey": "sudo",
+      "threadId": "aec43e24-af2b-413d-95a6-32cec24e2e1e",
+      "file": "/tmp/oml-review-t2-CGG7JR/data-20260908T105019-92irGo/events/aec43e24-af2b-413d-95a6-32cec24e2e1e.ndjson",
+      "exists": true,
+      "turnsFromEvents": 5,
+      "sha256": "40c180dc8c139fc34a49167c61a642075db7927f302c451817cbb6edc4926e03"
+    },
+    {
+      "botKey": "sage",
+      "threadId": "e054e856-a05d-412c-9947-e895e9c2ca8d",
+      "file": "/tmp/oml-review-t2-CGG7JR/data-20260908T105019-92irGo/events/e054e856-a05d-412c-9947-e895e9c2ca8d.ndjson",
+      "exists": true,
+      "turnsFromEvents": 1
+    },
+    {
+      "botKey": "quill",
+      "threadId": "6968e29b-3330-4dca-89de-d119705b3521",
+      "file": "/tmp/oml-review-t2-CGG7JR/data-20260908T105019-92irGo/events/6968e29b-3330-4dca-89de-d119705b3521.ndjson",
+      "exists": false,
+      "turnsFromEvents": 0
+    },
+    {
+      "botKey": "nova",
+      "threadId": "8d2320ca-469d-4d79-a5c4-d2eb62e1bf61",
+      "file": "/tmp/oml-review-t2-CGG7JR/data-20260908T105019-92irGo/events/8d2320ca-469d-4d79-a5c4-d2eb62e1bf61.ndjson",
+      "exists": false,
+      "turnsFromEvents": 0
+    },
+    {
+      "botKey": "vale",
+      "threadId": "1896a822-8c8e-42cf-928e-3d988e8ceb91",
+      "file": "/tmp/oml-review-t2-CGG7JR/data-20260908T105019-92irGo/events/1896a822-8c8e-42cf-928e-3d988e8ceb91.ndjson",
+      "exists": false,
+      "turnsFromEvents": 0
+    }
+  ],
+  "incidents": [
+    {
+      "description": "Grok's first survival attempt ran the planned command verbatim on port 8894 and the driver answered 'GET /api/health -> 404: Unknown webhook endpoint' with exit 1, because the 8893 server already held 8894 as its webhook ingress port. Reproduced from a plain shell. Re-run on 8901 it passed. Plan port choice plus driver gap oml-nqo.27.",
+      "host": "grok",
+      "exitCode": 0,
+      "driverExitCode": 1,
+      "transcript": {
+        "file": "grok-up.jsonl",
+        "sha256": "aaaed9a44b82dfcba69dbb6b1f2e0af9559f9e0ef87ae9ad634809a0bcb5d6ba"
+      },
+      "prompt": {
+        "file": "grok-up.prompt.txt",
+        "sha256": "1f956095d0ac80eba7f564ffee60687d4f1f3ae18b7252ce0f1e1577a79f0746"
+      },
+      "botTurns": 0
+    },
+    {
+      "description": "Codex's first survival attempt blocked reading stdin ('Reading additional input from stdin...') and was killed at the 420 s timeout. No agent session started: empty transcript, no listener on 8903/8904, no state file, no data directory. Adding '< /dev/null' fixed it and every later Codex call used that form. Harness error, not a defect.",
+      "host": "codex",
+      "exitCode": 124,
+      "transcript": {
+        "file": "codex-up.jsonl",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "botTurns": 0
+    },
+    {
+      "description": "Under approval mode ask, the Codex lead raised an MCP approval card for list_bots before it could reach the peer gate. Allowed once, as the plan's escape hatch for a prerequisite card provides.",
+      "botTurns": 0
+    },
+    {
+      "description": "In its first turn the lead wrote 'Sage contact denied' although the native log shows it never called ask_bot: its only tool calls were a date -u shell exec and list_bots. A corrective send naming Sage's id produced the real call. A lead's prose is not evidence that a tool ran.",
+      "botTurns": 1
+    },
+    {
+      "description": "watch --nudge, reconcile --remove, send --bot retargeting and a real cleanup --kill were not reachable in this run and remain evidenced only against the fake server."
+    }
+  ],
+  "cleanup": {
+    "reconcile": {
+      "ok": true,
+      "clean": true,
+      "branch": "main",
+      "defaultBranch": "main",
+      "taskBranches": [],
+      "dirty": [],
+      "problems": [],
+      "worktrees": [
+        "/tmp/oml-review-t2-CGG7JR/project"
+      ]
+    },
+    "cleanupKill": {
+      "ok": true,
+      "supported": true,
+      "pattern": "codex-linux-sandbox",
+      "orphans": [],
+      "killed": [],
+      "note": "no orphan existed, so the kill path itself was not exercised on a real server"
+    },
+    "strayProcess": {
+      "pid": 426150,
+      "description": "codex-linux-sandbox with cwd in the launcher repository, outside .worktrees/",
+      "ignoredByCleanup": true,
+      "aliveBefore": true,
+      "aliveAfter": true,
+      "action": "reported, not killed (finding 19)"
+    },
+    "down": {
+      "ok": true,
+      "stopped": true,
+      "supervisorPid": 617810,
+      "healthPid": 617817,
+      "url": "http://127.0.0.1:8893",
+      "orphans": []
+    },
+    "survivalServersStopped": [
+      {
+        "host": "grok",
+        "port": 8901,
+        "supervisorPid": 620924,
+        "healthPid": 620931,
+        "pidsGone": true
+      },
+      {
+        "host": "codex",
+        "port": 8903,
+        "supervisorPid": 625770,
+        "healthPid": 625777,
+        "pidsGone": true
+      },
+      {
+        "label": "key-strip check",
+        "port": 8897,
+        "supervisorPid": 618776,
+        "healthPid": 618783,
+        "pidsGone": true
+      }
+    ],
+    "verification": {
+      "checkedAt": "2026-09-08T11:32:04.826Z",
+      "processes": [
+        {
+          "pid": 617810,
+          "exists": false
+        },
+        {
+          "pid": 617817,
+          "exists": false
+        }
+      ],
+      "health": {
+        "url": "http://127.0.0.1:8893",
+        "reachable": false,
+        "code": "ECONNREFUSED"
+      },
+      "webhookHealth": {
+        "url": "http://127.0.0.1:8894",
+        "reachable": false,
+        "code": "ECONNREFUSED"
+      },
+      "listenersRemaining": [],
+      "remainingProcessesWithFixtureCwd": []
+    }
+  },
+  "verification": {
+    "tier0": {
+      "fullSuite": {
+        "command": "npm test",
+        "passed": 154,
+        "failed": 0,
+        "skipped": 0,
+        "durationSeconds": 50.99486
+      },
+      "focused": {
+        "command": "node --test tests/snapshot.test.mjs",
+        "passed": 5,
+        "failed": 0
+      },
+      "usageProbesExit2": 4,
+      "verbCount": 15,
+      "stateVerbRegistered": false,
+      "hostJsonWatchInvocations": 0,
+      "transcriptHashesVerified": "6/6",
+      "sourceHashesVerified": "2/2"
+    },
+    "tier1": {
+      "steps": 21,
+      "assertions": 211,
+      "ok": 209,
+      "deviations": 2,
+      "driverInvocations": 78,
+      "note": "fake server; recorded in .project-steward/VERIFY.md, not treated as evidence"
+    },
+    "tier2": {
+      "driverInvocations": 13,
+      "allExitZero": true,
+      "doctorChecks": 5,
+      "serverDoctorChecks": 10,
+      "botTurns": 0,
+      "hostInvocations": 8
+    },
+    "tier3": {
+      "driverInvocations": 27,
+      "sudoTurns": 5,
+      "sageTurns": 1,
+      "otherSpecialistTurns": 0,
+      "delegations": 0,
+      "runResult": "passed"
+    },
+    "sourceFilesChanged": [],
+    "repositoryHead": "5050b5f550cf8cd797fbde30f5e853669bd8fdd8",
+    "findingsFiled": [
+      "oml-nqo.26",
+      "oml-nqo.27",
+      "oml-nqo.28",
+      "oml-nqo.29",
+      "oml-nqo.30"
+    ],
+    "findingsConfirmedOnRealServer": [
+      "oml-nqo.3",
+      "oml-nqo.4",
+      "oml-nqo.5",
+      "oml-nqo.18",
+      "oml-nqo.19",
+      "oml-nqo.25"
+    ]
+  }
+}

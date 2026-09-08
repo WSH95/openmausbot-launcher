@@ -250,3 +250,206 @@ orphan candidates, a clean `main`, one worktree and no task branches.
 PIDs absent, health returning `ECONNREFUSED`, and no process with a cwd
 under the temporary fixture. No pushes occurred. T12's archive and 8/9
 package result remain unchanged; this check did not repeat that task.
+
+## 2026-09-08 — M1 review, tier 2: real server lifecycle and host survival (0 bot turns)
+
+Question: does the driver's full setup path work against real OpenMausBot
+0.1.56, and do the design's unevidenced host checks pass — the detached
+survival spike against the real server from every host, the Codex skill
+listing and state writability, the Claude trigger phrase, and
+`${CLAUDE_SKILL_DIR}`?
+
+Node 24.11.0 and real `openmausbot` **0.1.56**
+(`OMB_BIN=~/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js`),
+`OMB_TOKEN` empty and every other `OMB_*` variable unset. Temporary fixture
+`/tmp/oml-review-t2-CGG7JR` holding four git projects, each at
+`40bef591e39ca0e8bd474a74f1c6f7f955c7f6d7` on `main`. Server
+`http://127.0.0.1:8893`, environment
+`98b1f9f2-e973-4c16-819f-aed3ba7fe778`, owned supervisor/server PIDs
+`617810`/`617817`, data dir
+`/tmp/oml-review-t2-CGG7JR/data-20260908T105019-92irGo`, `askTimeoutMs`
+600000. Team from the unchanged external test input
+`~/Documents/agent-team-devpack/packages/dev-team/dev-team.openmaus.json`
+(release 0.4.2, SHA-256 `48e4ac63…3255949` before import, after import and at
+the end of the tier): Sudo `414ffd78-4cb0-4190-8e88-53db14bbb002`, Sage
+`fe2bbf47-7765-40eb-824f-efd32daba949`, Vale
+`44a5609a-3d8d-4ce4-a949-c478de5c3075`, Nova
+`58323a8b-7059-4dff-9cec-70a89464f672`, Quill
+`d22c6301-fedd-4a04-91cc-7556f4e13305`, room
+`5fa03555-5107-4e15-aadc-a43e4e4d407b`. Bindings: Sudo
+`codex/gpt-5.6-luna/high`, Sage `claude/claude-sonnet-5/high`, Vale
+`codex/gpt-5.6-terra/high`, Nova `claude/claude-opus-5/high`, Quill
+`grok/grok-4.6/medium`.
+
+**No OpenMausBot bot turn was spent in this tier**: no `task`, `send` or
+`answer` was issued. The operator ran the driver commands from this Claude
+Code session's shell. The three host checks below launched native CLI agent
+sessions, which **consumed those hosts' own subscriptions**; each was given
+the exact command to run and told to print its stdout and stop.
+
+| Check | Command | Result |
+|---|---|---|
+| Local doctor | `doctor --project <project>` | 0; 5/5; binary `…cli.js (openmausbot 0.1.56, from OMB_BIN)` |
+| Server doctor | `doctor --server` | 0; **10/10**; loopback session scopes `admin,client`; engines grok, claude and codex available; no provider keys; identity matches |
+| Stripped environment | `/proc/617817/environ`, `/proc/617810/environ` | 0 of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, `OMB_TOKEN`. Repeated self-contained on port 8897 from one shell holding all three decoy keys: 0 in both processes; `down` removed both pids |
+| Import | `import <supplied package>` | 0; release 0.4.2; section "Agent Team dev team"; lead Sudo; 5 bots; 1 room |
+| Bind | `bind --model` ×5 | 0; all five read back; Quill skipped for auto ("a grok bot has no auto approval level") |
+| Facts | `facts --test true --setup none --merge auto --task-log none --tracker none --plan-review ask` | 0; 183-character block |
+| Status | `status --tail 3` | 0; `run: null`; `busy` and `pending` empty |
+| Adopt | `import --adopt "Agent Team dev team" --project <project2> --url … --data-dir …` | 0; `package: null`; identical lead and bot ids; `owned: false`; `status` there 0 with `run: null` |
+| Grok survival | `grok -p … --permission-mode bypassPermissions --cwd … --max-turns 4 --no-subagents --disable-web-search --output-format streaming-json`, `up --port 8901` | owned: supervisor 620924, server 620931, environment `2777264e-a090-4fae-8df9-e6b02352769f`; after Grok exited, health from this shell answered `{"app":"openmausbot","pid":620931}`; `down` from this shell stopped both |
+| Codex survival | `codex exec --sandbox danger-full-access --cd … --json --skip-git-repo-check … < /dev/null`, `up --port 8903` | owned: supervisor 625770, server 625777, environment `9606fa72-d3fa-41f3-8217-ec76fd322170`, thread `01a080af-8cc4-77c2-9b66-dac9c863f0ea`; health answered after Codex exited; `down` from this shell stopped both |
+| Codex sandbox negative | same with `--sandbox workspace-write`, `up --port 8905` | **exit 1**: `{"ok":false,"verb":"up","error":"the server exited during startup",…,"log":"… code: 'EPERM', … syscall: 'listen', … port: 8905"}` |
+| Codex skill listing | `codex exec --sandbox read-only … "list the names of the skills available to you"` | 0; `openmausbot-launcher` listed; no command executed |
+| Codex state writability | `codex exec --sandbox workspace-write` running `accessSync(state.json, 2)` | 0; printed `state writable` |
+| Codex `status` in the sandbox | same session, `status --project <project2>` | **exit 3**, "the server identity could not be verified"; the same command exits 0 from an unsandboxed shell |
+| Claude trigger phrase | `claude -p "run T10 through the team" --output-format stream-json --verbose --max-turns 2 --allowedTools Skill --add-dir <project>` | first tool call was `Skill` with `{"skill":"openmausbot-launcher"}`; session `8c6b77b4-7f71-4295-847c-6836c399995d`; ended `error_max_turns`; the repository was unchanged |
+
+In both survival cases the server process's parent was its supervisor and the
+supervisor's parent was `systemd --user` (pid 1987, a child of pid 1), not the
+host CLI.
+
+**Claude Code skill path.** `${CLAUDE_SKILL_DIR}` (`docs/design.md:572-576`)
+resolves by **load-time text substitution, not an environment variable**. This
+was observed in the interactive Claude Code 2.1.263 session that invoked the
+skill through its Skill tool, not by a `claude -p` invocation, so no transcript
+file exists for it and no bot turn or extra host session was spent. `SKILL.md`
+line 23 arrived with `${CLAUDE_SKILL_DIR}/scripts/omb.mjs` already rewritten to
+`/home/wsh/.claude/skills/openmausbot-launcher/scripts/omb.mjs`, and the loaded
+content announced "Base directory for this skill:
+/home/wsh/.claude/skills/openmausbot-launcher". In that same session's Bash
+tool, `echo "${CLAUDE_SKILL_DIR:-unset}"` printed `unset`. A shell script
+therefore cannot read the variable; an agent must use the path already
+substituted into the skill text. `ls -l` of that path showed the symlink to
+`/home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs`,
+and `node` on it printed the driver's usage JSON with its 15 verbs.
+
+Two host attempts failed before doing anything and are recorded as incidents.
+Grok's first attempt ran the command it was given verbatim on port 8894 and the
+driver answered `GET /api/health -> 404: Unknown webhook endpoint` (exit 1),
+because OpenMausBot binds `PORT + 1` for webhook ingress
+(`server/index.ts:320`, `server/cli.ts:438`) and the 8893 server already held
+8894; reproduced from a plain shell, and re-run on 8901 it passed. Codex's
+first attempt blocked on stdin ("Reading additional input from stdin…") and was
+killed at 420 s with an empty transcript, no listener, no state file and no
+data dir; `< /dev/null` fixed it.
+
+Not exercised in this tier: any bot turn, `task`, `send`, `answer`,
+`interrupt`, `watch`, `report`, delegation, and OpenClaw, Hermes Agent or
+DeepSeek Harness.
+
+Conclusion: the driver's setup path, ownership proof and shutdown work against
+real OpenMausBot 0.1.56, and every design host check that had never been
+evidenced passes — including the detached survival spike against the real
+server from Grok Build and Codex CLI, which previously existed only against the
+fake. The tier also produced five defects that only a real server, sandbox or
+port can surface (`oml-nqo.26`–`.30`). Raw logs, prompts and transcript
+SHA-256s: session scratchpad `tier2/`, copied from
+`/tmp/oml-review-t2-CGG7JR/logs`.
+
+## 2026-09-08 — M1 review, tier 3: transport check with a peer-approval card, interrupt, historical report (5 Sudo turns)
+
+Question: do the relay verbs — `answer` in both directions, `interrupt`, the
+background `watch`, and `report` in its historical modes — work against a real
+server, and does the `approvePeerComms` gate produce the approval card the
+design's "a bot wants to contact a peer" flow depends on?
+
+Same server, team, bindings and fixture as the tier 2 section above,
+OpenMausBot **0.1.56**. Before dispatch, `bind --approval ask` set all five
+bots to ask (every roster line read `(ask)`), and
+`PATCH /api/bots/414ffd78-4cb0-4190-8e88-53db14bbb002` with
+`{"approvePeerComms":true}` returned **200** and read back `true`. Run
+`d0a01943d403c7af`, tag `oml:d0a01943`, lead thread
+`aec43e24-af2b-413d-95a6-32cec24e2e1e`, Sage thread
+`e054e856-a05d-412c-9947-e895e9c2ca8d`, five fresh threads, dispatched
+2026-09-08T11:13:41.103Z from `40bef59`.
+
+**What sent the messages.** The operator wrote every message text in this
+Claude Code session and the driver's `send`/`task` posted them over the local
+HTTP API; OpenMausBot stored them as `role: user`. Only Sudo and Sage
+executed. **5 Sudo turns and 1 Sage turn** were spent, counted from
+`turn.completed` in the data dir's event files. The tier 2 host CLI sessions
+also consumed those hosts' subscriptions; no host CLI was used in tier 3.
+
+| Step | Command | Result |
+|---|---|---|
+| Dispatch | `task --title transport-check "<brief>"` | 0; run `d0a01943d403c7af`; 5 fresh threads |
+| Watch 1 | `watch --max-seconds 100` | **5** needs-user in 19 s; card `9dee0033-cd91-4918-b7a2-fd36b962dab2`, tool `list_bots`, options Allow/Deny |
+| Allow the prerequisite | `answer --allow --request 9dee0033…` | 0; `allowed-once` |
+| Watch 2 | `watch --max-seconds 100` | 0 done in 32 s. Sudo's turn called only `date -u +%FT%TZ` and `list_bots`; it never called `ask_bot`, yet wrote "Sage contact denied" |
+| Force the call | `send "…call the ask_bot tool exactly once now, with bot id fe2bbf47…"` | 0 |
+| Watch 3 | `watch --max-seconds 100` | **5** in 11 s; card `523623c0-ae9b-4b0c-a005-28f5680ef66a`, tool `ask_bot` |
+| Deny | `answer --deny --request 523623c0…` | 0; outcome **`rejected`** |
+| Watch 4 | `watch --max-seconds 100 --brief` | **0 DONE** in 33 s; lead quoted `{"content":[{"type":"text","text":"user rejected MCP tool call"}],"isError":true}` and the marker line |
+| Allow path | `send "…ask Sage to reply with the single word PONG…"`, `watch` | 5; card `a89ec38a-f03f-4ca8-932e-11ea2389f998`, tool `ask_bot` |
+| Allow the tool | `answer --allow --request a89ec38a…` | 0; `allowed-once` |
+| Watch 5 | `watch --max-seconds 100` | 5 immediately; **peer card** `ca82697e-7f6d-4ace-99ab-40591e7fcb37`, title "@Sudo wants to contact @Sage", options Allow/Deny/Always allow, `allowKey ask_bot:fe2bbf47-…` |
+| Allow the peer contact | `answer --allow --request ca82697e…` | 0; `allowed-once`. "Always allow" was never chosen |
+| Watch 6 | `watch --max-seconds 100` | **0 done** in 41 s; lead: "Sage replied: PONG" plus the marker. Sage's event file appeared with 1 turn |
+| Interrupt | `send "…\`sleep 90\`…"`, then `status --brief` after 10 s, then `interrupt` | status showed `Sudo working`; `interrupt` 0 with `interrupted: true`; Sudo idle within 1 s |
+| Background watch | `watch --max-seconds 570 --brief` started with `&` | exit **0** after **60 s**, not 570: it returned at the next terminal state, `DONE after 10m` |
+| Foreground watch | `watch --max-seconds 100 --brief` | 0 after 32 s, `DONE after 11m`; lead: "Closing report: `sleep 90` was aborted before completion." The state file's md5 changed across the pair, so both checkpointed |
+| Report preview | `report --dry-run` | 0; `closed: false`; tests `skipped: dry run`; state md5 unchanged |
+| Report | `report --md` | 0; `(passed)`; run closed 2026-09-08T11:24:49.645Z |
+| No open run | `report` | **3**, "no open run to report" |
+| Historical dry run | `report --run last --dry-run` | 0; `historical: true`; state md5 unchanged |
+| Historical re-report | `report --run last` | 0; `reReported: true`; exactly one `reanalysis` entry appended; the original result stayed `passed` |
+| Reconcile | `reconcile` | 0; clean; no task branches; one worktree |
+| Cleanup | `cleanup --kill` | 0; no orphan candidates, nothing killed; pid 426150 correctly ignored and still alive |
+| Down | `down` | 0; both pids gone; 8893 and 8894 both refuse connections |
+
+`/api/decisions` recorded six entries: `card-shown` then `user-approved` for
+`list_bots`, `card-shown` then `user-denied` for the first `ask_bot`, and
+`card-shown` then `user-approved` for the second. The peer-contact decision on
+`ca82697e-…` is **not** in that log, so a peer approval leaves no trace there.
+
+Turn accounting from `<dataDir>/events/<thread>.ndjson`: Sudo 5, Sage 1,
+Quill 0, Nova 0, Vale 0. Only two event files exist — the lead's and Sage's —
+so the three unused specialists never started a session. `teamMap.queued` and
+`teamMap.running` were empty at every snapshot and no delegation, receipt or
+echo occurred. SHA-256 of the lead's event file:
+`40c180dc8c139fc34a49167c61a642075db7927f302c451817cbb6edc4926e03`. The
+supplied package hashed `48e4ac63…3255949` at the end, unchanged. No process
+remained with a cwd under the fixture.
+
+### 2026-09-08 — transport-check (passed)
+
+Run d0a01943d403c7af, tag oml:d0a01943, OpenMausBot 0.1.56, lead Sudo (codex/gpt-5.6-luna/high), project /tmp/oml-review-t2-CGG7JR/project, dispatched 2026-09-08T11:13:41.103Z from 40bef59; final state done.
+
+| Thread | Turns | Bot seconds | Input | Cached | Output |
+|---|---|---|---|---|---|
+| Sudo | 5 | 193 | 101616 | 97280 | 423 |
+| Quill | 0 | 0 | 0 | 0 | 0 |
+| Nova | 0 | 0 | 0 | 0 | 0 |
+| Vale | 0 | 0 | 0 | 0 | 0 |
+| Sage | 1 | 7 | 35690 | 19212 | 53 |
+
+Outcomes: 0. Commits since dispatch: 0.
+
+Record step: task log unknown, record commit none, no bead named in the run. Tests: passed in 0 s. Root: clean.
+
+Closing report from Sudo: "Closing report: `sleep 90` was aborted before completion. DONE oml:d0a01943"
+
+The `Tests: passed in 0 s` line reflects the fixture's facts, whose test
+command is `true`; it is not a test result for this repository. `task log
+unknown` and `record commit none` follow from `--task-log none` and a run that
+made no commit.
+
+Not exercised in this tier: a full team task; the three specialist models
+`codex/gpt-5.6-terra/high`, `claude/claude-opus-5/high` and
+`grok/grok-4.6/medium`; delegation of any kind; `report --check-042`; a real
+`cleanup --kill` that actually kills; `watch --nudge`, `reconcile --remove`
+and `send --bot` retargeting against a real server; long Codex SSE inside a
+sandbox; the 570 s watch deadline itself; and OpenClaw, Hermes Agent or
+DeepSeek Harness.
+
+Conclusion: the relay path works end to end against real OpenMausBot 0.1.56 —
+a card raised, denied and reported back; a peer-contact card allowed once and
+answered with PONG by a second bot; a working bot interrupted; a background
+watch returning at the next terminal state; and a run closed and then
+re-reported from history. Two behaviours are worth carrying forward: a Codex
+lead under `ask` raises a separate MCP card for each tool before the peer gate
+is reached, and it wrote "Sage contact denied" in a turn in which it never
+called `ask_bot`, so a lead's prose is not evidence that a tool ran. Raw logs
+and the structured extraction: session scratchpad `tier3/` and
+[docs/validation/2026-09-08-m1-review.json](validation/2026-09-08-m1-review.json).

@@ -12,9 +12,10 @@ Run the relevant checks before marking work as verified in `HANDOFF.md`.
 
 Independent review and test of M1 at HEAD `b1a1f77` (Beads epic `oml-nqo`,
 plan `~/.claude/plans/based-on-the-development-lucky-shell.md`). This section
-records Tier 0 and Tier 1 only; Tiers 2 and 3 (real OpenMausBot) are still
-open as `oml-nqo.23` and `oml-nqo.24`. No source, test or documentation file
-was changed by either tier.
+records all four tiers. Tiers 0 and 1 were free; Tier 2 ran against real
+OpenMausBot 0.1.56 with zero bot turns; Tier 3 spent 5 Sudo turns and 1 Sage
+turn. No source, test or reference file was changed by any tier. The review
+write-up is `docs/review/2026-09-08-m1-review.md`.
 
 ### Tier 0 — suite and static checks
 
@@ -215,6 +216,85 @@ Deviations, each with a verdict:
 
 Eleven `rec`-recorded driver invocations, all exit 0. Raw logs and transcript
 SHA-256s are in the session scratchpad under `tier2/`.
+
+
+### Tier 3 — minimal real run, lead only
+
+Same server, team and fixture as Tier 2. **5 Sudo turns and 1 Sage turn** were
+spent, counted from `turn.completed` in the data dir's event files; the budget
+was 4–6 Sudo plus at most 1 Sage. No other bot ran and no delegation occurred:
+`teamMap.queued` and `teamMap.running` were empty at every snapshot, and only
+two event files exist in the whole data dir — the lead's and Sage's.
+
+Setup: `bind --approval ask` set all five bots to ask (every roster line read
+`(ask)`), and `PATCH /api/bots/414ffd78-…` with `{"approvePeerComms":true}`
+returned **200** and read back `true`. Run `d0a01943d403c7af`, tag
+`oml:d0a01943`, lead thread `aec43e24-…`, dispatched 2026-09-08T11:13:41.103Z
+from `40bef59`.
+
+Sequence and exit codes: `task` 0 → `watch` **5** (needs-user, 19 s) →
+`answer --allow` 0 (`allowed-once`) → `watch` **0** (done, 32 s) → `send` 0 →
+`watch` **5** (11 s) → `answer --deny` 0 (**`rejected`**) → `watch` **0**
+(done, 33 s) → `send` 0 → `watch` **5** → `answer --allow` 0 → `watch` **5**
+(the peer card) → `answer --allow` 0 → `watch` **0** (done, 41 s) → `send` 0 →
+`status` 0 → `interrupt` 0 → background `watch` and `send` → `watch` **0** →
+`report --dry-run` 0 → `report --md` 0 → `report` **3** → `report --run last
+--dry-run` 0 → `report --run last` 0 → `reconcile` 0 → `cleanup --kill` 0 →
+`down` 0. Thirty-eight `rec`-recorded invocations across Tiers 2 and 3, plus
+`report --md` and the no-open-run `report`, which were run outside `rec` to
+capture the markdown and the refusal.
+
+Four approval requests were answered, none with "Always allow":
+
+| Request | Tool | Kind | Answer | Outcome |
+|---|---|---|---|---|
+| `9dee0033-…` | `list_bots` | MCP tool | allow | `allowed-once` |
+| `523623c0-…` | `ask_bot` | MCP tool | deny | **`rejected`** |
+| `a89ec38a-…` | `ask_bot` | MCP tool | allow | `allowed-once` |
+| `ca82697e-…` | `ask_bot` | **peer contact** | allow | `allowed-once` |
+
+The peer card is the one `approvePeerComms` gates: title "@Sudo wants to
+contact @Sage", options Allow / Deny / Always allow, `allowKey`
+`ask_bot:fe2bbf47-…`. `/api/decisions` logged the three MCP cards as
+`card-shown` then `user-approved`/`user-denied`, but **not** the peer decision.
+
+The done marker appeared every time. After the deny, the lead quoted the tool's
+own `{"content":[{"type":"text","text":"user rejected MCP tool call"}],"isError":true}`
+and the marker; after the allow it wrote "Sage replied: PONG"; after the
+interrupt, "Closing report: `sleep 90` was aborted before completion."
+
+`interrupt` returned 0 with `interrupted: true` and the bot was idle within
+1 s; the interrupted turn is recorded in the events with `ok: false`. The
+background `watch --max-seconds 570 --brief` exited **0 after 60 s**, not 570 —
+it returns at the next terminal state — while a foreground
+`watch --max-seconds 100 --brief` ran concurrently and also returned DONE. The
+state file's md5 changed across the pair, so both checkpointed; `--brief` does
+not print the `checkpointed` field, so the flag itself was read from the state.
+
+`report --md` closed the run `passed` at 11:24:49.645Z. `report --run last`
+appended exactly one `reanalysis` entry and left the original result `passed`.
+Both dry runs left the state md5 unchanged. `cleanup --kill` found no orphan,
+so the kill path was not exercised on a real server; pid 426150 was ignored, as
+designed, and is still alive. `down` stopped both pids and both 8893 and its
+webhook port 8894 refuse connections; no process has a cwd under the fixture.
+
+Deviations, each with a verdict:
+
+1. The plan expected the first card to be the `ask_bot` peer card. It was an
+   MCP approval card for `list_bots`, because a Codex bot under `ask` raises a
+   separate MCP card per tool before any peer gate is reached. Allowed once
+   under the plan's own escape hatch for a prerequisite card. **Plan error**,
+   and a fact worth keeping: reaching a peer card with a Codex lead under `ask`
+   costs two extra approvals.
+2. In its first turn the lead wrote "Sage contact denied" although the native
+   log shows it never called `ask_bot`: its only tool calls were the `date -u`
+   shell exec and `list_bots`. The brief's own "if the contact is denied…"
+   clause gave it the wording. **Neither a driver defect nor a plan error but a
+   caution**: a lead's prose is not evidence that a tool ran, and the `deny`
+   path only became testable after a corrective `send` naming Sage's id. That
+   send is the reason the tier spent 5 Sudo turns rather than 4.
+3. `status` still emits no `carried` field on a real server, confirming
+   `oml-nqo.25`; the carried verdict itself works.
 
 ## Current M1 completion checkpoint
 
