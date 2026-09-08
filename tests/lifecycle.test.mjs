@@ -220,3 +220,19 @@ test("doctor reads the stop-hook exclude through git, so a linked worktree sees 
   assert.equal(r.code, 0, r.stdout);
   assert.equal(r.json.checks.find((c) => c.id === "stop-hook").ok, true);
 });
+
+test("down after an environment change names the live pids and the manual recovery", { skip: !linux && "needs /proc" }, async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const { dir } = makeRepo();
+  const me = procInfo(process.pid);
+  await updateState(statePaths(dir), (d) => { d.server = { url: f.url, owned: true, supervisorPid: process.pid, supervisorStart: me.startTicks, healthPid: process.pid, healthStart: me.startTicks, environmentId: f.environmentId, dataDir: f.dataDir }; return d; });
+  await f.control({ op: "newEnvironment" });
+  let r = await runOmb(["down", "--project", dir], { env: { OMB_TOKEN: "" } });
+  assert.equal(r.code, 3, r.stdout);
+  assert.match(r.json.error, /the environment id changed/);
+  assert.match(r.json.hint, new RegExp(`ps -o pid,lstart,args -p ${process.pid},${process.pid}, then kill ${process.pid} yourself`));
+  assert.equal(procInfo(process.pid).alive, true, "the test process was never signalled");
+  await updateState(statePaths(dir), (d) => { d.server = { ...d.server, supervisorPid: 999999, supervisorStart: 1, healthPid: 999998, healthStart: 1 }; return d; });
+  r = await runOmb(["down", "--project", dir], { env: { OMB_TOKEN: "" } });
+  assert.equal(r.code, 3); assert.equal(r.json.hint, "if that server is gone, run up to record a new one");
+});

@@ -159,7 +159,14 @@ verb("down", {
     if (!server.owned) throw new Fail(EXIT.PRECONDITION, "the recorded server is attached, not owned", { hint: "stop it where you started it" });
     const client = createClient({ url: server.url });
     const v = await srv.verifyOwned(server, client);
-    if (!v.ok) throw new Fail(EXIT.PRECONDITION, `refusing to stop: ${v.reasons.join("; ")}`, { hint: "if that server is gone, run up to record a new one" });
+    if (!v.ok) {
+      const alive = [server.supervisorPid, server.healthPid].filter((pid) => srv.procInfo(pid)?.alive);
+      throw new Fail(EXIT.PRECONDITION, `refusing to stop: ${v.reasons.join("; ")}`, {
+        hint: alive.length
+          ? `pid(s) ${alive.join(", ")} are alive but no longer match the record, so the launcher will not signal them: verify with ps -o pid,lstart,args -p ${server.supervisorPid},${server.healthPid}, then kill ${server.supervisorPid} yourself (the supervisor stops its child); when both are gone, run up to record a new server`
+          : "if that server is gone, run up to record a new one",
+      });
+    }
     if (cfg.dryRun) return { result: { dryRun: true, signal: "SIGTERM", supervisorPid: server.supervisorPid }, brief: `down · dry run · SIGTERM ${server.supervisorPid}` };
     const stopped = await srv.stopOwned(server, { timeoutMs: num(flags.timeout, 15) * 1000 });
     if (!stopped) throw new Fail(EXIT.ERROR, "the server did not exit after SIGTERM", { hint: `pids ${server.supervisorPid} and ${server.healthPid} are still alive; see ${server.log}` });

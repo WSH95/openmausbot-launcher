@@ -131,6 +131,15 @@ when that process exits; a hung writer must be stopped before retrying.
 Never unlink the database while another command could hold it: that would
 allow separate databases to admit concurrent writers.
 
+`down` refuses (exit 3 `refusing to stop: …`) whenever the recorded server no
+longer verifies — after an `up --fresh` elsewhere, a data-dir swap, or any
+restart that changed the environment id (`verifyOwned`, `lib/server.mjs`).
+While the recorded pids are alive the hint names them: check them with
+`ps -o pid,lstart,args -p <supervisor>,<server>`, then `kill <supervisor>`
+yourself (it stops its child, `cli.ts:462-473`); the launcher never signals a
+process it cannot prove it started. Once both are gone, `up` records the next
+server.
+
 An existing legacy `.omb/lock` file or directory causes a refusal. To
 upgrade, stop all launcher commands and scheduled automations, update every
 installed launcher copy, then remove only that legacy path. Removing it
