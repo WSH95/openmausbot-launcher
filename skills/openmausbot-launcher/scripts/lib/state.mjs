@@ -146,3 +146,11 @@ export function ensureExclude(projectDir, entries) {
   if (added.length) fs.appendFileSync(file, `${text.length && !text.endsWith("\n") ? "\n" : ""}${added.join("\n")}\n`);
   return added;
 }
+
+/** Write a document while the caller already holds the lock (checkpoints inside a long transaction). */
+export function commitState(paths, doc) {
+  doc.rev = (doc.rev ?? 0) + 1;
+  doc.version = STATE_VERSION;
+  writeState(paths, doc);
+  return doc;
+}
