@@ -1,0 +1,20 @@
+{
+  "format": "openmaus.package",
+  "version": 1,
+  "package": {
+    "id": "atw-dev-team", "release": "0.4.2", "name": "Dev team", "tagline": "A planner, two reviewers, and an implementer under a lead",
+    "summary": "test fixture", "category": "engineering", "author": { "name": "wsh" }, "license": "MIT",
+    "outcomes": ["A task merged with a review"], "setupMinutes": 5,
+    "requirements": { "apps": [], "capabilities": ["shell", "git", "files"], "platforms": ["ubuntu"] },
+    "agents": [
+      { "key": "sudo", "name": "Sudo", "title": "Team Lead", "description": "You lead the team. Delegate the plan, review, implement, review, merge.\nProject facts (edit me): default branch: main. Test command: <fill in>. Setup command (run once in each new worktree): none. Merge policy: auto. Task log: none. Task tracker: none. Plan review: ask.", "appearance": { "color": "blue" } },
+      { "key": "sage", "name": "Sage", "title": "Planner", "description": "You plan.", "appearance": { "color": "green" } },
+      { "key": "vale", "name": "Vale", "title": "Plan Reviewer", "description": "You review plans.", "appearance": { "color": "purple" } },
+      { "key": "nova", "name": "Nova", "title": "Implementer", "description": "You implement.", "appearance": { "color": "red" } },
+      { "key": "quill", "name": "Quill", "title": "Code Reviewer", "description": "You review code.", "appearance": { "color": "orange" } }
+    ],
+    "chiefOfStaff": "sudo",
+    "rooms": [{ "key": "dev-room", "name": "Dev Room", "members": ["sudo", "sage", "vale", "nova", "quill"], "bulletin": "One closing report per task.", "defaultResponder": { "kind": "agent", "agent": "sudo" } }],
+    "playbooks": [{ "key": "worktree-workflow", "name": "Worktree workflow", "summary": "s", "triggers": ["task"], "instructions": "…" }]
+  }
+}

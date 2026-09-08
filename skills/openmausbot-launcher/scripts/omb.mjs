@@ -4,6 +4,7 @@
 import { run } from "./lib/cli.mjs";
 import "./lib/verbs/lifecycle.mjs";
 import "./lib/verbs/repo.mjs";
+import "./lib/verbs/team.mjs";
 
 const { code, output } = await run(process.argv.slice(2));
 if (output !== undefined) process.stdout.write(output.endsWith("\n") ? output : `${output}\n`);
