@@ -137,9 +137,9 @@ verb("up", {
     const healthy = await srv.waitHealthy(client, timeoutMs, sp.isDead);
     if (!healthy) {
       const tail = srv.logTail(log);
-      const sandboxed = /listen EPERM|EACCES|operation not permitted/i.test(tail);
+      const sandboxLine = srv.logMatch(log, srv.SANDBOX_RE);
       throw new Fail(EXIT.ERROR, sp.isDead() ? "the server exited during startup" : `no health answer from ${url} within ${timeoutMs / 1000} s`, {
-        hint: sandboxed ? `the shell's sandbox blocks listening sockets (${log}): run up with escalation outside the sandbox, or start the server elsewhere and run up to attach` : `see ${log}`,
+        hint: sandboxLine ? `the shell's sandbox blocks listening sockets (${log}: ${sandboxLine}): run up with escalation outside the sandbox, or start the server elsewhere and run up to attach` : `see ${log}`,
         log: tail,
       });
     }

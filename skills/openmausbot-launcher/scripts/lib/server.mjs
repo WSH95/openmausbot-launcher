@@ -160,3 +160,11 @@ export function serveLogPath(dataDir) { return path.join(dataDir, "serve.log"); 
 export function logTail(file, lines = 12) {
   try { const all = fs.readFileSync(file, "utf8").trimEnd().split("\n"); return all.slice(-lines).join("\n"); } catch { return ""; }
 }
+
+/** The signature of a sandbox that denies listening sockets: the `listen EPERM` line, or Node's `code: 'EPERM'` property lines below the stack. */
+export const SANDBOX_RE = /listen (EPERM|EACCES)|operation not permitted|code: '(EPERM|EACCES)'/i;
+
+/** The first line of the whole log matching `re`, or null: the signature can sit far above the display tail (a real sandboxed serve.log is 25 lines with the match on line 3). */
+export function logMatch(file, re) {
+  try { return fs.readFileSync(file, "utf8").split("\n").find((l) => re.test(l))?.trim() ?? null; } catch { return null; }
+}

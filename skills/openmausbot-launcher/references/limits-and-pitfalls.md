@@ -79,12 +79,17 @@ than none: the hook fires in a degenerate state (dev pack `HANDOFF.md`,
   processes whose cwd is under `<project>/.worktrees/` and gone.
 - Codex's `workspace-write` sandbox denies listening sockets, so `omb up`
   there dies in about 236 ms with `listen EPERM: operation not permitted
-  127.0.0.1:<port>` in `serve.log` (this repository's `docs/evidence.md`,
-  2026-09-08). Run `up` outside the sandbox with an approved escalation, or
-  start the server elsewhere and let `up` report `attached`. The same sandbox
-  can block outbound loopback connections; the driver then exits 1 `cannot
-  reach http://127.0.0.1:<port>: EPERM` with the escalation hint, never exit 3
-  "identity could not be verified".
+  127.0.0.1:<port>` in `serve.log` — twice, the webhook receiver on `port + 1`
+  first and the API port second, followed by a 14-line Node stack ending in
+  `code: 'EPERM'`, `syscall: 'listen'`, `port: <port>` (this repository's
+  `docs/evidence.md`, 2026-09-08; review fixture
+  `codex-ww-data-20260908T110446-DLKtHf/serve.log`, 25 lines). `up` scans the
+  whole log for that signature and names the first matching line in its hint;
+  the 12-line `log` field is display only. Run `up` outside the sandbox with an
+  approved escalation, or start the server elsewhere and let `up` report
+  `attached`. The same sandbox can block outbound loopback connections; the
+  driver then exits 1 `cannot reach http://127.0.0.1:<port>: EPERM` with the
+  escalation hint, never exit 3 "identity could not be verified".
 - The record step (`bd`, `git commit`) runs inside the lead's CLI sandbox. A
   failure there leaves the root dirty, and the next task's `reconcile --check`
   is what reports it.

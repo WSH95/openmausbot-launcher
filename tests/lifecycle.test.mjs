@@ -10,6 +10,36 @@ import { procInfo, verifyOwned, proveOwnership } from "../skills/openmausbot-lau
 const linux = process.platform === "linux";
 const healthOk = async (url) => { try { return (await (await fetch(`${url}/api/health`)).json()).app === "openmausbot"; } catch { return false; } };
 
+// A real Codex workspace-write serve.log (review fixture codex-ww-data-20260908T110446-DLKtHf, 2026-09-08):
+// `listen EPERM` on lines 3 (webhook port) and 10 (API port); lines 14-25 are the stack and Node's property dump.
+const CODEX_WW_LOG = `${[
+  "(node:16) ExperimentalWarning: SQLite is an experimental feature and might change at any time",
+  "(Use `node --trace-warnings ...` to show where the warning was created)",
+  "openmausbot webhook receiver unavailable: listen EPERM: operation not permitted 127.0.0.1:8906",
+  "openmausbot open-source edition",
+  "brand: default",
+  "node:events:486",
+  "      throw er; // Unhandled 'error' event",
+  "      ^",
+  "",
+  "Error: listen EPERM: operation not permitted 127.0.0.1:8905",
+  "    at Server.setupListenHandle [as _listen2] (node:net:1918:21)",
+  "    at listenInCluster (node:net:1997:12)",
+  "    at node:net:2206:7",
+  "    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)",
+  "Emitted 'error' event on Server instance at:",
+  "    at emitErrorNT (node:net:1976:8)",
+  "    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {",
+  "  code: 'EPERM',",
+  "  errno: -1,",
+  "  syscall: 'listen',",
+  "  address: '127.0.0.1',",
+  "  port: 8905",
+  "}",
+  "",
+  "Node.js v24.11.0",
+].join("\n")}\n`;
+
 test("doctor: bootstrap checks on a plain repository", async () => {
   const { dir } = makeRepo();
   const r = await runOmb(["doctor", "--project", dir], { env: { OMB_BIN: FAKE, OMB_TOKEN: "" } });
@@ -140,4 +170,19 @@ test("up reports a server that dies at startup with the log tail and a sandbox h
   assert.match(r.json.log, /EADDRINUSE/);
   assert.match(r.json.hint, /see .*serve\.log/);
   assert.equal(loadState(statePaths(dir)), null, "nothing is recorded for a server that never answered");
+});
+
+test("up names the sandbox cause from anywhere in serve.log, not only its 12-line tail", { skip: !linux && "needs /proc" }, async (t) => {
+  const { dir } = makeRepo();
+  const port = await freePort();
+  const blocker = net.createServer(); await new Promise((r) => blocker.listen(port, "127.0.0.1", r)); t.after(() => blocker.close());
+  const dataDir = path.join(tmpDir("oml-sandbox-"), "data");
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(path.join(dataDir, "serve.log"), CODEX_WW_LOG); // spawnServer appends (server.mjs:54), so the fake's EADDRINUSE stack lands below it
+  const r = await runOmb(["up", "--project", dir, "--port", String(port), "--data-dir", dataDir, "--timeout", "10"], { env: { OMB_BIN: FAKE, OMB_TOKEN: "" } });
+  assert.equal(r.code, 1, r.stdout);
+  assert.equal(r.json.log.split("\n").length, 12, "the display tail stays twelve lines");
+  assert.doesNotMatch(r.json.log, /EPERM/, "the signature sits above the tail");
+  assert.match(r.json.hint, /sandbox blocks listening sockets/);
+  assert.match(r.json.hint, /serve\.log: openmausbot webhook receiver unavailable: listen EPERM: operation not permitted 127\.0\.0\.1:8906\)/, "the first matching line is named");
 });
