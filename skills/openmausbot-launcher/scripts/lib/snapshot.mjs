@@ -38,10 +38,17 @@ export function summarize(text, max = 140) {
   return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
 }
 
+/** Is the observation budget spent? Millisecond timeouts are whole numbers, so
+ * less than one millisecond left is already too little to spend on a request.
+ * Every caller that guards a `withinDeadline` must ask this same question:
+ * a guard that compared raw times instead let the sub-millisecond window
+ * through, and the rejection escaped `watch` as exit 1 rather than a timeout. */
+export const outOfBudget = (deadline, signal) => Math.floor(deadline - performance.now()) <= 0 || Boolean(signal?.aborted);
+
 /** A single monotonic budget covers REST, pagination, and local receipt reads. */
 export async function withinDeadline(fn, deadline, signal) {
+  if (outOfBudget(deadline, signal)) throw new Error("observation deadline reached");
   const remaining = Math.floor(deadline - performance.now());
-  if (remaining <= 0 || signal?.aborted) throw new Error("observation deadline reached");
   const controller = new AbortController();
   const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
   let timer; let onAbort;

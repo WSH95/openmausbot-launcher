@@ -5,6 +5,7 @@ import { startFake, makeRepo, runOmb, ROOT, sleep } from "./helpers.mjs";
 import { statePaths, loadState, updateState } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
 import { relevantFrame, mergeCheckpoint, watchRun } from "../skills/openmausbot-launcher/scripts/lib/watch.mjs";
 import { createClient } from "../skills/openmausbot-launcher/scripts/lib/http.mjs";
+import { outOfBudget, withinDeadline } from "../skills/openmausbot-launcher/scripts/lib/snapshot.mjs";
 
 const PKG = path.join(ROOT, "tests", "fixtures", "dev-team.package.json");
 let env = { OMB_TOKEN: "" };
@@ -181,4 +182,23 @@ test("a receipts directory that cannot be watched is logged and reported, never 
   assert.equal(local.json.receiptsWatched, true, local.stdout);
   const remote = await runOmb(["watch", "--project", dir, "--max-seconds", "0.5", "--remote", ...fast], { env });
   assert.equal(remote.json.receiptsWatched, false, "remote observation never watches a local directory");
+});
+
+test("a deadline inside the sub-millisecond window ends the watch as a timeout, never as a thrown deadline error", async (t) => {
+  const { f, dir, team } = await setup(t);
+  const client = createClient({ url: f.url });
+  const task = loadState(statePaths(dir)).task;
+  // withinDeadline floors the remaining budget, so 0 < remaining < 1 ms already reads as out of
+  // budget. watchRun's own expiry test must agree: while it did not, the guarded rethrow around
+  // the stream wait escaped and `watch` exited 1 "observation deadline reached" instead of 4.
+  const outcomes = [];
+  for (let ms = 0.05; ms < 1; ms += 0.05) {
+    outcomes.push(await watchRun({ client, team, task, deadline: performance.now() + ms }).then((r) => r.outcome, (e) => `threw: ${e.message}`));
+  }
+  assert.deepEqual([...new Set(outcomes)], ["timeout"], outcomes.join(", "));
+  assert.equal(outOfBudget(performance.now() + 0.4), true, "less than a millisecond left is out of budget");
+  assert.equal(outOfBudget(performance.now() + 50), false);
+  assert.equal(outOfBudget(performance.now() - 1), true);
+  assert.equal(outOfBudget(performance.now() + 50, AbortSignal.abort()), true, "an aborted signal is out of budget too");
+  await assert.rejects(withinDeadline(() => "never runs", performance.now() + 0.4), /observation deadline reached/, "withinDeadline refuses the same deadline outOfBudget rejects");
 });

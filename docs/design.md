@@ -293,8 +293,12 @@ Notifications are wake-ups only (a bot's notifications can be off,
    `checkpointed:false`; other state errors propagate. `watch` never
    changes `task.status`.
 
-One monotonic deadline bounds identity, SSE setup/read/replay, coalescing,
-pagination, polling, reconnects and optional nudges. Continuous events
+One expiry test is shared by the budget guard and the observation loop
+(`outOfBudget`): a millisecond timeout is a whole number, so less than a
+millisecond left is already spent, and a request the guard would refuse is
+one the loop calls expired. One monotonic deadline bounds identity, SSE
+setup/read/replay, coalescing, pagination, polling, reconnects and optional
+nudges. Continuous events
 cannot extend it. Every relevant frame resets quiet, including unchanged
 REST signatures. Quiet has its own wake deadline instead of waiting for the
 next poll. The received cursor advances on frames; the covered cursor

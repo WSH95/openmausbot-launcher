@@ -2,7 +2,7 @@
 // snapshots are the truth, quiet evidence lives inside one invocation, and
 // the cursor checkpoint is the id of the last frame actually applied.
 import fs from "node:fs";
-import { snapshot, evaluate, evidenceOf, mergeOutcomes, withinDeadline, TERMINAL, DEFAULTS } from "./snapshot.mjs";
+import { snapshot, evaluate, evidenceOf, mergeOutcomes, withinDeadline, outOfBudget, TERMINAL, DEFAULTS } from "./snapshot.mjs";
 
 const pause = (ms, signal) => new Promise((resolve) => {
   if (signal?.aborted || ms <= 0) return resolve();
@@ -91,7 +91,8 @@ export async function watchRun({ client, team, task, dataDir = null, maxSeconds 
   const wake = () => waiter?.();
   const controller = new AbortController();
   const deadlineTimer = setTimeout(() => { controller.abort(); wake(); }, Math.max(0, deadline - performance.now()));
-  const expired = () => controller.signal.aborted || performance.now() >= deadline;
+  // The same question withinDeadline asks, so a budget it refuses is one this loop calls expired.
+  const expired = () => outOfBudget(deadline, controller.signal);
   const invalidate = () => { invalidations++; quietSince = null; wake(); };
 
   let markStreamReady;
