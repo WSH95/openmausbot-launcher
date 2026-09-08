@@ -90,6 +90,132 @@ cwd under the fixture root, for both the first and the corrected run; both
 fixture directories were removed after their logs were copied out. Raw logs,
 `run.sh`, `results.md` and `results.json` live in the session scratchpad.
 
+
+### Tier 2 — real OpenMausBot 0.1.56, zero bot turns
+
+Node 24.11.0, real `openmausbot` 0.1.56 from
+`~/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js`,
+`OMB_TOKEN` empty and every other `OMB_*` variable unset. Fixture
+`/tmp/oml-review-t2-CGG7JR` with four git projects at `40bef591` on `main`.
+**No bot turn was spent.** Host CLI sessions did consume their own
+subscriptions.
+
+Server: `http://127.0.0.1:8893`, supervisor **617810**, server **617817**
+(PPid 617810), environment `98b1f9f2-e973-4c16-819f-aed3ba7fe778`, data dir
+`/tmp/oml-review-t2-CGG7JR/data-20260908T105019-92irGo`, `askTimeoutMs`
+600000. `doctor` passed 5/5 and named `openmausbot 0.1.56, from OMB_BIN`;
+`doctor --server` passed **10/10** (health, loopback session with scopes
+`admin,client`, engines `grok`, `claude` and `codex` available, no provider
+keys, identity ok).
+
+The stripped-environment check was run twice. On the main server,
+`/proc/617817/environ` and `/proc/617810/environ` each hold **0** of
+`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, `OMB_TOKEN`. Because
+that only shows absence, a second self-contained check exported all three
+decoy keys plus an empty `OMB_TOKEN` in one shell (`env` counted 3), ran `up`
+on port 8897 from that same shell, and found **0** in both the supervisor's
+and the server's environ; `down` then removed both pids and health refused.
+
+`import` of the supplied package created release 0.4.2, section "Agent Team
+dev team", lead Sudo `414ffd78-4cb0-4190-8e88-53db14bbb002`, 5 bots, 1 room;
+the package's SHA-256 was `48e4ac63…3255949` before, after import, and at the
+end of the tier. `bind` applied all five per-bot selections and read them
+back. `facts` rendered a 183-character block. `status --tail 3` returned
+`run: null` with `busy` and `pending` empty. `import --adopt` into a second
+project returned `package: null`, the identical lead and bot ids and
+`owned: false`, and `status` there returned `run: null` — the first time
+`--adopt` has run against a real server.
+
+Host survival against the **real** server (the gap finding 4 records; the
+earlier spike used the fake from Grok and Codex):
+
+| Host | Invocation | Result |
+|---|---|---|
+| Grok Build 1.0.13 | `grok -p … --permission-mode bypassPermissions --cwd <grok-project> --max-turns 4 --no-subagents --disable-web-search --output-format streaming-json`, `up --port 8901` | owned: supervisor 620924, server 620931, environment `2777264e-…`; after Grok exited, health answered `{"app":"openmausbot","pid":620931}` from this shell; `down` from this shell stopped both |
+| Codex CLI 0.153.4 | `codex exec --sandbox danger-full-access --cd <codex-project> --json --skip-git-repo-check … < /dev/null`, `up --port 8903` | owned: supervisor 625770, server 625777, environment `9606fa72-…`; health answered after Codex exited; `down` from this shell stopped both |
+| Codex CLI 0.153.4 | same but `--sandbox workspace-write`, `up --port 8905` | **exit 1** as designed: `{"ok":false,"verb":"up","error":"the server exited during startup",…,"log":"… code: 'EPERM', … syscall: 'listen', … port: 8905"}` |
+
+In both survival cases the server process's parent was its supervisor and the
+supervisor's parent was `systemd --user` (pid 1987, itself a child of pid 1),
+not the host CLI — the plan predicted PPid 1, which is the same substance on a
+systemd user session. Both survival servers were stopped before Tier 3; all
+four pids are gone and both ports refuse connections.
+
+Three further host checks:
+
+- Codex `--sandbox read-only` listed its skills without running any command;
+  `openmausbot-launcher` is in the list. It read
+  `/home/wsh/.agents/skills/openmausbot-launcher/SKILL.md`.
+- Codex `--sandbox workspace-write` proved the launcher state file writable
+  (`accessSync(state.json, 2)` → `state writable`, exit 0).
+- Claude Code 2.1.263, `claude -p "run T10 through the team" --output-format
+  stream-json --verbose --max-turns 2 --allowedTools Skill --add-dir <project>`:
+  the **first** tool call was `Skill` with input `{"skill":"openmausbot-launcher"}`.
+  The trigger phrase works (`docs/design.md:572`). The run ended
+  `error_max_turns` after 3 turns and the repository was unchanged.
+
+`${CLAUDE_SKILL_DIR}` (`docs/design.md:572-576`) resolved, by **load-time text
+substitution rather than an environment variable**. Observed in the
+interactive Claude Code session that invoked the skill: `SKILL.md` line 23
+arrived with `${CLAUDE_SKILL_DIR}/scripts/omb.mjs` already rewritten to
+`/home/wsh/.claude/skills/openmausbot-launcher/scripts/omb.mjs`, and the
+loaded content announced the skill's base directory. In that same session's
+Bash tool `echo "${CLAUDE_SKILL_DIR:-unset}"` printed `unset`, so a shell
+script cannot rely on the variable — an agent must use the substituted path.
+`ls -l` showed the symlinked driver and `node` on it printed the usage JSON
+with 15 verbs. No bot turn and no extra host session were spent on this.
+
+Deviations, each with a verdict:
+
+1. The plan's survival ports collided with OpenMausBot's webhook listener.
+   `up --port N` also occupies **N+1** (`server/index.ts:320`,
+   `server/cli.ts:438`): the 8893 server also listened on 8894 with
+   `OMB_WEBHOOK_PORT=8894` in its environ. Grok's first attempt, running the
+   plan's command verbatim on 8894, got
+   `GET /api/health -> 404: Unknown webhook endpoint` and exit 1. Reproduced
+   from a plain shell. **Plan error plus a driver gap** — filed as finding 23
+   (`oml-nqo.27`), because the driver neither reserves nor reports N+1 and the
+   404 names no cause. Re-run on 8901 it passed.
+2. Codex's first invocation hung on stdin ("Reading additional input from
+   stdin…") and was killed at 420 s with an empty transcript, no listener, no
+   state file and no data dir. **Harness error, not a defect**: adding
+   `< /dev/null` fixed it and every later Codex call used that form.
+3. `bind`'s roster line for Quill read `grok/grok-4.6/medium (undefined)`
+   (`lib/verbs/team.mjs:157` interpolates `approvalMode` with no fallback when
+   a bot is skipped for auto). **Driver defect**, finding 22 (`oml-nqo.26`).
+4. `up`'s sandbox hint did not fire on the genuine sandboxed failure. The
+   serve.log contains `listen EPERM: operation not permitted` twice, but
+   `logTail(file, lines = 12)` (`lib/server.mjs:132-133`) returns the last 12
+   lines, which start below that line, so the test at
+   `lib/verbs/lifecycle.mjs:140` was false and the hint was the generic
+   `see <serve.log>`. Confirmed by running `logTail()` directly on the captured
+   log: 357 characters, regex false, while the whole file matches.
+   **Driver defect**, finding 24 (`oml-nqo.28`); it also makes
+   `docs/evidence.md:22-24` inaccurate for this failure shape.
+5. `reconcile` in the adopted project exits **3** with `?? .omb/`, because
+   `import --adopt` never writes the git exclude entries that `bind` writes.
+   The bound project reconciles clean. Since `task` refuses on an unreconciled
+   project, an adopted project cannot dispatch until `bind` runs there.
+   **Driver defect**, finding 25 (`oml-nqo.29`).
+6. `status` inside Codex workspace-write returned exit **3** "the server
+   identity could not be verified", not the network error the plan predicted.
+   The server was healthy and the same command exits 0 from a plain shell.
+   `lib/server.mjs:30,33` swallow `e.network` and return `null`, so
+   `lib/session.mjs:56` reports an identity failure and its hint tells the
+   operator to "import --adopt or re-import". **Driver defect**, finding 26
+   (`oml-nqo.30`). It is also the artifact finding 5 asked for, and it
+   disproves `docs/evidence.md:62`'s claim that Codex ran `status` from inside
+   workspace-write.
+7. The Claude trigger check attempted `Bash` twice (both denied by
+   `--allowedTools Skill`) after also loading `project-steward:resume`. The
+   plan predicted no Bash. **Plan error**: the nested session's cwd was this
+   repository, whose steward hook prompts a resume; `--add-dir` added the
+   fixture but did not move cwd. The check's substance — the trigger phrase
+   loading `openmausbot-launcher` first — passed.
+
+Eleven `rec`-recorded driver invocations, all exit 0. Raw logs and transcript
+SHA-256s are in the session scratchpad under `tier2/`.
+
 ## Current M1 completion checkpoint
 
 2026-09-08, Node 24.11.0, `npm test` outside the socket-restricted sandbox:

@@ -3,6 +3,31 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-08 — M1 review Tier 2 done: real OpenMausBot, zero bot turns
+Ran the Tier 2 sequence against real OpenMausBot 0.1.56 on port 8893 in a
+fresh `/tmp/oml-review-t2-CGG7JR` fixture, spending **no bot turns**. `doctor`
+5/5, `doctor --server` 10/10, `up --fresh`, `import` (release 0.4.2, lead Sudo
+`414ffd78…`), `bind` with the five per-bot selections, `facts`, `status`, and
+`import --adopt` into a second project — the first real-server run of
+`--adopt`. Provider keys and `OMB_TOKEN` were proven absent from both server
+processes, including a self-contained check that exported three decoy keys in
+the launching shell.
+
+Closed the design's host-check gaps: Grok Build and Codex CLI each started the
+**real** server, which outlived the host process and was stopped by `down`
+from this shell; Codex under `workspace-write` failed with `listen EPERM` as
+designed; Codex `read-only` listed the skill; Codex `workspace-write` proved
+the state file writable; and `claude -p "run T10 through the team"` loaded the
+`openmausbot-launcher` skill as its first tool call. `${CLAUDE_SKILL_DIR}`
+resolves by load-time text substitution, not an environment variable.
+
+Five new findings came out of the tier and are filed as `oml-nqo.26`–`.30`:
+the `bind` roster printing `(undefined)`, `up --port N` silently occupying
+N+1, `logTail`'s 12-line window defeating the sandbox hint, `import --adopt`
+omitting the git exclude entries (leaving the adopted project unreconciled),
+and a blocked network reported as an identity failure. The last is the
+artifact finding 5 asked for. No source, test or reference file was changed.
+
 ### 2026-09-08 — M1 review started; Tier 0 and Tier 1 done
 Independent review and test of M1 at HEAD `b1a1f77`, under Beads epic
 `oml-nqo` (plan `~/.claude/plans/based-on-the-development-lucky-shell.md`).
