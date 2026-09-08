@@ -246,3 +246,11 @@ test("up follows the data-dir precedence: a recorded state dir beats OMB_DATA_DI
   assert.equal(r.code, 0, r.stdout);
   assert.equal(r.json.dataDir, recorded);
 });
+
+test("doctor --server refuses plain http off loopback unless --allow-insecure-http is passed", async () => {
+  const { dir } = makeRepo();
+  const refused = await runOmb(["doctor", "--server", "--project", dir, "--url", "http://10.0.0.1:1"], { env: { OMB_TOKEN: "" } });
+  assert.equal(refused.code, 3, refused.stdout); assert.match(refused.json.error, /is not loopback and not https/); assert.match(refused.json.hint, /--allow-insecure-http/);
+  const allowed = await runOmb(["doctor", "--project", dir, "--url", "http://10.0.0.1:1", "--allow-insecure-http"], { env: { OMB_TOKEN: "" } });
+  assert.equal(allowed.code, 0, allowed.stdout); assert.equal(allowed.json.mode, "remote"); assert.equal(allowed.json.url, "http://10.0.0.1:1", "the flag parses; without --server no request is made");
+});
