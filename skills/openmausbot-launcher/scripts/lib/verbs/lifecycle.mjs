@@ -6,7 +6,7 @@ import { verb, EXIT, Fail } from "../cli.mjs";
 import { resolveConfig, resolveBinary } from "../config.mjs";
 import { createClient } from "../http.mjs";
 import { updateState, identityMatches } from "../state.mjs";
-import { gitAvailable, gitTopLevel } from "../git.mjs";
+import { gitAvailable, gitTopLevel, gitPath } from "../git.mjs";
 import * as srv from "../server.mjs";
 import { scanOrphans } from "../proc.mjs";
 
@@ -26,7 +26,7 @@ export function stewardHookMode(projectDir) {
     if (kv && section === "session") mode = kv[1];
   }
   let runtimeExcluded = false;
-  for (const f of [path.join(projectDir, ".git", "info", "exclude"), path.join(projectDir, ".gitignore")]) {
+  for (const f of [gitPath(projectDir, "info/exclude") ?? path.join(projectDir, ".git", "info", "exclude"), path.join(projectDir, ".gitignore")]) {
     try { if (fs.readFileSync(f, "utf8").split("\n").some((l) => l.trim() === ".project-steward/runtime/")) runtimeExcluded = true; } catch {}
   }
   return { present: true, mode, runtimeExcluded };

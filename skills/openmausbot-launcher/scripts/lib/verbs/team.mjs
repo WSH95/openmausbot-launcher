@@ -6,7 +6,7 @@ import { verb, EXIT, Fail } from "../cli.mjs";
 import { resolveConfig } from "../config.mjs";
 import { createClient, HttpError, precondition } from "../http.mjs";
 import { updateState, ensureExclude } from "../state.mjs";
-import { defaultBranch } from "../git.mjs";
+import { defaultBranch, gitTopLevel } from "../git.mjs";
 import * as srv from "../server.mjs";
 import { parseEngineSpec, specString, sameSelection, findBot, isReviewer, sameName, parseFacts, renderFacts, replaceFactsBlock, FACTS_MARKER } from "../team.mjs";
 
@@ -72,8 +72,10 @@ verb("import", {
       team = { package: { path: path.resolve(file), name: pkg.package?.name ?? null, release: pkg.package?.release ?? null }, section, environmentId: env?.environmentId ?? null, importedAt: new Date().toISOString(), lead, rooms: groups.map((g) => ({ id: g.id, name: g.name, threadId: g.threadId })), bots: mapped };
     }
     if (cfg.dryRun) return { result: { ...team, dryRun: true }, brief: `import · dry run · would adopt ${team.section}` };
+    // Adopt is the attach path a bind may never follow: a local checkout gets the same exclude entries so reconcile stays clean.
+    const exclude = flags.adopt && cfg.mode === "local" && gitTopLevel(cfg.projectDir) !== null ? ensureExclude(cfg.projectDir, [".worktrees/", ".omb/"]) : null;
     await save( (doc) => { doc.team = team; doc.server = { ...(keepOwned ? doc.server : {}), url: cfg.url, owned: keepOwned, environmentId: env.environmentId, healthPid: env.healthPid, healthStart: env.healthStart, version: env.version, dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null }; return doc; });
-    return { result: { ...team }, brief: `import · ${team.section} · lead ${team.lead.name} · ${team.bots.length} bots, ${team.rooms.length} room(s)` };
+    return { result: { ...team, ...(exclude ? { exclude } : {}) }, brief: `import · ${team.section} · lead ${team.lead.name} · ${team.bots.length} bots, ${team.rooms.length} room(s)` };
   }),
 });
 

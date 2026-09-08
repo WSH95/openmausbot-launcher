@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { EXIT, Fail } from "./cli.mjs";
+import { gitPath } from "./git.mjs";
 
 export { Fail };
 export const STATE_VERSION = 1;
@@ -115,9 +116,9 @@ export function identityMatches(recorded, live) {
   return recorded.environmentId === live.environmentId && recorded.healthPid === live.healthPid && recorded.healthStart === live.healthStart;
 }
 
-/** Append entries to .git/info/exclude once; returns the entries added. */
+/** Append entries to the repository's info/exclude once; returns the entries added. The file is where git says it is: a linked worktree's `.git` is a file and its exclude lives under the main repository. */
 export function ensureExclude(projectDir, entries) {
-  const file = path.join(projectDir, ".git", "info", "exclude");
+  const file = gitPath(projectDir, "info/exclude") ?? path.join(projectDir, ".git", "info", "exclude");
   fs.mkdirSync(path.dirname(file), { recursive: true });
   let text = "";
   try { text = fs.readFileSync(file, "utf8"); } catch (e) { if (e.code !== "ENOENT") throw e; }

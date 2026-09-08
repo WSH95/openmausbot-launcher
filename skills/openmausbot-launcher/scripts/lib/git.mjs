@@ -1,4 +1,5 @@
 // Git helpers (extended in step 5 with reconcile and cleanup).
+import path from "node:path";
 import { execFileSync } from "node:child_process";
 
 /** Run git and return trimmed stdout; throws with stderr on failure. */
@@ -13,6 +14,11 @@ export function git(args, cwd) {
 
 export function gitTopLevel(cwd) {
   try { return git(["rev-parse", "--show-toplevel"], cwd); } catch { return null; }
+}
+
+/** Where git keeps `rel` for this checkout, absolute. A linked worktree's `.git` is a gitfile and shared files such as info/exclude live under the main repository; `--git-path` answers relative to cwd (git 2.43). Null when git fails. */
+export function gitPath(cwd, rel) {
+  try { return path.resolve(cwd, git(["rev-parse", "--git-path", rel], cwd)); } catch { return null; }
 }
 
 export function gitAvailable() {

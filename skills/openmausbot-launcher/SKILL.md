@@ -64,7 +64,9 @@ project's Project Steward Stop hook would replace a Claude bot's report:
 set `auto_handoff_mode = "off"` in its `config.toml` and exclude
 `.project-steward/runtime/` before any task. `bind` sets the working
 folder, models, and approval level only where they differ, and refuses
-while a bot works. `facts` rewrites the lead's Project facts block; the
+while a bot works. Both `bind` and a local `import --adopt` add
+`.worktrees/` and `.omb/` to the repository's git exclude file, in a linked
+worktree too. `facts` rewrites the lead's Project facts block; the
 dev-team pack's fields are in `references/dev-team.md`.
 
 Use Node 24. Local task and report commands need the server's readable,

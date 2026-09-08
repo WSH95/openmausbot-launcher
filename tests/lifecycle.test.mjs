@@ -207,3 +207,16 @@ test("up refuses a port whose neighbour is taken before spawning, and names a we
   assert.equal(r.json.hint, "servers occupy two consecutive ports; space them two apart");
   assert.equal(loadState(statePaths(dir)), null);
 });
+
+test("doctor reads the stop-hook exclude through git, so a linked worktree sees the main repository's exclude", async () => {
+  const { dir, git } = makeRepo();
+  fs.mkdirSync(path.join(dir, ".project-steward"));
+  fs.writeFileSync(path.join(dir, ".project-steward", "config.toml"), "[session]\nauto_handoff_mode = \"off\"\n");
+  git("add", "-A"); git("commit", "-q", "-m", "steward");
+  fs.appendFileSync(path.join(dir, ".git", "info", "exclude"), ".project-steward/runtime/\n");
+  const wt = path.join(tmpDir("oml-wt-"), "wt");
+  git("worktree", "add", "-q", "-b", "wt", wt);
+  const r = await runOmb(["doctor", "--project", wt], { env: { OMB_BIN: FAKE, OMB_TOKEN: "" } });
+  assert.equal(r.code, 0, r.stdout);
+  assert.equal(r.json.checks.find((c) => c.id === "stop-hook").ok, true);
+});

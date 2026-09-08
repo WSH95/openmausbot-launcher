@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { tmpDir, makeRepo, sleep } from "./helpers.mjs";
 import { statePaths, initState, loadState, updateState, withLock, assertRun, identityMatches, ensureExclude, Fail } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
@@ -148,6 +148,18 @@ test("ensureExclude appends each entry once to .git/info/exclude", () => {
   assert.deepEqual(ensureExclude(dir, [".worktrees/", ".omb/"]), []);
   const text = fs.readFileSync(path.join(dir, ".git", "info", "exclude"), "utf8");
   assert.equal((text.match(/^\.omb\/$/gm) ?? []).length, 1);
+});
+
+test("ensureExclude writes the file git reports, so a linked worktree lands in the main repository's exclude", () => {
+  const { dir, git } = makeRepo();
+  const wt = path.join(tmpDir("oml-wt-"), "wt");
+  git("worktree", "add", "-q", "-b", "wt", wt);
+  assert.equal(fs.statSync(path.join(wt, ".git")).isFile(), true, "a linked worktree's .git is a gitfile");
+  assert.deepEqual(ensureExclude(wt, [".omb/"]), [".omb/"]);
+  const reported = path.resolve(wt, execFileSync("git", ["rev-parse", "--git-path", "info/exclude"], { cwd: wt, encoding: "utf8" }).trim());
+  assert.equal(fs.realpathSync(reported), fs.realpathSync(path.join(dir, ".git", "info", "exclude")));
+  assert.match(fs.readFileSync(reported, "utf8"), /^\.omb\/$/m);
+  assert.deepEqual(ensureExclude(wt, [".omb/"]), [], "idempotent through the worktree too");
 });
 
 test("a killed SQLite owner releases the mutex without manual reclamation", { timeout: 5000 }, async () => {

@@ -61,6 +61,9 @@ test("import --lead when the package names no chief; --adopt recovers a team by 
   assert.equal(r.code, 3, "no chief flag on the server and no --lead");
   r = await runOmb(["import", "--adopt", "Dev team", "--lead", "Sudo", "--project", other.dir, "--url", f.url], { env });
   assert.equal(r.code, 0, r.stdout); assert.equal(r.json.bots.length, 5); assert.equal(r.json.rooms.length, 1); assert.equal(r.json.package, null);
+  assert.deepEqual(r.json.exclude, [".worktrees/", ".omb/"], "adopt records the exclude entries like bind");
+  const rec = await runOmb(["reconcile", "--project", other.dir], { env });
+  assert.equal(rec.code, 0, rec.stdout);
   const third = makeRepo();
   r = await runOmb(["import", "--adopt", "Sudo", "--project", third.dir, "--url", f.url], { env });
   assert.equal(r.code, 0, r.stdout); assert.equal(r.json.lead.name, "Sudo"); assert.equal(r.json.section, "Dev team");
