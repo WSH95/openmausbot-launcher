@@ -1,0 +1,465 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-08T14:45:00Z",
+  "purpose": "M1 fix pass: full-team validation run T13 on the slugkit clone through the driver fixed for the 26 findings of the 2026-09-08 M1 review (epic oml-nqo). Validates finding 6 (Codex native-log parser) and finding 20 (the devpack's one-more-real-run gate) on real OpenMausBot 0.1.56.",
+  "coverage": {
+    "messagePath": "operator -> omb task/send/answer -> OMB HTTP -> lead bot -> delegations",
+    "instructions": "TODO.md T13 (max_words) in the slugkit clone; bead slg-8ia",
+    "tested": [
+      "doctor",
+      "up --fresh",
+      "doctor --server",
+      "import",
+      "bind (five models, --approval auto)",
+      "facts",
+      "reconcile",
+      "task --todo --bead",
+      "watch (foreground and background)",
+      "answer --allow",
+      "send",
+      "report --md --check-042",
+      "report --run last --dry-run",
+      "cleanup --kill",
+      "down"
+    ],
+    "notTested": [
+      "watch --nudge",
+      "reconcile --remove",
+      "send --bot retargeting",
+      "long Codex SSE inside a sandbox",
+      "the 570 s background deadline itself",
+      "OpenClaw",
+      "Hermes Agent",
+      "DeepSeek Harness"
+    ],
+    "newOmbBotTurns": 9,
+    "launcherTaskRunId": "6b0b7b17800c3d64",
+    "nativeCliSessionsAlsoConsumeSubscriptions": true,
+    "outputProjection": "JSON on stdout per verb; --brief lines for the watch loop"
+  },
+  "fixture": {
+    "project": "/home/wsh/.cache/agent-team/validate-0.4.1/slugkit",
+    "baselineCommit": "4fe344e",
+    "dispatchCommit": "b06bed3",
+    "testsBefore": 75,
+    "testsAfter": 85,
+    "dataDir": "/home/wsh/.cache/agent-team/omb-launcher-data-20260908T142522-X8fDYx",
+    "nodeVersion": "24.11.0",
+    "openmausbotVersion": "0.1.56",
+    "driver": {
+      "repositoryHead": "8d699d5",
+      "fixCommits": [
+        "ddcafb5",
+        "8706b97"
+      ],
+      "suitePassed": 195
+    },
+    "server": {
+      "url": "http://127.0.0.1:8899",
+      "ports": [
+        8899,
+        8900
+      ],
+      "owned": true,
+      "supervisorPid": 1161247,
+      "healthPid": 1161254,
+      "environmentId": "49a22c3b-628e-45c0-a3e7-1c82fcacdf39",
+      "version": "0.1.56",
+      "askTimeoutMs": 600000,
+      "startedAt": "2026-09-08T14:25:23.706Z"
+    },
+    "package": {
+      "path": "/home/wsh/Documents/agent-team-devpack/packages/dev-team/dev-team.openmaus.json",
+      "sha256Before": "48e4ac637c7afb6d9e82f0ecf035967411d9c75e61ac8e0603ee7b62a3255949",
+      "sha256After": "48e4ac637c7afb6d9e82f0ecf035967411d9c75e61ac8e0603ee7b62a3255949",
+      "unchanged": true
+    },
+    "team": {
+      "section": "Agent Team dev team",
+      "release": "0.4.2",
+      "leadId": "41ae57ba-c4a3-4d85-91e5-62ed5396c00e",
+      "roomId": "987541bd-8678-439e-87ed-106ea7ad8205",
+      "bots": [
+        {
+          "key": "sudo",
+          "name": "Sudo",
+          "id": "41ae57ba-c4a3-4d85-91e5-62ed5396c00e",
+          "model": "codex/gpt-5.6-luna/high",
+          "approvalMode": "auto"
+        },
+        {
+          "key": "sage",
+          "name": "Sage",
+          "id": "5b28d78e-11a3-4d34-b4b7-412047fed0a8",
+          "model": "claude/claude-sonnet-5/high",
+          "approvalMode": "auto"
+        },
+        {
+          "key": "vale",
+          "name": "Vale",
+          "id": "d791fbbc-1b92-4305-9d0a-9b0e39f3cab2",
+          "model": "codex/gpt-5.6-terra/high",
+          "approvalMode": "auto"
+        },
+        {
+          "key": "nova",
+          "name": "Nova",
+          "id": "dc09ba4f-f051-433b-871f-b155ff490199",
+          "model": "claude/claude-opus-5/high",
+          "approvalMode": "auto"
+        },
+        {
+          "key": "quill",
+          "name": "Quill 2",
+          "id": "5f1fc457-931c-4768-964e-1153ee7787f9",
+          "model": "grok/grok-4.6/medium",
+          "approvalMode": "ask"
+        }
+      ]
+    },
+    "facts": {
+      "defaultBranch": "main",
+      "test": "python3 -m unittest discover -s tests -t . (run inside the task's worktree)",
+      "setup": "none",
+      "merge": "auto",
+      "taskLog": ".project-steward/PROGRESS.md",
+      "tracker": "beads",
+      "planReview": "ask"
+    },
+    "run": {
+      "runId": "6b0b7b17800c3d64",
+      "tag": "oml:6b0b7b17",
+      "title": "T13",
+      "bead": "slg-8ia",
+      "leadThreadId": "df3e96b8-4383-4467-9e72-9fe9b260b39b",
+      "threads": {
+        "41ae57ba-c4a3-4d85-91e5-62ed5396c00e": "df3e96b8-4383-4467-9e72-9fe9b260b39b",
+        "5f1fc457-931c-4768-964e-1153ee7787f9": "9010f814-54c7-4066-8dd1-cf877720003e",
+        "dc09ba4f-f051-433b-871f-b155ff490199": "b9d5424b-79d5-42bb-a71c-ce912bc2b00a",
+        "d791fbbc-1b92-4305-9d0a-9b0e39f3cab2": "9c895d3e-7f26-4d4b-b1e5-7580effb1508",
+        "5b28d78e-11a3-4d34-b4b7-412047fed0a8": "83412e62-92b1-41fa-9080-adbe6d994e2b"
+      },
+      "sentAt": 1788877592881,
+      "sentSha": "b06bed39eea97c7da8586998eb3be869b63145d7",
+      "doneAt": "2026-09-08T14:43:10Z",
+      "closedAt": "2026-09-08T14:43:19.337Z",
+      "result": "incomplete",
+      "finalState": "done",
+      "wallClockSeconds": 998,
+      "durationSec": 1006,
+      "briefSha256": "4c5667b901f29d7826e3d53de64e9b887f7263e649a1ac9938b24a5e57bfdef5",
+      "reportMarkdownSha256": "b9f8c0ffd2b75a1c85afa6b7c11b2be09426370c2580477ed89473eb19fb5601",
+      "mergedSha": "0918e0e",
+      "recordCommit": "d85cae5b915ab64200e5a9580cdffe6a760bf54f"
+    },
+    "driverInvocations": {
+      "count": 26,
+      "record": "session scratchpad t13/",
+      "sha256": null
+    },
+    "rawLogs": {
+      "scratchpad": "/tmp/claude-1000/-home-wsh-Documents-openmausbot-launcher/36170b19-def5-41bb-8eeb-8644dcf4a375/scratchpad/t13/",
+      "leadNativeLog": "native/df3e96b8-4383-4467-9e72-9fe9b260b39b.ndjson",
+      "leadNativeLogSha256": "990f65b9c63ea5aba11f3569157b044649fa9d15872c67a277136ac1a40b064b",
+      "leadNativeLogBytes": 1253856,
+      "reportMarkdown": "/tmp/claude-1000/-home-wsh-Documents-openmausbot-launcher/36170b19-def5-41bb-8eeb-8644dcf4a375/scratchpad/t13/report.md"
+    }
+  },
+  "hosts": {
+    "claude": {
+      "version": "2.1.263",
+      "role": "operator: ran every omb verb and answered every card"
+    }
+  },
+  "botTurns": [
+    {
+      "botKey": "sudo",
+      "modelBinding": "codex/gpt-5.6-luna/high",
+      "threadId": "df3e96b8-4383-4467-9e72-9fe9b260b39b",
+      "provider": "codex",
+      "turnsCompleted": 5,
+      "ok": true,
+      "what": "orchestration: list_bots, three delegations, worktree gate, merge, cleanup, record step"
+    },
+    {
+      "botKey": "sage",
+      "modelBinding": "claude/claude-sonnet-5/high",
+      "threadId": "83412e62-92b1-41fa-9080-adbe6d994e2b",
+      "provider": "claude",
+      "turnsCompleted": 1,
+      "ok": true,
+      "what": "read-only plan for T13"
+    },
+    {
+      "botKey": "vale",
+      "modelBinding": "codex/gpt-5.6-terra/high",
+      "threadId": "9c895d3e-7f26-4d4b-b1e5-7580effb1508",
+      "provider": "codex",
+      "turnsCompleted": 1,
+      "ok": true,
+      "what": "plan review, replied approve with findings"
+    },
+    {
+      "botKey": "nova",
+      "modelBinding": "claude/claude-opus-5/high",
+      "threadId": "b9d5424b-79d5-42bb-a71c-ce912bc2b00a",
+      "provider": "claude",
+      "turnsCompleted": 1,
+      "ok": true,
+      "what": "implementation in .worktrees/t13-maxwords, commit 0918e0e, 85 tests"
+    },
+    {
+      "botKey": "quill",
+      "modelBinding": "grok/grok-4.6/medium",
+      "threadId": "9010f814-54c7-4066-8dd1-cf877720003e",
+      "provider": "grok",
+      "turnsCompleted": 1,
+      "ok": true,
+      "what": "code review, seven tool cards, verdict ready"
+    }
+  ],
+  "approvalRequests": [
+    {
+      "requestId": "8133c3d6-9715-4200-ac3a-f1fa9a93ec2a",
+      "bot": "Quill 2",
+      "tool": "git merge-base --is-ancestor main task/t13-maxwords; echo \"ancestor_exit:$?\"; \u2026",
+      "kind": "approval",
+      "options": [
+        "Allow",
+        "Deny"
+      ],
+      "answeredWith": "allow",
+      "outcome": "allowed-once",
+      "answeredAt": "2026-09-08T14:34:13Z"
+    },
+    {
+      "requestId": "14ebdb11-7246-48dc-9f27-2d5a826caad3",
+      "bot": "Quill 2",
+      "tool": "bd show slg-8ia \u2026; rg -n -A 40 '^## T13|^### T13|T13' TODO.md",
+      "kind": "approval",
+      "options": [
+        "Allow",
+        "Deny"
+      ],
+      "answeredWith": "allow",
+      "outcome": "allowed-once",
+      "answeredAt": "2026-09-08T14:34:31Z"
+    },
+    {
+      "requestId": "495a47f3-45eb-482a-a2dc-af6d8cf1bcf3",
+      "bot": "Quill 2",
+      "tool": "git -C .worktrees/t13-maxwords rev-parse HEAD && \u2026 diff --stat HEAD",
+      "kind": "approval",
+      "options": [
+        "Allow",
+        "Deny"
+      ],
+      "answeredWith": "allow",
+      "outcome": "allowed-once",
+      "answeredAt": "2026-09-08T14:35:23Z"
+    },
+    {
+      "requestId": "a255715e-054b-48ce-84a4-e33e59a6ecc1",
+      "bot": "Quill 2",
+      "tool": "python3 -m unittest discover -s tests -t .",
+      "kind": "approval",
+      "options": [
+        "Allow",
+        "Deny"
+      ],
+      "answeredWith": "allow",
+      "outcome": "allowed-once",
+      "answeredAt": "2026-09-08T14:35:46Z"
+    },
+    {
+      "requestId": "3d27dc82-8240-4667-813e-d57eead77655",
+      "bot": "Quill 2",
+      "tool": "python3 -c \"import pathlib,ast; \u2026 tests/test_slugkit.py \u2026\"",
+      "kind": "approval",
+      "options": [
+        "Allow",
+        "Deny"
+      ],
+      "answeredWith": "allow",
+      "outcome": "allowed-once",
+      "answeredAt": "2026-09-08T14:35:54Z"
+    },
+    {
+      "requestId": "912d4165-7b0c-489d-9862-f30b44896f35",
+      "bot": "Quill 2",
+      "tool": "cd \u2026/.worktrees/t13-maxwords && pwd && git rev-parse \u2026",
+      "kind": "approval",
+      "options": [
+        "Allow",
+        "Deny"
+      ],
+      "answeredWith": "allow",
+      "outcome": "allowed-once",
+      "answeredAt": "2026-09-08T14:36:13Z"
+    },
+    {
+      "requestId": "604149a4-b921-4c07-964a-eb8cecef72f5",
+      "bot": "Quill 2",
+      "tool": "cd \u2026/slugkit && python3 -c \"import pathlib,ast \u2026\"",
+      "kind": "approval",
+      "options": [
+        "Allow",
+        "Deny"
+      ],
+      "answeredWith": "allow",
+      "outcome": "allowed-once",
+      "answeredAt": "2026-09-08T14:36:22Z"
+    }
+  ],
+  "runtimeEventSources": [
+    {
+      "botKey": "sudo",
+      "threadId": "df3e96b8-4383-4467-9e72-9fe9b260b39b",
+      "file": "events/df3e96b8-4383-4467-9e72-9fe9b260b39b.ndjson",
+      "exists": true,
+      "turnsFromEvents": 5,
+      "sha256": "d9dcf81c5e2211fdb7d9939d6fbfb928d785bbc165a23f63e4e34a3f7b9a04e2"
+    },
+    {
+      "botKey": "sage",
+      "threadId": "83412e62-92b1-41fa-9080-adbe6d994e2b",
+      "file": "events/83412e62-92b1-41fa-9080-adbe6d994e2b.ndjson",
+      "exists": true,
+      "turnsFromEvents": 1,
+      "sha256": "c0089d7c3de8f51d853fcd88b766d1709f39034b3b6bbfae251e852b279ae19d"
+    },
+    {
+      "botKey": "vale",
+      "threadId": "9c895d3e-7f26-4d4b-b1e5-7580effb1508",
+      "file": "events/9c895d3e-7f26-4d4b-b1e5-7580effb1508.ndjson",
+      "exists": true,
+      "turnsFromEvents": 1,
+      "sha256": "bbaaa96b8401d5f501333550f50011c9b8cf2fa8a0fbb5fb251ff616624ad322"
+    },
+    {
+      "botKey": "nova",
+      "threadId": "b9d5424b-79d5-42bb-a71c-ce912bc2b00a",
+      "file": "events/b9d5424b-79d5-42bb-a71c-ce912bc2b00a.ndjson",
+      "exists": true,
+      "turnsFromEvents": 1,
+      "sha256": "e5dbf8bad05374beb346ac44821339507cb4f85a2a5aa5c30236a7acd60b5fc6"
+    },
+    {
+      "botKey": "quill",
+      "threadId": "9010f814-54c7-4066-8dd1-cf877720003e",
+      "file": "events/9010f814-54c7-4066-8dd1-cf877720003e.ndjson",
+      "exists": true,
+      "turnsFromEvents": 1,
+      "sha256": "6128968475e7b8e412213a811b1d6b0632fb41c899fbd61169cfd6e725f3aa36"
+    }
+  ],
+  "check042": [
+    {
+      "id": "worktree-after-approval",
+      "line": "- worktree-after-approval: unknown \u2014 Vale's last pre-worktree reply at 2026-09-08T14:29:46.372Z: verdict unknown; git worktree add at 2026-09-08T14:30:20.756Z"
+    },
+    {
+      "id": "record-time-from-date-u",
+      "line": "- record-time-from-date-u: yes \u2014 date -u returned 2026-09-08T14:40:42Z; the task log's first entry heading is \"### 2026-09-08T14:40:42Z \u2014 Sudo (orchestrator)\""
+    },
+    {
+      "id": "no-host-listagents",
+      "line": "- no-host-listagents: yes \u2014 tools used: mcp__agents__list_bots"
+    },
+    {
+      "id": "bead-closed",
+      "line": "- bead-closed: yes \u2014 bead slg-8ia is closed"
+    },
+    {
+      "id": "record-commit",
+      "line": "- record-commit: yes \u2014 d85cae5 docs(team): T13 max_words merged as 0918e0e (.beads/interactions.jsonl, .project-steward/PROGRESS.md)"
+    },
+    {
+      "id": "merged-ancestor",
+      "line": "- merged-ancestor: yes \u2014 0918e0e is an ancestor of main"
+    },
+    {
+      "id": "task-branch-and-worktree-absent",
+      "line": "- task-branch-and-worktree-absent: yes \u2014 0 task branch(es), 0 extra worktree(s)"
+    },
+    {
+      "id": "root-clean",
+      "line": "- root-clean: yes \u2014 clean"
+    },
+    {
+      "id": "tests-pass",
+      "line": "- tests-pass: yes \u2014 exit 0 in 0 s"
+    }
+  ],
+  "incidents": [
+    {
+      "at": "2026-09-08T14:38:02Z",
+      "kind": "attention",
+      "what": "The lead settled without the run marker and asked whether it could merge while .beads/interactions.jsonl was modified in the root.",
+      "detail": "The modification was one appended line recording this run's own closure of slg-8ia, written by a bot's bd call.",
+      "resolution": "Operator answered by send at 14:39:06Z: merge, keep that line, include .beads in the docs(team) record commit. Repository hygiene inside the launcher's own validation fixture; no user decision was answered on the user's behalf.",
+      "changedOutcome": false
+    },
+    {
+      "at": "2026-09-08T14:30:20Z",
+      "kind": "lead-retry",
+      "what": "Two git worktree add attempts used the slug t13-max-words before the lead settled on t13-maxwords at 14:30:48Z.",
+      "resolution": "No operator action; the check reads the first attempt's timestamp, which is after the reviewer's reply.",
+      "changedOutcome": false
+    }
+  ],
+  "cleanup": {
+    "reconcile": {
+      "exit": 0,
+      "clean": true,
+      "worktrees": 1,
+      "taskBranches": [],
+      "defaultBranchSource": "facts"
+    },
+    "cleanupKill": {
+      "exit": 0,
+      "orphans": [],
+      "killed": []
+    },
+    "down": {
+      "exit": 0,
+      "stopped": true,
+      "supervisorPid": 1161247,
+      "healthPid": 1161254
+    },
+    "verification": {
+      "ports8899and8900": "refuse",
+      "healthCurl": "no answer",
+      "supervisorPidAlive": false,
+      "healthPidAlive": false,
+      "codexLinuxSandboxProcesses": 0,
+      "cloneTests": {
+        "ran": 85,
+        "ok": true
+      }
+    },
+    "packageSha256After": "48e4ac637c7afb6d9e82f0ecf035967411d9c75e61ac8e0603ee7b62a3255949",
+    "gitLog": [
+      "d85cae5 docs(team): T13 max_words merged as 0918e0e",
+      "0918e0e Add max_words parameter to slugify (T13 / slg-8ia)",
+      "b06bed3 docs: add T13 (max_words) for the launcher validation run",
+      "4fe344e docs(team): T12 separator validation merged as 9127a0a",
+      "9127a0a Document sep constraint in unique_slug docstring (T12 / slg-ceo)"
+    ]
+  },
+  "verification": {
+    "suite": {
+      "command": "npm test",
+      "passed": 195,
+      "failed": 0,
+      "skipped": 0
+    },
+    "repositoryHead": "8d699d5",
+    "findingsClosedByThisRun": [
+      "oml-nqo.20",
+      "oml-nqo.3",
+      "oml-nqo.6"
+    ],
+    "devpackGate": "atw-07l.27: the second real run through the skill exists; nothing under packages/ was touched"
+  }
+}

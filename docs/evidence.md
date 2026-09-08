@@ -468,3 +468,175 @@ needed. No other process was signalled; `pgrep -af codex-linux-sandbox` finds
 nothing afterwards, and no child process of it survives. Its scratch directory
 `/tmp/m1-lock-validation-HHYuW2` (one empty `lock.sqlite`) remains, since the
 script's own cleanup never ran; it is inert and was left for the user.
+
+
+## 2026-09-08 — M1 fix pass, full-team validation: T13 on the slugkit clone (9 bot turns)
+
+Question: does the driver fixed for the 26 review findings run a full task
+through the supplied dev-team package with the user's five-model roster — a
+Codex lead whose native log `--check-042` can now read, Claude, Codex and
+Grok specialists, Grok's approval cards relayed through `answer` — and then
+report, reconcile, clean up and shut down?
+
+Driver at `8d699d5` (the fix commits `ddcafb5`..`8706b97` plus the finding-19
+record, `npm test` 195 passed), Node 24.11.0, real OpenMausBot **0.1.56**
+(`OMB_BIN=~/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js`),
+`OMB_TOKEN` empty, every other `OMB_*` variable unset. Project
+`~/.cache/agent-team/validate-0.4.1/slugkit`, baseline `4fe344e` on `main`
+(clean, one worktree, 75 tests green from inside the clone), plus one commit
+`b06bed3 docs: add T13 (max_words) for the launcher validation run` adding
+TODO.md T13 and bead `slg-8ia`. Server:
+`up --fresh --port 8899 --data-dir ~/.cache/agent-team/omb-launcher-data` →
+data dir `~/.cache/agent-team/omb-launcher-data-20260908T142522-X8fDYx`,
+environment `49a22c3b-628e-45c0-a3e7-1c82fcacdf39`, supervisor 1161247, server
+1161254, `ports: [8899, 8900]` reported by `up` (finding 23); `doctor` 6/6,
+`doctor --server` 11/11. Package
+`~/Documents/agent-team-devpack/packages/dev-team/dev-team.openmaus.json`
+(release 0.4.2, SHA-256 `48e4ac63…3255949` before import and after `down`):
+Sudo `41ae57ba-c4a3-4d85-91e5-62ed5396c00e`, Sage
+`5b28d78e-11a3-4d34-b4b7-412047fed0a8`, Vale
+`d791fbbc-1b92-4305-9d0a-9b0e39f3cab2`, Nova
+`dc09ba4f-f051-433b-871f-b155ff490199`, Quill 2
+`5f1fc457-931c-4768-964e-1153ee7787f9` (the server already carried the T12
+team, so the import numbered the colliding name), room
+`987541bd-8678-439e-87ed-106ea7ad8205`.
+
+Roster, the user's instruction for this repository's tests and not the
+guide's advice: `bind --model sudo=codex/gpt-5.6-luna/high --model sage=claude/claude-sonnet-5/high --model vale=codex/gpt-5.6-terra/high --model nova=claude/claude-opus-5/high --model quill=grok/grok-4.6/medium --approval auto`.
+Quill stays on `ask` (a grok bot has no auto level) and its roster line read
+`Quill 2: grok/grok-4.6/medium (ask)`, not `(undefined)` — finding 22 fixed,
+with the `approval ask` PATCH that materialises the field (finding 13). Its
+review therefore raised one approval card per tool call. The Codex lead was
+chosen deliberately: finding 6's parser fix is validated only if
+`--check-042` reads a Codex JSON-RPC native log. Facts:
+`facts --default-branch main --test "python3 -m unittest discover -s tests -t . (run inside the task's worktree)" --setup none --merge auto --task-log .project-steward/PROGRESS.md --tracker beads --plan-review ask`,
+reported with `provenance {test: flag, setup: flag}` (finding 10);
+`reconcile` reported `defaultBranchSource: facts` (finding 14).
+
+Brief (`jq -r '.history[-1].brief'`), verbatim:
+
+> Sudo, do T13 from TODO.md in this project. Test command: python3 -m unittest discover -s tests -t . (run inside the task's worktree). Setup command: none. Bead: slg-8ia.
+>
+> When the task is finished, end your closing report with a line containing only `DONE oml:6b0b7b17`.
+
+Dispatch: `task --todo T13 --bead slg-8ia` at 14:26:32Z (run
+`6b0b7b17800c3d64`, tag `oml:6b0b7b17`, five fresh threads, lead thread
+`df3e96b8-4383-4467-9e72-9fe9b260b39b`, `sentSha b06bed3`). Watched from this
+Claude Code session with 11 `watch --max-seconds 100 --brief` calls plus one
+background `watch --max-seconds 570 --brief` (exit 5 after 7 min 18 s at
+Quill's first card). The last foreground watch returned `DONE` at 14:43:10Z:
+16 min 38 s from dispatch to the marker, about 2 min 40 s of it waiting for
+the operator's answers. Cards answered, none with "Always allow":
+
+| Request | Bot | Card | Answer | Outcome | Answered at |
+|---|---|---|---|---|---|
+| `8133c3d6-9715-4200-ac3a-f1fa9a93ec2a` | Quill 2 | `git merge-base --is-ancestor main task/t13-maxwords; …` | allow | `allowed-once` | 14:34:13Z |
+| `14ebdb11-7246-48dc-9f27-2d5a826caad3` | Quill 2 | `bd show slg-8ia …; rg -n -A 40 '^## T13…' TODO.md` | allow | `allowed-once` | 14:34:31Z |
+| `495a47f3-45eb-482a-a2dc-af6d8cf1bcf3` | Quill 2 | `git -C .worktrees/t13-maxwords rev-parse HEAD && … diff --stat HEAD` | allow | `allowed-once` | 14:35:23Z |
+| `a255715e-054b-48ce-84a4-e33e59a6ecc1` | Quill 2 | `python3 -m unittest discover -s tests -t .` | allow | `allowed-once` | 14:35:46Z |
+| `3d27dc82-8240-4667-813e-d57eead77655` | Quill 2 | `python3 -c "import pathlib,ast; … tests/test_slugkit.py …"` | allow | `allowed-once` | 14:35:54Z |
+| `912d4165-7b0c-489d-9862-f30b44896f35` | Quill 2 | `cd …/.worktrees/t13-maxwords && pwd && git rev-parse …` | allow | `allowed-once` | 14:36:13Z |
+| `604149a4-b921-4c07-964a-eb8cecef72f5` | Quill 2 | `cd …/slugkit && python3 -c "import pathlib,ast …"` | allow | `allowed-once` | 14:36:22Z |
+
+Timeline from the lead's Codex native log and the closing report: plan
+delegated to Sage 14:27:49Z, Vale's reply 14:29:46Z, `git worktree add`
+14:30:20Z (two earlier attempts at 14:30:20Z and 14:30:27Z chose the slug
+`t13-max-words` before settling on `t13-maxwords` at 14:30:48Z),
+implementation delegated to Nova 14:31:17Z (commit `0918e0e`), review
+delegated to Quill 14:33:30Z, `git merge --ff-only task/t13-maxwords`
+14:39:49Z, worktree removed 14:40:21Z and branch deleted 14:40:29Z,
+`date -u +%FT%TZ` 14:40:42Z, record commit `d85cae5` 14:41:32Z, DONE
+14:43:10Z. Outcomes: 6 (one receipt and one echo for each of Sage, Nova and
+Quill 2).
+
+### 2026-09-08 — T13 (incomplete)
+
+Run 6b0b7b17800c3d64, tag oml:6b0b7b17, OpenMausBot 0.1.56, lead Sudo (codex/gpt-5.6-luna/high), project /home/wsh/.cache/agent-team/validate-0.4.1/slugkit, dispatched 2026-09-08T14:26:32.881Z from b06bed3; final state done.
+
+| Thread | Turns | Bot seconds | Input | Cached | Output |
+|---|---|---|---|---|---|
+| Sudo | 5 | 518 | 171867 | 166656 | 568 |
+| Quill 2 | 1 | 198 | 39714 | 0 | 561 |
+| Nova | 1 | 94 | 450189 | 407394 | 5006 |
+| Vale | 1 | 26 | 32858 | 28416 | 307 |
+| Sage | 1 | 46 | 330907 | 294204 | 3048 |
+
+Outcomes: 6 (receipt Sage, echo Sage, receipt Nova, echo Nova, receipt Quill 2, echo Quill 2). Commits since dispatch: 2 (d85cae5 docs(team): T13 max_words merged as 0918e0e; 0918e0e Add max_words parameter to slugify (T13 / slg-8ia)).
+
+Record step: task log yes, record commit d85cae5, bead slg-8ia is closed. Tests: passed in 0 s. Root: clean.
+
+0.4.2 checks:
+
+- worktree-after-approval: unknown — Vale's last pre-worktree reply at 2026-09-08T14:29:46.372Z: verdict unknown; git worktree add at 2026-09-08T14:30:20.756Z
+- record-time-from-date-u: yes — date -u returned 2026-09-08T14:40:42Z; the task log's first entry heading is "### 2026-09-08T14:40:42Z — Sudo (orchestrator)"
+- no-host-listagents: yes — tools used: mcp__agents__list_bots
+- bead-closed: yes — bead slg-8ia is closed
+- record-commit: yes — d85cae5 docs(team): T13 max_words merged as 0918e0e (.beads/interactions.jsonl, .project-steward/PROGRESS.md)
+- merged-ancestor: yes — 0918e0e is an ancestor of main
+- task-branch-and-worktree-absent: yes — 0 task branch(es), 0 extra worktree(s)
+- root-clean: yes — clean
+- tests-pass: yes — exit 0 in 0 s
+
+Closing report from Sudo: "T13 is complete. - Merged `task/t13-maxwords` into `main` at `0918e0e`. - 85 tests pass on merged `main`. - Removed worktree and deleted task branch. - Closed Bead `slg-8ia`. - Recorded progress and Beads interaction in commit `d85cae5`. - Posted the closing report in Dev Room. DONE oml:6b0b7b17"
+
+Turn accounting from
+`~/.cache/agent-team/omb-launcher-data-20260908T142522-X8fDYx/events/<thread>.ndjson`
+(all five files exist): Sudo 5, Sage 1, Vale 1, Nova 1, Quill 2 1, 9 in
+total. SHA-256 of the lead's event file: `d9dcf81c5e2211fd…`; of the lead's
+1,253,856-byte Codex native log:
+`990f65b9c63ea5aba11f3569157b044649fa9d15872c67a277136ac1a40b064b`.
+
+After the run: `report --run last --dry-run` 0 (`historical: true`,
+`contextSource: run context`, state md5 `aed4784e…` unchanged);
+`reconcile` 0 (clean, one worktree, no task branch, `defaultBranchSource:
+facts`); `cleanup --kill` 0 and found no orphan (Quill's review ran its
+commands through the launcher's own approval path, and the merge gate removed
+the worktree before the reviewer's sandbox could outlive it); `down` 0, pids
+1161247 and 1161254 gone, 8899 and 8900 refuse connections; no process has a
+cwd under the clone; `python3 -m unittest discover -s tests -t .` inside the
+clone: 85 tests, OK (75 before); `git log --oneline -5`: `d85cae5 docs(team):
+T13 max_words merged as 0918e0e`, `0918e0e Add max_words parameter to slugify
+(T13 / slg-8ia)`, `b06bed3 docs: add T13 …`, `4fe344e docs(team): T12 …`,
+`9127a0a Document sep constraint …`; `git status` empty.
+
+Deviations: one. At 14:38:02Z the lead settled without the marker
+(`ATTENTION`) and asked whether it could merge while `.beads/interactions.jsonl`
+was modified in the root. The modification was one appended line — this run's
+own closure of `slg-8ia`, written by a bot's `bd` call — so the operator
+answered at 14:39:06Z: merge, keep that line, and include `.beads` in the
+`docs(team)` record commit. That is repository hygiene inside the launcher's
+own validation fixture, not a decision belonging to the user; it is recorded
+here as an operator intervention. The lead merged 43 s later and the record
+commit carries both `.beads/interactions.jsonl` and
+`.project-steward/PROGRESS.md`. Operator interventions: that one `send` and
+the seven `answer --allow` calls above.
+
+Unknown checks: `worktree-after-approval`. The parser found Vale's reply in
+the Codex log, attributed it by `ask_bot.bot_id` and dated it 14:29:46Z
+before the 14:30:20Z `git worktree add` — the correlation the check needs.
+It is unknown because Vale's prose puts the word `approve` on its own line in
+the middle of the reply and ends with "1. No blocking findings. …", and
+`approvalVerdict` only accepts an unqualified final verdict line. That is the
+check refusing an ambiguous verdict as designed, and package behaviour rather
+than a parser failure; the run therefore closed `incomplete`, since unknown
+evidence never authorises a pass.
+
+Not exercised: `watch --nudge`, `reconcile --remove` and `send --bot`
+retargeting against a real server; long Codex SSE inside a sandbox; the 570 s
+background deadline itself (it returned at 7 min 18 s on a card); OpenClaw,
+Hermes Agent, DeepSeek Harness.
+
+Conclusion: the fixed driver ran a full-team task end to end on real
+OpenMausBot 0.1.56 with all five bots executing (9 turns), and `--check-042`
+read a Codex lead's JSON-RPC native log for the first time: two of the three
+native checks answered `yes` from a 1.25 MB `codex.app-server` log that the
+old Claude-only parser would have read as zero tool calls, and the third
+answered from a correctly attributed reviewer reply. Six fixes were exercised
+against the real server rather than the fake: `up`'s `ports: [8899, 8900]`,
+the roster line for a grok bot, `facts` provenance, `reconcile`'s
+`defaultBranchSource`, the Codex log parser, and `send` reporting
+`duplicate: false` for the operator's one message. It does not establish that
+a Codex lead can pass all nine checks: that needs a reviewer whose verdict
+line is unambiguous. Raw command outputs and the structured extraction:
+session scratchpad `t13/` and
+[docs/validation/2026-09-08-fix-pass-t13.json](validation/2026-09-08-fix-pass-t13.json).
