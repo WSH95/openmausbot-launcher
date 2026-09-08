@@ -2,7 +2,7 @@
 
 | Risk | Likelihood | Impact | Mitigation |
 | --- | --- | --- | --- |
-| Codex sandbox blocks loopback HTTP, a detached `up`, or long SSE | medium | high | Detached-survival spike in step 4; escalation or a user-managed server as the documented fallback |
+| Codex's workspace-write sandbox denies listening sockets (`listen EPERM`, spike 2026-09-08) | certain | medium | `up` names the cause in its hint; on Codex run `up` with an escalation or attach to a server started elsewhere; loopback HTTP reads and long SSE from inside the sandbox are still unverified |
 | OpenClaw `--announce` on empty output and allowlist argument syntax unverified | high | low | Documented as unverified; follow-up bead once OpenClaw is installed |
 | The lead omits the run marker | low | low | `attention` after quiet; the agent reads the closing report |
 | OpenMausBot churn (daily releases) | high | medium | Pin 0.1.56 in `compatibility` and `metadata.omb-version`; `references/api.md` carries source lines; routes read from the pinned clone only |

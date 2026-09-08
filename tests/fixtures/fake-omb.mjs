@@ -494,7 +494,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const deadline = Date.now() + 30_000;
     let up = false;
     while (Date.now() < deadline && exited === null) {
-      try { const r = await fetch(`http://127.0.0.1:${o.port}/api/health`); const b = await r.json(); if (b.app === "openmausbot") { up = true; break; } } catch {}
+      try { const r = await fetch(`http://127.0.0.1:${o.port}/api/health`, { signal: AbortSignal.timeout(2000) }); const b = await r.json(); if (b.app === "openmausbot") { up = true; break; } } catch {}
       await new Promise((r) => setTimeout(r, 100));
     }
     if (!up) { console.error("the server did not answer"); stop(); process.exit(1); }
