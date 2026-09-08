@@ -1,0 +1,12 @@
+{
+  "name": "openmausbot-launcher",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A host-independent Agent Skill and driver script that lets any AI agent operate a headless OpenMausBot server as the user's launcher",
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "test": "node --test 'tests/**/*.test.mjs'"
+  }
+}

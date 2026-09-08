@@ -1,0 +1,37 @@
+# openmausbot-launcher
+
+An Agent Skill that turns any AI agent host into the operator of a headless
+[OpenMausBot](https://github.com/milind-soni/OpenMausBot) server: start and
+stop the server, import a team package, bind the team to a project, brief
+the lead bot, watch the delegation chain, relay the lead's questions and the
+user's answers, reconcile the repository between tasks, clean up, and report.
+The same skill directory loads in Claude Code, Codex CLI, Grok Build,
+OpenClaw, Hermes Agent, and DeepSeek Harness; with OpenClaw on the
+workstation it works from a phone over Telegram.
+
+Status: scaffold. The design is `docs/design.md`; evidence from real runs
+goes to `docs/evidence.md`.
+
+## Layout
+
+- `skills/openmausbot-launcher/`: the installable unit (`SKILL.md`,
+  `scripts/omb.mjs` and its `lib/`, `references/`, `agents/openai.yaml`).
+- `tests/`: `node:test` suites against `tests/fixtures/fake-omb.mjs`, an
+  in-memory OpenMausBot that encodes the 0.1.56 HTTP contract.
+
+## Run the tests
+
+```
+npm test
+```
+
+No dependencies; Node 24 or later.
+
+## Install the skill
+
+```
+ln -s "$PWD/skills/openmausbot-launcher" ~/.claude/skills/openmausbot-launcher   # Claude Code, Grok Build
+ln -s "$PWD/skills/openmausbot-launcher" ~/.agents/skills/openmausbot-launcher   # Codex, DSH, OpenClaw, Hermes (external_dirs)
+```
+
+`skills/openmausbot-launcher/references/hosts.md` has the per-host notes.

@@ -1,8 +1,60 @@
 # openmausbot-launcher
 
-A host-independent Agent Skill and driver script that lets any AI agent operate a headless OpenMausBot server as the user's launcher
+`openmausbot-launcher`: an Agent Skill (agentskills.io `SKILL.md`) plus a
+dependency-free Node driver that lets any AI agent host (Claude Code, Codex
+CLI, Grok Build, OpenClaw, Hermes Agent, DeepSeek Harness) operate a
+headless OpenMausBot 0.1.56 server as the user's launcher: start and stop
+the server, import a team package, bind it to a project, brief the lead bot,
+watch the delegation chain, relay questions and answers, reconcile the
+repository, clean up, report. The design in `docs/design.md` is
+authoritative; `docs/evidence.md` records real runs.
 
-Stack: JavaScript.
+Stack: JavaScript (Node 24, ESM, no dependencies, `node:test`).
+
+## Project facts
+
+- Default branch: `main`.
+- Test command: `npm test`.
+- Setup command: none.
+- Merge policy: auto. Never push.
+
+## Layout
+
+- `skills/openmausbot-launcher/`: the installable unit. `SKILL.md` (the
+  operator's instructions, under 500 lines), `scripts/omb.mjs` (the entry
+  point, invoked by path) and `scripts/lib/*.mjs` (one module per concern:
+  `http`, `state`, `server`, `snapshot`, `watch`, `git`, `report`),
+  `references/*.md` (loaded on demand), `agents/openai.yaml` (Codex
+  metadata). Nothing outside this directory is installed on a host.
+- `tests/*.test.mjs`: `node:test` with `node:assert/strict`;
+  `tests/fixtures/fake-omb.mjs` is an in-memory OpenMausBot that encodes the
+  0.1.56 HTTP contract (routes, 409 texts, SSE frames, receipts pruning) and
+  a `POST /__fake` control route for scenarios.
+- `docs/design.md`, `docs/evidence.md`.
+
+## Conventions
+
+- Test first: every behaviour change starts with a failing test in
+  `tests/`; the test names the behaviour. Contract facts in the fake come
+  from the pinned OpenMausBot source (`~/.cache/agent-team/openmausbot-src`,
+  0.1.56) with a `file:line` comment; never from memory.
+- Never fork or patch OpenMausBot; the driver uses only its HTTP API, CLI,
+  and data-dir files. An upstream change is an issue in `docs/upstream/`.
+- No dependencies: Node built-ins only. One executable entry point; small
+  internal modules; no artificial length caps. Every sentence in
+  `SKILL.md` and the references serves a purpose.
+- Every real run (bot turns spent) is recorded in `docs/evidence.md` with
+  the command, the OpenMausBot version, and the ids. Fake-server runs are
+  not evidence.
+- Tokens never appear in argv, stdout, state files, or transcripts.
+- Bots run real CLIs on the user's subscriptions: keep real runs short and
+  count them.
+
+## Run
+
+- The driver: `skills/openmausbot-launcher/scripts/omb.mjs <verb> [--project <dir>] …`
+  (JSON on stdout; `--brief` for one line).
+- The fake server for a dry run: `node tests/fixtures/fake-omb.mjs serve --port 8799 --data-dir /tmp/omb-fake`.
 
 ## Project context
 
