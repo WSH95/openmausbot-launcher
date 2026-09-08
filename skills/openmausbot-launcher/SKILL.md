@@ -74,7 +74,9 @@ bot; `--peer-approval <bot>=on|off` sets `approvePeerComms`, which makes that
 bot raise a "@X wants to contact @Y" card before each `ask_bot`,
 `delegate_bot`, or room post — answer it with `answer --allow --request <id>`.
 `facts` rewrites the lead's Project facts block; the
-dev-team pack's fields are in `references/dev-team.md`.
+dev-team pack's fields are in `references/dev-team.md`. The test and setup
+commands come only from your flags (or `--text`); the lead's own block is
+never executed, and the result's `provenance` says where each came from.
 
 Use Node 24. Local task and report commands need the server's readable,
 matching data directory. A restarted server needs a fresh import or adopt

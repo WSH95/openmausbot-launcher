@@ -11,6 +11,7 @@ import * as srv from "../server.mjs";
 import { parseEngineSpec, specString, sameSelection, findBot, isReviewer, sameName, parseFacts, renderFacts, replaceFactsBlock, FACTS_MARKER } from "../team.mjs";
 
 const MAX_DESCRIPTION = 4000;
+const EXECUTABLE_FACTS = ["test", "setup"];
 
 function requireTeam(cfg) {
   if (!cfg.state?.team) throw new Fail(EXIT.PRECONDITION, "no team is recorded for this project", { hint: "run import <package.json> or import --adopt <section>" });
@@ -191,17 +192,30 @@ verb("facts", {
     if (!lead) throw new Fail(EXIT.PRECONDITION, `the lead ${team.lead.name} no longer exists on the server`);
     const description = lead.description ?? "";
     const inBlock = description.includes(FACTS_MARKER) ? parseFacts(description.slice(description.indexOf(FACTS_MARKER))) : {};
-    const existing = { ...inBlock, ...(cfg.state.facts ?? {}) };
-    let block; let facts;
-    if (flags.text) { block = flags.text.startsWith(FACTS_MARKER) ? flags.text : `${FACTS_MARKER}: ${flags.text}`; facts = { ...existing, ...parseFacts(block) }; }
-    else {
+    // Executable fields never come from the lead's block: report runs `test`
+    // under `sh -c`, and a bot with shell access can PATCH its own description
+    // over loopback (0.1.56 server/index.ts:9986; the comment at :10193-10199
+    // names "a bot curling the loopback API from a tool call"). They come from
+    // the operator only: a flag, --text, or the facts this launcher stored.
+    const inert = Object.fromEntries(Object.entries(inBlock).filter(([key]) => !EXECUTABLE_FACTS.includes(key)));
+    const stored = cfg.state.facts ?? {};
+    const existing = { ...inert, ...stored };
+    const provenanceOf = (given, kept) => (given !== undefined ? "flag" : kept !== undefined ? "state" : "default");
+    let block; let facts; let provenance;
+    if (flags.text) {
+      block = flags.text.startsWith(FACTS_MARKER) ? flags.text : `${FACTS_MARKER}: ${flags.text}`;
+      const given = parseFacts(block);
+      facts = { ...existing, ...given };
+      provenance = { test: provenanceOf(given.test, stored.test), setup: provenanceOf(given.setup, stored.setup) };
+    } else {
       if (flags.merge && !["auto", "ask"].includes(flags.merge)) throw new Fail(EXIT.USAGE, "--merge must be auto or ask");
       if (flags["plan-review"] && !["ask", "delegate"].includes(flags["plan-review"])) throw new Fail(EXIT.USAGE, "--plan-review must be ask or delegate");
       facts = {
-        defaultBranch: flags["default-branch"] ?? cfg.state.facts?.defaultBranch ?? defaultBranch(cfg.projectDir, null) ?? inBlock.defaultBranch,
-        test: flags.test ?? existing.test ?? "<fill in>", setup: flags.setup ?? existing.setup ?? "none", merge: flags.merge ?? existing.merge ?? "auto",
+        defaultBranch: flags["default-branch"] ?? stored.defaultBranch ?? defaultBranch(cfg.projectDir, null) ?? inBlock.defaultBranch,
+        test: flags.test ?? stored.test ?? "<fill in>", setup: flags.setup ?? stored.setup ?? "none", merge: flags.merge ?? existing.merge ?? "auto",
         taskLog: flags["task-log"] ?? existing.taskLog ?? "none", tracker: flags.tracker ?? existing.tracker ?? "none", planReview: flags["plan-review"] ?? existing.planReview ?? "ask",
       };
+      provenance = { test: provenanceOf(flags.test, stored.test), setup: provenanceOf(flags.setup, stored.setup) };
       block = renderFacts(facts);
     }
     const next = replaceFactsBlock(description, block, { append: flags.append === true });
@@ -210,6 +224,6 @@ verb("facts", {
       try { await client.patch(`/api/bots/${lead.id}`, { description: next }); } catch (e) { throw precondition(e); }
       await save( (doc) => { doc.facts = facts; doc.project = { ...(doc.project ?? { dir: cfg.projectDir }), defaultBranch: facts.defaultBranch }; return doc; });
     }
-    return { result: { dryRun: cfg.dryRun, lead: lead.name, length: next.length, block, facts }, brief: `facts · ${block}` };
+    return { result: { dryRun: cfg.dryRun, lead: lead.name, length: next.length, block, facts, provenance }, brief: `facts · ${block}` };
   }),
 });

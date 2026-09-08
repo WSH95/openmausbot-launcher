@@ -2,9 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { startFake, makeRepo, runOmb, ROOT } from "./helpers.mjs";
+import { startFake, makeRepo, runOmb, ROOT, tmpDir } from "./helpers.mjs";
 import { statePaths, loadState, updateState } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
-import { turnsFromEvents, nativeCalls, check042, renderMarkdown, bareCommand, mergedShaFrom } from "../skills/openmausbot-launcher/scripts/lib/report.mjs";
+import { turnsFromEvents, nativeCalls, check042, renderMarkdown, bareCommand, mergedShaFrom, beadStatus } from "../skills/openmausbot-launcher/scripts/lib/report.mjs";
 
 const PKG = path.join(ROOT, "tests", "fixtures", "dev-team.package.json");
 const iso = (ms) => new Date(ms).toISOString();
@@ -324,4 +324,14 @@ test("report --check-042 reads a Codex lead's native log through the fake", asyn
   assert.equal(by["no-host-listagents"].ok, true, by["no-host-listagents"].detail);
   assert.equal(by["merged-ancestor"].ok, true); assert.equal(by["record-commit"].ok, true);
   assert.deepEqual([...r.json.nativeTools].sort(), ["Bash", "mcp__agents__ask_bot", "mcp__agents__list_bots"]);
+});
+
+test("beadStatus gives up on a hung bd within its timeout", (t) => {
+  const bin = tmpDir("oml-bd-hang-");
+  fs.writeFileSync(path.join(bin, "bd"), "#!/bin/sh\nsleep 5\n", { mode: 0o755 });
+  const previous = process.env.PATH; process.env.PATH = `${bin}:${previous}`; t.after(() => { process.env.PATH = previous; });
+  const started = performance.now();
+  const r = beadStatus("slg-1", bin, { timeoutMs: 200 });
+  assert.ok(performance.now() - started < 2000, "bd show returned only after sleep finished");
+  assert.equal(r.ok, null); assert.match(r.detail, /^bd show slg-1 unavailable: spawnSync bd ETIMEDOUT/);
 });

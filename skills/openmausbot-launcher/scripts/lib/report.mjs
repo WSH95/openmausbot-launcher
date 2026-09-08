@@ -174,9 +174,9 @@ export function check042({ native, messages = [], leadThreadId, taskLogText, rev
   return checks;
 }
 
-export function beadStatus(id, cwd) {
+export function beadStatus(id, cwd, { timeoutMs = 30_000 } = {}) {
   if (!id) return { ok: null, detail: "no bead named in the run" };
-  const r = spawnSync("bd", ["show", id, "--json"], { cwd, encoding: "utf8" });
+  const r = spawnSync("bd", ["show", id, "--json"], { cwd, encoding: "utf8", timeout: timeoutMs });
   if (r.error || r.status !== 0) return { ok: null, detail: `bd show ${id} unavailable: ${(r.stderr || r.error?.message || "").trim().slice(0, 120)}` };
   try { const j = JSON.parse(r.stdout); const issue = Array.isArray(j) ? j[0] : j; return { ok: issue?.status === "closed", detail: `bead ${id} is ${issue?.status ?? "unknown"}` }; } catch { return { ok: null, detail: "bd show returned no JSON" }; }
 }
