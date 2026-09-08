@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import { randomBytes, createHash } from "node:crypto";
 
 const BUSY = new Set(["working", "waiting-on-you", "no-signal"]); // S: server/store.ts:407-409
-const ECHO_PREFIX = "replied to the delegated task"; // S: server/index.ts:3386
+const ECHO_PREFIX = "replied to the delegated task"; // S: server/index.ts:3387 (and :3358)
 const MAX_DESCRIPTION = 4000; // S: server/bot-package.ts (description ≤ 4000)
 const MAX_TAGLINE = 160; // S: import 400 on a long tagline (devpack EVIDENCE.md:302)
 

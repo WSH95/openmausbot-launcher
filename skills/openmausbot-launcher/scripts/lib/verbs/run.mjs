@@ -1,5 +1,5 @@
 import { stateCommand, requireSameEnvironment, requireDataDir, serverIdentity, protectServerSelection, runContext } from "../session.mjs";
-// status (and, in later steps, task, send, answer, interrupt, watch).
+// status, task, send, answer, interrupt, watch.
 import fs from "node:fs";
 import path from "node:path";
 import { verb, EXIT, Fail, VERBS } from "../cli.mjs";

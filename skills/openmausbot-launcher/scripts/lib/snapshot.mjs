@@ -5,7 +5,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 export const BUSY = new Set(["working", "waiting-on-you", "no-signal"]);
-export const ECHO_RE = /^@.+? replied to the delegated task/s; // server/index.ts:3386; names may contain spaces
+export const ECHO_RE = /^@.+? replied to the delegated task/s; // server/index.ts:3387 (and :3358); names may contain spaces
 export const DELEGATION_RE = /^Delegation to @(.+?) (completed without a text reply|failed|waiting|dropped|canceled|denied)/; // index.ts:3392-3401, delegations.ts:495
 export const DEFAULTS = { quietMs: 30_000, dropMs: 2 * 60_000, stallMs: 40 * 60_000 };
 

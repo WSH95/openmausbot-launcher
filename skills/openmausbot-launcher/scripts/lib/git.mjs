@@ -1,4 +1,4 @@
-// Git helpers (extended in step 5 with reconcile and cleanup).
+// Git helpers: reconcile checks and task worktree removal.
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
