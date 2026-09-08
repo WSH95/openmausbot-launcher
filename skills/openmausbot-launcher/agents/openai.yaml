@@ -1,0 +1,6 @@
+interface:
+  display_name: "OpenMausBot Launcher"
+  short_description: "Start, bind, task, watch, and clean up an OpenMausBot bot team"
+  default_prompt: "Use $openmausbot-launcher to run a task through my OpenMausBot team and relay its questions to me."
+policy:
+  allow_implicit_invocation: true
