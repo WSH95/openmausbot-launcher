@@ -107,6 +107,8 @@ omb watch --project <dir> --max-seconds 100 [--brief]
 budget ends (exit 4, run still going: call it again; the state file
 carries the cursor). Never declare a run finished from `status` alone: a
 single snapshot cannot see the 30 s of quiet that settlement needs.
+`status` and `report` say `carried: true` when their verdict is the last
+watch's, not their own.
 If `checkpointed:false`, the returned observation was not saved; call
 `watch` again. Observation uses `--max-seconds`, followed by at most one
 second waiting for a checkpoint lock. Quiet starts afresh each invocation.

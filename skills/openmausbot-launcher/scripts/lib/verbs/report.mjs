@@ -100,7 +100,7 @@ verb("report", {
     const shouldClose = !fromHistory && !flags["no-close"] && (TERMINAL_STATES.has(ev.state) || flags.close);
     const report = {
       date: new Date().toISOString().slice(0, 10), runId: task.runId, tag: task.tag, title: task.title, slug: task.slug, project: cfg.projectDir, version: env?.version ?? context.server?.version ?? null,
-      lead: team?.lead.name ?? "unknown", leadModel: team?.lead.model ?? null, sentAt: task.sentAt ? new Date(task.sentAt).toISOString() : null, sentSha: task.sentSha, state: ev.state, result,
+      lead: team?.lead.name ?? "unknown", leadModel: team?.lead.model ?? null, sentAt: task.sentAt ? new Date(task.sentAt).toISOString() : null, sentSha: task.sentSha, state: ev.state, carried: ev.carried === true, result,
       historical: fromHistory, contextSource: context.source, unknown, failedChecks,
       threads, outcomes: snap.outcomes, commits, record, tests, reconcile: { clean: reconcile.clean, problems: reconcile.problems, defaultBranch: reconcile.defaultBranch }, mergedSha, ancestor, check042: checks, closing, decisions: null,
       nativeTools: [...new Set(nativeCalls(native).calls.map((c) => c.name))], durationSec: fromHistory ? task.report?.durationSec ?? null : task.sentAt ? Math.round((Date.now() - task.sentAt) / 1000) : null, closed: false,

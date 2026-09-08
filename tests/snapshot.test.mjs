@@ -203,6 +203,7 @@ test("status: without a run, with a dispatched run, and carrying a terminal verd
   await f.control({ op: "leadSay", threadId, text: "Closing report.\nDONE oml:abcd1234" });
   r = await runOmb(["status", "--project", dir, "--bots", "--tail", "3"], { env });
   assert.equal(r.json.state, "running", "one snapshot cannot settle"); assert.equal(r.json.bots.length, 5); assert.equal(r.json.tail.length, 2);
+  assert.equal(r.json.carried, false);
   const s = await snapshot(client, { team: st.team, task: loadState(statePaths(dir)).task }, {});
   await updateState(statePaths(dir), (d) => { d.task.lastEval = { state: "done", lastLeadMessageId: s.leadText.id, outcomes: [], quietSince: Date.now() - 60_000, lastChangeAt: Date.now() - 60_000 }; return d; });
   r = await runOmb(["status", "--project", dir], { env });
@@ -210,6 +211,9 @@ test("status: without a run, with a dispatched run, and carrying a terminal verd
   await updateState(statePaths(dir), (d) => { d.task.lastEval.evidence = evidenceOf(s); return d; });
   r = await runOmb(["status", "--project", dir], { env });
   assert.equal(r.json.state, "done"); assert.match(r.json.reasons[0], /from the last watch/);
+  assert.equal(r.json.carried, true);
+  const rep = await runOmb(["report", "--project", dir, "--no-tests", "--no-close"], { env });
+  assert.equal(rep.code, 0, rep.stdout); assert.equal(rep.json.state, "done"); assert.equal(rep.json.carried, true);
   await f.control({ op: "leadSay", threadId, text: "one more thing" });
   r = await runOmb(["status", "--project", dir], { env });
   assert.equal(r.json.state, "running", "new lead text drops the carried verdict");
