@@ -3,6 +3,20 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-08 — M1 review started; Tier 0 and Tier 1 done
+Independent review and test of M1 at HEAD `b1a1f77`, under Beads epic
+`oml-nqo` (plan `~/.claude/plans/based-on-the-development-lucky-shell.md`).
+Twenty findings filed as `oml-nqo.1`–`.20` (finding N is `oml-nqo.N`) plus one
+more, `oml-nqo.25`, discovered during the test run; the four tiers are
+`oml-nqo.21`–`.24`. Per the user's decision, findings are filed and not fixed
+in this pass. Tier 0 (suite and static checks) and Tier 1 (21 scripted steps
+against the fake server, 211 assertions) both completed with no repository
+change: 154/154 tests, every hash check verified, and 209 of 211 assertions
+matching the plan. The two deviations are recorded in `VERIFY.md` with a
+verdict each — one plan error (`watch --nudge` exits 6, not 4) and one low
+driver defect (`status` drops its computed `carried` flag). Tiers 2 and 3,
+which spend real OpenMausBot turns, remain open.
+
 ### 2026-09-08 — M1 host evidence complete
 Claude Code 2.1.263, Codex CLI 0.153.4 and Grok Build 1.0.13 each executed
 the specified doctor/server-doctor/status/send checks and observed a unique
