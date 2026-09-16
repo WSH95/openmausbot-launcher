@@ -209,7 +209,16 @@ run was open; a cron `watch` against a live run is still unverified.
 
 The driver on another machine can only `import --adopt`, `status`, `watch`,
 `send`, `answer`, and `interrupt`; everything else needs the project
-checkout or the data dir. On the OpenMausBot machine:
+checkout or the data dir.
+
+The binding is the server's environment id, not one URL. Share the project's
+state file (or a copy) with the remote observer and pass
+`--remote --url https://<host>`: a run opened locally on
+`http://127.0.0.1:8899` stays watchable and interruptible through the tunnel.
+Do **not** run `import --adopt` to change the URL of a state that is already
+bound — that rebinds the team to the tunnel URL and breaks the local verbs
+(`task` then reports "needs the project checkout on the server's machine").
+`--adopt` is for a state with no team yet. On the OpenMausBot machine:
 `openmausbot serve --tailscale` (or `--tunnel` after `openmausbot login`),
 then `openmausbot pair --label openclaw` — which mints the code on the port
 it serves, 8799 unless `--port 8899` says otherwise. Exchange it once from

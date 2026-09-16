@@ -167,3 +167,34 @@ test("status --remote keeps the binding without /proc: identity has healthStart 
   const elsewhere = await run(["status", "--remote", "--url", other.url]);
   assert.equal(elsewhere.code, 3, elsewhere.stdout); assert.match(elsewhere.json.error, /not the one this team was imported on/);
 });
+
+test("in remote mode the binding is the environment id, so another URL to the same server is accepted", async (t) => {
+  const { f, run } = await setup(t);
+  // The state was bound locally, through the loopback origin. A remote
+  // observer reaches the same server by another path — a tunnel, a tailnet
+  // name — and the environment id is what says it is the same server.
+  const sameServer = `http://localhost:${f.port}`;
+  const viaTunnel = await run(["status", "--remote", "--url", sameServer]);
+  assert.equal(viaTunnel.code, 0, viaTunnel.stdout);
+  assert.equal(viaTunnel.json.run.runId, (await run(["state", "--show"])).json.state.task.runId);
+
+  const elsewhere = await startFake(); t.after(() => elsewhere.close());
+  const wrong = await run(["status", "--remote", "--url", `http://localhost:${elsewhere.port}`]);
+  assert.equal(wrong.code, 3, wrong.stdout);
+  assert.match(wrong.json.error, /not the one this team was imported on/);
+
+  const local = await run(["status", "--url", sameServer]);
+  assert.equal(local.code, 3, local.stdout);
+  assert.match(local.json.error, /not the one this team was imported on/, "local mode still pins the URL: another loopback port is another server");
+});
+
+test("a run opened locally is watchable and interruptible through the remote observer's URL", async (t) => {
+  const { f, run, task } = await setup(t);
+  const sameServer = `http://localhost:${f.port}`;
+  const w = await run(["watch", "--remote", "--url", sameServer, "--max-seconds", "2", "--quiet-seconds", "1", "--drop-seconds", "1", "--poll", "1"]);
+  assert.notEqual(w.code, 3, w.stdout);
+  assert.equal(w.json.checkpointed, true, "the remote observer wrote the shared state file");
+  const i = await run(["interrupt", "--remote", "--url", sameServer]);
+  assert.equal(i.code, 0, i.stdout);
+  assert.equal(i.json.threadId, task.leadThreadId);
+});

@@ -130,6 +130,13 @@ and `up` must be able to bootstrap a new directory. Local `import <pkg>`,
 `import --adopt`, `status`, `watch`, `send`, `answer`, and `interrupt`, plus
 read-only `state` and diagnostic `doctor`. Remote observations ignore local
 receipts. An SSH tunnel to another machine must use `--remote`.
+**The binding is the server's environment id, not one URL** (bead `oml-9kp`,
+2026-09-16): a remote observer shares the machine-local state file, or a copy
+of it, and passes `--remote --url <the path it can reach>`; a run opened
+locally is then watchable and interruptible through a tunnel without
+rebinding anything, so `import --adopt` is for an *unbound* state, never for
+changing the URL of a bound one. Local mode keeps the URL rule, where another
+loopback port is another server rather than another way to the same one.
 Session scope is checked separately from location: client-scope sessions can
 send, answer, watch, and open tasks but not import, bind, or change models
 (`request-auth.ts:185-250`); a bearer token beats loopback trust

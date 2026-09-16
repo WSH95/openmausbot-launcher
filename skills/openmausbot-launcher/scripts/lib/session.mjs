@@ -69,10 +69,20 @@ export async function serverIdentity(cfg, client, opts = {}) {
   return { ...env, healthPid: h.pid, healthStart: start };
 }
 
+/**
+ * The team is bound to a server's environment id, not to one URL: the same
+ * server answers at `http://127.0.0.1:8899` on its own machine and at
+ * `https://<tailnet host>` through a tunnel, and a run opened locally has to
+ * stay watchable and interruptible from the other end without rebinding the
+ * state (bead oml-9kp). So a remote observer may reach the recorded server by
+ * any path, as long as the live environment id is the recorded one. Local
+ * mode keeps the URL rule, where another loopback port is another server
+ * rather than another way to the same one. Every other comparison stands.
+ */
 export async function requireSameEnvironment(cfg, client, opts = {}) {
   const live = await serverIdentity(cfg, client, opts);
   const recorded = cfg.state?.server;
-  if (!cfg.state?.team?.environmentId || cfg.state.team.environmentId !== live.environmentId || recorded?.url !== cfg.url || recorded?.environmentId !== live.environmentId || recorded.healthPid !== live.healthPid || (cfg.mode === "local" && hasProc() && recorded.healthStart !== live.healthStart)) {
+  if (!cfg.state?.team?.environmentId || cfg.state.team.environmentId !== live.environmentId || (cfg.mode === "local" && recorded?.url !== cfg.url) || recorded?.environmentId !== live.environmentId || recorded.healthPid !== live.healthPid || (cfg.mode === "local" && hasProc() && recorded.healthStart !== live.healthStart)) {
     throw new Fail(EXIT.PRECONDITION, "the server is not the one this team was imported on (identity changed or missing)", { hint: "re-import the package or run import --adopt to establish the current server binding" });
   }
   return live;
