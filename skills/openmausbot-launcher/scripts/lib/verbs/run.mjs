@@ -52,7 +52,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { withLock, loadState, commitState, updateState, initState, assertOpenRun, LockTimeout } from "../state.mjs";
 import { openRuns, selectRun, runLabel } from "../runs.mjs";
 import { HttpError, precondition } from "../http.mjs";
-import { reconcileCheck, git } from "../git.mjs";
+import { reconcileCheck, slugTaken, git } from "../git.mjs";
 import * as srv from "../server.mjs";
 import { findBot } from "../team.mjs";
 import { markerLine } from "../snapshot.mjs";
@@ -60,14 +60,49 @@ import { markerLine } from "../snapshot.mjs";
 const slugify = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "run";
 const tagOf = (runId) => `oml:${runId.slice(0, 8)}`;
 
-export function composeBrief({ leadName, brief, todo, bead, facts, tag }) {
+export function composeBrief({ leadName, brief, todo, bead, facts, tag, slug, implementer }) {
   let text = brief;
   if (!text) {
     const test = facts?.test && facts.test !== "<fill in>" ? facts.test : null;
     const where = test && /worktree/i.test(test) ? "" : " (run inside the task's worktree)";
     text = `${leadName}, do ${todo} from TODO.md in this project.${test ? ` Test command: ${test}${where}.` : ""}${facts?.setup ? ` Setup command: ${facts.setup}.` : ""}${bead ? ` Bead: ${bead}.` : ""}`;
   } else if (bead && !/\bBead:/.test(text)) text = `${text.trimEnd()} Bead: ${bead}.`;
+  // Two runs share one repository and one team, so the brief has to name the
+  // worktree this task owns and, when the team has implementers, which one is
+  // free for it. Without that the lead picks for itself and two tasks collide.
+  const owned = [
+    slug ? `Use the worktree .worktrees/${slug} on branch task/${slug} for this task.` : null,
+    implementer ? `Use @${implementer.name} as the implementer for this task.` : null,
+  ].filter(Boolean);
+  if (owned.length) text = `${text.trimEnd()} ${owned.join(" ")}`;
   return `${text.trimEnd()}\n\nWhen the task is finished, end your closing report with a line containing only \`${markerLine(tag)}\`.`;
+}
+
+/** Bots whose title says they implement. A team without them is dispatched without a claim. */
+export const implementersIn = (bots) => bots.filter((b) => /implementer/i.test(b.title ?? ""));
+
+/**
+ * Which implementer this run claims (design, "Several runs"). A claim is
+ * conservative: one open run per implementer, because a bot runs one turn at a
+ * time and the second task would only queue behind the first.
+ */
+export function pickImplementer(live, openRuns, { wanted = null, share = false } = {}) {
+  const claimedBy = new Map();
+  for (const run of openRuns) if (run.implementer?.id) claimedBy.set(run.implementer.id, run);
+  const pool = implementersIn(live);
+  if (wanted) {
+    const bot = findBot({ bots: live }, wanted);
+    if (!bot) throw new Fail(EXIT.USAGE, `no bot named ${wanted} on this team`, { hint: `bots: ${live.map((b) => b.name).join(", ")}` });
+    const by = claimedBy.get(bot.id);
+    if (by && !share) throw new Fail(EXIT.PRECONDITION, `${bot.name} is the implementer of ${runLabel(by)}`, { hint: "pass --share-implementer to give it a second task anyway, or name another bot" });
+    return { id: bot.id, name: bot.name };
+  }
+  if (!pool.length) return null;
+  const free = pool.filter((b) => !claimedBy.has(b.id));
+  const idle = free.find((b) => !b.busy);
+  if (idle) return { id: idle.id, name: idle.name };
+  const why = free.length ? `every free implementer is working: ${free.map((b) => b.name).join(", ")}` : `every implementer is claimed: ${pool.map((b) => `${b.name} by ${runLabel(claimedBy.get(b.id))}`).join(", ")}`;
+  throw new Fail(EXIT.PRECONDITION, why, { hint: "ask the lead to create another implementer, or pass --implementer <bot> --share-implementer" });
 }
 
 
@@ -75,13 +110,14 @@ export function composeBrief({ leadName, brief, todo, bead, facts, tag }) {
 const taggedTasks = (bot, tag) => (bot.tasks ?? []).filter((t) => typeof t.title === "string" && t.title.includes(`[${tag}]`));
 
 verb("task", {
-  options: { todo: { type: "string" }, bead: { type: "string" }, title: { type: "string" }, resume: { type: "boolean" }, abandon: { type: "boolean" }, "no-fresh-threads": { type: "boolean" } },
+  options: { todo: { type: "string" }, bead: { type: "string" }, title: { type: "string" }, resume: { type: "boolean" }, abandon: { type: "boolean" }, "no-fresh-threads": { type: "boolean" }, implementer: { type: "string" }, "share-implementer": { type: "boolean" }, run: { type: "string" } },
   allowPositionals: true,
   handler: stateCommand(async ({ flags, positionals, cfg, save }) => {
     if (cfg.mode === "remote") throw new Fail(EXIT.PRECONDITION, "task needs the project checkout on the server's machine", { hint: "remote hosts can status, watch, send, answer, and interrupt" });
     requireDataDir(cfg, "task");
     const team = requireTeam(cfg);
-    const current = openRuns(cfg.state)[0] ?? null;
+    const openBefore = openRuns(cfg.state);
+    const current = flags.abandon || flags.resume ? (openBefore.length ? selectRun(cfg.state, flags.run) : null) : null;
     if (flags.abandon) {
       if (!current) throw new Fail(EXIT.PRECONDITION, "no open run to abandon");
       if (cfg.dryRun) return { result: { dryRun: true, abandon: current.runId } };
@@ -95,22 +131,41 @@ verb("task", {
       if (!current) throw new Fail(EXIT.PRECONDITION, "no open run to resume", { hint: "start one with task" });
       if (briefArg || flags.todo) throw new Fail(EXIT.USAGE, "--resume continues the recorded run; it takes no new brief");
     } else {
-      if (current) throw new Fail(EXIT.PRECONDITION, `a run is ${current.status}: ${current.title} (${current.runId})`, { hint: "task --resume continues it; task --abandon closes it; report closes a finished one" });
+      // A half-prepared run has threads on the server the driver has not
+      // finished recording; settle it before opening another.
+      const preparing = openBefore.find((r) => r.status === "preparing");
+      if (preparing) throw new Fail(EXIT.PRECONDITION, `a run is ${preparing.status}: ${preparing.title} (${preparing.runId})`, { hint: `task --resume --run ${preparing.slug ?? preparing.runId} continues it; task --abandon --run ${preparing.slug ?? preparing.runId} closes it` });
       if (!briefArg && !flags.todo) throw new Fail(EXIT.USAGE, 'usage: task "<brief>" | task --todo T10 [--bead ID] [--title T]');
     }
+    const title = flags.resume ? current.title : flags.title ?? flags.todo ?? briefArg.split("\n")[0].slice(0, 60);
+    const slug = flags.resume ? current.slug : slugify(title);
     // Read-only preconditions (design step 1).
     const fleet = await client.get("/api/bots?messages=0");
     const teamMap = await client.get("/api/team-map");
     const ids = new Set(team.bots.map((b) => b.id));
     const live = (fleet.bots ?? []).filter((b) => ids.has(b.id) || (team.section && b.section === team.section && !b.hidden));
-    const busy = live.filter((b) => b.busy);
-    if (busy.length) throw new Fail(EXIT.PRECONDITION, `bots are working: ${busy.map((b) => b.name).join(", ")}`, { hint: "wait, or interrupt" });
-    const inflight = [...(teamMap.queued ?? []), ...(teamMap.running ?? [])].filter((e) => ids.has(e.sourceBotId) && ids.has(e.targetBotId));
-    if (inflight.length) throw new Fail(EXIT.PRECONDITION, `${inflight.length} delegation(s) queued or running`, { hint: "wait for them to settle" });
-    const check = reconcileCheck(cfg.projectDir, cfg.state.facts);
-    if (!check.clean) throw new Fail(EXIT.PRECONDITION, `the repository is not reconciled: ${check.problems.join("; ")}`, { hint: "run reconcile; a stopped task keeps its worktree until you pass --remove <slug>" });
     const leadLive = live.find((b) => b.id === team.lead.id);
     if (!leadLive) throw new Fail(EXIT.PRECONDITION, `the lead ${team.lead.name} is not on the server`);
+    if (openBefore.length) {
+      // Another run is open, so its bots are expected to be working. Only the
+      // lead has to be free: this dispatch opens its task and sends the brief.
+      if (leadLive.busy) throw new Fail(EXIT.PRECONDITION, `the lead ${leadLive.name} is working`, { hint: `wait for it to go idle; ${openBefore.map(runLabel).join(", ")} ${openBefore.length > 1 ? "are" : "is"} open` });
+    } else {
+      const busy = live.filter((b) => b.busy);
+      if (busy.length) throw new Fail(EXIT.PRECONDITION, `bots are working: ${busy.map((b) => b.name).join(", ")}`, { hint: "wait, or interrupt" });
+      const inflight = [...(teamMap.queued ?? []), ...(teamMap.running ?? [])].filter((e) => ids.has(e.sourceBotId) && ids.has(e.targetBotId));
+      if (inflight.length) throw new Fail(EXIT.PRECONDITION, `${inflight.length} delegation(s) queued or running`, { hint: "wait for them to settle" });
+    }
+    let implementer = flags.resume ? current.implementer ?? null : null;
+    if (!flags.resume) {
+      const clash = openBefore.find((r) => r.slug === slug);
+      if (clash) throw new Fail(EXIT.PRECONDITION, `a run with the slug ${slug} is already open: ${runLabel(clash)}`, { hint: "pass --title to give this task its own name" });
+      const taken = slugTaken(cfg.projectDir, slug);
+      if (taken.length) throw new Fail(EXIT.PRECONDITION, `${taken.join(" and ")} already exists`, { hint: `remove it with reconcile --remove ${slug}, give it to a run with reconcile --claim ${slug} --run <ref>, or pass --title for another name` });
+      implementer = pickImplementer(live, openBefore, { wanted: flags.implementer ?? null, share: flags["share-implementer"] === true });
+    }
+    const check = reconcileCheck(cfg.projectDir, cfg.state.facts, { runs: openBefore });
+    if (!check.clean) throw new Fail(EXIT.PRECONDITION, `the repository is not reconciled: ${check.problems.join("; ")}`, { hint: "run reconcile; a stopped task keeps its worktree until you pass --remove <slug>" });
     const sentSha = git(["rev-parse", "HEAD"], cfg.projectDir);
     if (cfg.dryRun && flags.resume) {
       const toCreate = live.filter((b) => !current.threads?.[b.id] && (!current.freshThreads || taggedTasks(b, current.tag).length !== 1)).map((b) => b.name);
@@ -118,20 +173,25 @@ verb("task", {
     }
     if (cfg.dryRun && !flags.resume) {
       const runId = randomBytes(8).toString("hex"); const tag = tagOf(runId);
-      const title = flags.title ?? flags.todo ?? briefArg.split("\n")[0].slice(0, 60);
-      return { result: { dryRun: true, title, tag, brief: composeBrief({ leadName: team.lead.name, brief: briefArg, todo: flags.todo, bead: flags.bead, facts: cfg.state.facts, tag }), threadsFor: live.map((b) => b.name) } };
+      return { result: { dryRun: true, title, slug, branch: `task/${slug}`, tag, implementer, brief: composeBrief({ leadName: team.lead.name, brief: briefArg, todo: flags.todo, bead: flags.bead, facts: cfg.state.facts, tag, slug, implementer }), threadsFor: openBefore.length ? [team.lead.name] : live.map((b) => b.name) } };
     }
     // Everything from here runs under the lock (design steps 2-4).
     return (async () => {
       let doc = loadState(cfg.paths) ?? initState(cfg.projectDir);
-      let run = flags.resume ? assertOpenRun(doc, current.runId) : openRuns(doc)[0] ?? null;
-      if (flags.resume) { /* assertOpenRun already refused a run another launcher closed */ }
-      else {
-        if (run) throw new Fail(EXIT.PRECONDITION, `a run is ${run.status}: ${run.title}`, { hint: "another launcher started it; task --resume or task --abandon" });
+      // assertOpenRun refuses a run another launcher closed while this command
+      // waited for the lock; for a new run the same wait can have opened one.
+      let run = flags.resume ? assertOpenRun(doc, current.runId) : null;
+      if (!flags.resume) {
+        const moved = openRuns(doc).find((r) => r.slug === slug || r.status === "preparing");
+        if (moved) throw new Fail(EXIT.PRECONDITION, `a run is ${moved.status}: ${moved.title}`, { hint: "another launcher started it; task --resume or task --abandon" });
         const runId = randomBytes(8).toString("hex"); const tag = tagOf(runId);
-        const title = flags.title ?? flags.todo ?? briefArg.split("\n")[0].slice(0, 60);
-        run = { runId, context: runContext(cfg), status: "preparing", slug: slugify(title), title, tag, brief: composeBrief({ leadName: team.lead.name, brief: briefArg, todo: flags.todo, bead: flags.bead, facts: doc.facts, tag }), bead: flags.bead ?? null,
-          sendId: `task-${runId}`, sentAt: null, sentSha, sendReceipt: null, leadThreadId: null, threads: {}, freshThreads: !flags["no-fresh-threads"], createdAt: new Date().toISOString(), nudgedAt: null, lastEval: null };
+        run = { runId, context: runContext(cfg), status: "preparing", slug, title, tag, branch: `task/${slug}`, claimedSlugs: [], implementer,
+          brief: composeBrief({ leadName: team.lead.name, brief: briefArg, todo: flags.todo, bead: flags.bead, facts: doc.facts, tag, slug, implementer }), bead: flags.bead ?? null,
+          sendId: `task-${runId}`, sentAt: null, sentSha, sendReceipt: null, leadThreadId: null, threads: {},
+          // A delegated turn lands on the target's ACTIVE thread (index.ts:3466),
+          // so a later run must leave the specialists' threads where they are or
+          // it would hijack the first run's delegations.
+          freshThreads: !flags["no-fresh-threads"], leadThreadsOnly: openBefore.length > 0, createdAt: new Date().toISOString(), nudgedAt: null, lastEval: null };
         doc.runs[run.runId] = run; doc = commitState(cfg.paths, doc);
       }
       const threadTitle = `${run.title} [${run.tag}]`;
@@ -139,7 +199,7 @@ verb("task", {
       for (const bot of order) {
         if (run.threads[bot.id]) continue;
         let threadId;
-        if (!run.freshThreads) threadId = bot.threadId;
+        if (!run.freshThreads || (run.leadThreadsOnly && bot.id !== leadLive.id)) threadId = bot.threadId;
         else {
           const tagged = taggedTasks(bot, run.tag);
           if (tagged.length > 1) throw new Fail(EXIT.PRECONDITION, `${bot.name} has ${tagged.length} tasks tagged ${run.tag}`, { hint: "delete the extra task in the app, then task --resume" });
@@ -165,8 +225,8 @@ verb("task", {
         run.lastEval = { state: "running", lastChangeAt: run.sentAt, outcomes: [], quietSince: null, lastLeadMessageId: null, cursor: null, lastReported: null };
         doc.runs[run.runId] = run; doc = commitState(cfg.paths, doc);
       }
-      return { result: { runId: run.runId, status: run.status, title: run.title, slug: run.slug, tag: run.tag, leadThreadId: run.leadThreadId, threads: run.threads, sentAt: run.sentAt, sentSha: run.sentSha, sendReceipt: run.sendReceipt, resumed: flags.resume === true, brief: run.brief },
-        brief: `task · ${run.title} · ${run.status} · lead thread ${run.leadThreadId} · ${Object.keys(run.threads).length} fresh thread(s)` };
+      return { result: { runId: run.runId, status: run.status, title: run.title, slug: run.slug, branch: run.branch ?? null, implementer: run.implementer ?? null, tag: run.tag, leadThreadId: run.leadThreadId, threads: run.threads, sentAt: run.sentAt, sentSha: run.sentSha, sendReceipt: run.sendReceipt, openRuns: openRuns(doc).length, resumed: flags.resume === true, brief: run.brief },
+        brief: `task · ${run.title} · ${run.status} · ${run.branch ?? "no branch"}${run.implementer ? ` · @${run.implementer.name}` : ""} · lead thread ${run.leadThreadId}` };
     })();
   }),
 });

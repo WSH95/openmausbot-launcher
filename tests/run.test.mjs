@@ -21,7 +21,7 @@ async function setup(t) {
   return { f, dir, git, team: st.team, lead: st.team.lead, client: createClient({ url: f.url }) };
 }
 
-test("task: preconditions, dispatch with fresh tagged threads, the brief and its marker, then refusal while open", async (t) => {
+test("task: preconditions, dispatch with fresh tagged threads, the brief and its marker, then refusal of a second run with the same name", async (t) => {
   const { f, dir, git, team, lead } = await setup(t);
   const nova = team.bots.find((b) => b.key === "nova");
   await f.control({ op: "activity", botId: nova.id, activity: "working" });
@@ -55,12 +55,12 @@ test("task: preconditions, dispatch with fresh tagged threads, the brief and its
   assert.equal(msgs.length, 1); assert.equal(msgs[0].role, "user"); assert.equal(msgs[0].sendId, `task-${r.json.runId}`);
   const run = loadState(statePaths(dir)).runs[r.json.runId];
   assert.equal(run.status, "dispatched"); assert.equal(run.sentAt, msgs[0].at); assert.equal(run.lastEval.state, "running");
-  r = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
-  assert.equal(r.code, 3); assert.match(r.json.error, /a run is dispatched: T10/);
+  r = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  assert.equal(r.code, 3); assert.match(r.json.error, /slug t10 is already open/); assert.match(r.json.hint, /--title/);
   r = await runOmb(["task", "--project", dir, "--abandon"], { env });
   assert.equal(r.code, 0); assert.deepEqual(loadState(statePaths(dir)).runs, {}); assert.equal(loadState(statePaths(dir)).history[0].result, "abandoned");
   r = await runOmb(["task", "a free-form brief for the lead", "--project", dir], { env });
-  assert.equal(r.code, 0, r.stdout); assert.match(r.json.brief, /^a free-form brief for the lead\n\nWhen the task is finished/); assert.equal(r.json.title, "a free-form brief for the lead");
+  assert.equal(r.code, 0, r.stdout); assert.match(r.json.brief, /^a free-form brief for the lead Use the worktree/); assert.match(r.json.brief, /\n\nWhen the task is finished/); assert.equal(r.json.title, "a free-form brief for the lead");
   await f.control({ op: "newEnvironment" });
   r = await runOmb(["task", "--project", dir, "--resume"], { env });
   assert.equal(r.code, 3); assert.match(r.json.error, /not the one this team was imported on/);
@@ -95,6 +95,71 @@ test("task --resume recovers a crash after preparing, after one thread, and is i
   await updateState(paths, (d) => { d.runs["bbbbbbbb00000000"] = { runId: "bbbbbbbb00000000", status: "preparing", slug: "t13", title: "T13", tag: "oml:bbbbbbbb", brief: "x", sendId: "task-bbbbbbbb00000000", sentAt: null, sentSha: "x", threads: {}, freshThreads: true, leadThreadId: null }; return d; });
   r = await runOmb(["task", "--project", dir, "--resume"], { env });
   assert.equal(r.code, 3); assert.match(r.json.error, /Nova has 2 tasks tagged oml:bbbbbbbb/);
+});
+
+test("task owns .worktrees/<slug> on task/<slug>, says so in the brief, and claims an idle implementer", async (t) => {
+  const { f, dir, git, team } = await setup(t);
+  const nova = team.bots.find((b) => b.key === "nova");
+  let r = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout);
+  assert.equal(r.json.slug, "t10"); assert.equal(r.json.branch, "task/t10");
+  assert.match(r.json.brief, /Use the worktree \.worktrees\/t10 on branch task\/t10 for this task\./);
+  assert.match(r.json.brief, /Use @Nova as the implementer for this task\./);
+  assert.deepEqual(r.json.implementer, { id: nova.id, name: "Nova" });
+  const saved = loadState(statePaths(dir)).runs[r.json.runId];
+  assert.equal(saved.branch, "task/t10"); assert.equal(saved.implementer.name, "Nova");
+  assert.equal((await runOmb(["task", "--project", dir, "--abandon"], { env })).code, 0);
+  // a name the repository already uses belongs to somebody else until it is removed or claimed
+  git("branch", "task/t11");
+  r = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
+  assert.equal(r.code, 3); assert.match(r.json.error, /task\/t11 already exists/); assert.match(r.json.hint, /reconcile --claim t11/);
+  git("branch", "-D", "task/t11");
+  git("worktree", "add", "-q", "-b", "wt-t11", ".worktrees/t11", "main");
+  r = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
+  assert.equal(r.code, 3); assert.match(r.json.error, /\.worktrees\/t11 already exists/);
+  git("worktree", "remove", ".worktrees/t11"); git("branch", "-D", "wt-t11");
+  assert.equal((await runOmb(["task", "--todo", "T11", "--project", dir], { env })).code, 0);
+  // a team with no implementer dispatches without a claim
+  assert.equal((await runOmb(["task", "--project", dir, "--abandon"], { env })).code, 0);
+  await updateState(statePaths(dir), (d) => { d.team.bots = d.team.bots.map((b) => ({ ...b, title: "Generalist" })); return d; });
+  for (const b of await fleet(f)) await fetch(`${f.url}/api/bots/${b.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Generalist" }) });
+  r = await runOmb(["task", "--todo", "T12", "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.implementer, null);
+  assert.equal(/implementer for this task/.test(r.json.brief), false);
+});
+
+test("a second run keeps the lead's threads apart, reuses the specialists' live threads, and claims another implementer", async (t) => {
+  const { f, dir, team, lead } = await setup(t);
+  const nova = team.bots.find((b) => b.key === "nova");
+  const a = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  assert.equal(a.code, 0, a.stdout);
+  const vex = (await f.control({ op: "bot", name: "Vex", title: "Implementer", section: team.section })).bot;
+  // A's implementer is at work: a second dispatch may not wait for the whole team to be idle
+  await f.control({ op: "activity", botId: nova.id, activity: "working" });
+  const b = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
+  assert.equal(b.code, 0, b.stdout + b.stderr);
+  assert.equal(b.json.implementer.name, "Vex", "Nova is claimed by T10");
+  assert.notEqual(b.json.leadThreadId, a.json.leadThreadId, "each run has its own lead thread");
+  assert.equal(b.json.threads[nova.id], a.json.threads[nova.id], "a later run never opens a fresh specialist thread: delegations land on the target's active one");
+  assert.equal(b.json.threads[vex.id], (await fleet(f)).find((x) => x.id === vex.id).threadId);
+  const bots = await fleet(f);
+  assert.equal(bots.find((x) => x.id === lead.id).threadId, b.json.leadThreadId, "the lead's newest task is the active one");
+  assert.equal(bots.find((x) => x.id === nova.id).tasks.length, 2, "Nova kept the two tasks it had, and got no third");
+  const st = loadState(statePaths(dir));
+  assert.deepEqual(Object.keys(st.runs).sort(), [a.json.runId, b.json.runId].sort());
+  // a claimed implementer is refused by name unless the user insists
+  await f.control({ op: "activity", botId: nova.id, activity: "idle" });
+  let r = await runOmb(["task", "--todo", "T12", "--implementer", "Nova", "--project", dir], { env });
+  assert.equal(r.code, 3); assert.match(r.json.error, /Nova is the implementer of t10/); assert.match(r.json.hint, /--share-implementer/);
+  r = await runOmb(["task", "--todo", "T12", "--implementer", "Nova", "--share-implementer", "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.implementer.name, "Nova");
+  assert.equal((await runOmb(["task", "--todo", "T13", "--project", dir], { env })).code, 3, "no implementer is free for a fourth run");
+  r = await runOmb(["task", "--todo", "T13", "--project", dir], { env });
+  assert.match(r.json.error, /implementer/); assert.match(r.json.hint, /create/);
+  // the lead must still be free to take a brief
+  await f.control({ op: "activity", botId: lead.id, activity: "working" });
+  r = await runOmb(["task", "--todo", "T14", "--implementer", "Vex", "--share-implementer", "--project", dir], { env });
+  assert.equal(r.code, 3); assert.match(r.json.error, /the lead Sudo is working/);
 });
 
 test("send: the run thread, deterministic dedupe, no retargeting on a stale thread, queued while busy", async (t) => {

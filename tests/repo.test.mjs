@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { makeRepo, runOmb, sleep } from "./helpers.mjs";
-import { ensureExclude, statePaths, updateState } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
+import { ensureExclude, statePaths, updateState, loadState } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
 import { scanOrphans } from "../skills/openmausbot-launcher/scripts/lib/proc.mjs";
 import { defaultBranchInfo } from "../skills/openmausbot-launcher/scripts/lib/git.mjs";
 
@@ -20,7 +20,7 @@ test("reconcile: clean root, then a task worktree, a task branch, a dirty file, 
   r = await runOmb(["reconcile", "--project", dir], { env });
   assert.equal(r.code, 3); assert.equal(r.json.clean, false);
   assert.equal(r.json.worktrees.length, 2); assert.deepEqual(r.json.taskBranches, ["task/t1"]);
-  assert.match(r.json.problems.join(" "), /1 extra worktree/); assert.match(r.json.problems.join(" "), /task branches remain: task\/t1/);
+  assert.match(r.json.problems.join(" "), /1 extra worktree/); assert.match(r.json.problems.join(" "), /task branches with no owner: task\/t1/);
   fs.writeFileSync(path.join(dir, "stray.txt"), "x");
   r = await runOmb(["reconcile", "--project", dir, "--brief"], { env });
   assert.match(r.stdout, /modified or untracked/);
@@ -41,6 +41,34 @@ test("reconcile: clean root, then a task worktree, a task branch, a dirty file, 
   assert.equal(r.code, 2, "the never-read --check flag is gone"); assert.match(r.json.error, /^Unknown option '--check'/);
   const proc = await import("../skills/openmausbot-launcher/scripts/lib/proc.mjs");
   assert.deepEqual(Object.keys(proc).sort(), ["killOrphan", "scanOrphans"]);
+});
+
+test("reconcile matches each worktree to the run that owns it and claims an orphan for a run", async () => {
+  const { dir, git } = makeRepo();
+  ensureExclude(dir, [".worktrees/", ".omb/"]);
+  await updateState(statePaths(dir), (d) => { d.runs.run1 = { runId: "run1", status: "dispatched", slug: "t1", branch: "task/t1", title: "T1", createdAt: "2026-09-16T01:00:00.000Z" }; return d; });
+  git("worktree", "add", "-q", "-b", "task/t1", ".worktrees/t1", "main");
+  let r = await runOmb(["reconcile", "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.clean, true, "the open run's own worktree is not a leftover");
+  assert.deepEqual(r.json.openRuns, [{ runId: "run1", slug: "t1", status: "dispatched", branch: "task/t1" }]);
+  assert.equal(r.json.worktrees.find((w) => w.slug === "t1").run, "run1");
+  assert.equal(r.json.worktrees[0].run, null, "the root belongs to no run");
+  git("worktree", "add", "-q", "-b", "task/stray", ".worktrees/stray", "main");
+  r = await runOmb(["reconcile", "--project", dir], { env });
+  assert.equal(r.code, 3); assert.match(r.json.problems.join(" "), /with no owner/);
+  assert.match(r.json.unownedWorktrees.join(" "), /stray/);
+  r = await runOmb(["reconcile", "--project", dir, "--claim", "stray", "--dry-run"], { env });
+  assert.equal(r.code, 3, "nothing was claimed, so the leftover still has no owner"); assert.equal(r.json.claimed[0].dryRun, true);
+  assert.equal(loadState(statePaths(dir)).runs.run1.claimedSlugs, undefined, "a dry run claims nothing");
+  r = await runOmb(["reconcile", "--project", dir, "--claim", "stray", "--run", "t1"], { env });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.clean, true);
+  assert.deepEqual(loadState(statePaths(dir)).runs.run1.claimedSlugs, ["stray"]);
+  assert.equal(r.json.worktrees.find((w) => w.slug === "stray").run, "run1");
+  r = await runOmb(["reconcile", "--project", dir, "--claim", "nothing-here"], { env });
+  assert.equal(r.code, 3); assert.match(r.json.error, /nothing named nothing-here/);
+  await updateState(statePaths(dir), (d) => { d.runs.run2 = { runId: "run2", status: "dispatched", slug: "t2", title: "T2", createdAt: "2026-09-16T02:00:00.000Z" }; return d; });
+  r = await runOmb(["reconcile", "--project", dir, "--claim", "stray"], { env });
+  assert.equal(r.code, 3); assert.match(r.json.error, /2 runs are open; pass --run/);
 });
 
 test("reconcile honours the default branch from Project facts", async () => {

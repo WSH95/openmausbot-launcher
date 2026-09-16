@@ -34,14 +34,34 @@ test("reconcileCheck reports the branch, the default branch, worktrees, task bra
   const { dir, git } = makeRepo();
   fs.appendFileSync(path.join(dir, ".git", "info", "exclude"), ".worktrees/\n");
   let c = reconcileCheck(dir, null);
-  assert.deepEqual({ ...c, worktrees: c.worktrees.map((w) => w.branch) }, { clean: true, branch: "main", defaultBranch: "main", defaultBranchSource: "main", worktrees: ["main"], taskBranches: [], dirty: [], problems: [] });
+  assert.deepEqual({ ...c, worktrees: c.worktrees.map((w) => w.branch) }, { clean: true, branch: "main", defaultBranch: "main", defaultBranchSource: "main", worktrees: ["main"], taskBranches: [], dirty: [], problems: [], unownedWorktrees: [], unownedBranches: [] });
   git("worktree", "add", "-q", "-b", "task/t1", ".worktrees/t1", "main");
   fs.writeFileSync(path.join(dir, "stray.txt"), "x");
   git("switch", "-q", "-c", "other");
   c = reconcileCheck(dir, { defaultBranch: "main" });
   assert.equal(c.clean, false); assert.equal(c.branch, "other"); assert.deepEqual(c.taskBranches, ["task/t1"]); assert.deepEqual(c.dirty, ["?? stray.txt"]);
   assert.equal(c.worktrees.length, 2); assert.equal(c.worktrees[1].path, fs.realpathSync(path.join(dir, ".worktrees", "t1"))); assert.equal(c.worktrees[1].branch, "task/t1"); assert.match(c.worktrees[1].head, /^[0-9a-f]{40}$/);
-  assert.deepEqual(c.problems, ["the root is on other, not main", `1 extra worktree(s): ${c.worktrees[1].path}`, "task branches remain: task/t1", "1 modified or untracked path(s)"]);
+  assert.deepEqual(c.problems, ["the root is on other, not main", `1 extra worktree(s) with no owner: ${c.worktrees[1].path}`, "task branches with no owner: task/t1", "1 modified or untracked path(s)"]);
+  assert.equal(c.worktrees[1].slug, "t1"); assert.equal(c.worktrees[1].run, null);
+  assert.deepEqual(c.unownedWorktrees, [c.worktrees[1].path]); assert.deepEqual(c.unownedBranches, ["task/t1"]);
+});
+
+test("a worktree and a branch an open run owns by name are not problems; anything else still is", () => {
+  const { dir, git } = makeRepo();
+  fs.appendFileSync(path.join(dir, ".git", "info", "exclude"), ".worktrees/\n");
+  git("worktree", "add", "-q", "-b", "task/t1", ".worktrees/t1", "main");
+  git("worktree", "add", "-q", "-b", "task/t2", ".worktrees/t2", "main");
+  const runs = [{ runId: "run1", slug: "t1", branch: "task/t1", status: "dispatched" }];
+  let c = reconcileCheck(dir, null, { runs });
+  assert.equal(c.clean, false, "t2 belongs to nobody");
+  assert.deepEqual(c.unownedWorktrees, [c.worktrees.find((w) => w.slug === "t2").path]);
+  assert.deepEqual(c.unownedBranches, ["task/t2"]);
+  assert.equal(c.worktrees.find((w) => w.slug === "t1").run, "run1");
+  assert.deepEqual(c.taskBranches, ["task/t1", "task/t2"], "the raw list still names every task branch");
+  c = reconcileCheck(dir, null, { runs: [...runs, { runId: "run2", slug: "other", claimedSlugs: ["t2"], status: "dispatched" }] });
+  assert.equal(c.clean, true, "a claimed slug is owned");
+  assert.equal(c.worktrees.find((w) => w.slug === "t2").run, "run2");
+  assert.equal(reconcileCheck(dir, null).clean, false, "with no runs to match, both are unowned again");
 });
 
 test("removeTask never forces: a worktree holding an untracked file and its checked-out branch both survive", () => {

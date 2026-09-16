@@ -57,19 +57,36 @@ export function dirtyEntries(cwd) {
   return out ? out.split("\n").filter(Boolean) : [];
 }
 
-/** The root check the lead's playbook uses between tasks. */
-export function reconcileCheck(cwd, facts) {
+/**
+ * The root check the lead's playbook uses between tasks. A run owns
+ * `.worktrees/<slug>` on `task/<slug>` for as long as it is open, so with
+ * `runs` passed in, those are not leftovers; anything else in `.worktrees/` or
+ * on a `task/` branch has no owner and blocks the next dispatch.
+ */
+export function reconcileCheck(cwd, facts, { runs = [] } = {}) {
   const branch = currentBranch(cwd);
   const { branch: def, source } = defaultBranchInfo(cwd, facts);
-  const trees = worktrees(cwd);
   const branches = taskBranches(cwd);
   const dirty = dirtyEntries(cwd);
+  const owner = new Map();
+  for (const run of runs) for (const slug of [run.slug, ...(run.claimedSlugs ?? [])]) if (slug && !owner.has(slug)) owner.set(slug, run);
+  const trees = worktrees(cwd).map((t, i) => (i === 0 ? { ...t, slug: null, run: null } : { ...t, slug: path.basename(t.path), run: owner.get(path.basename(t.path))?.runId ?? null }));
+  const unownedWorktrees = trees.slice(1).filter((t) => !t.run).map((t) => t.path);
+  const unownedBranches = branches.filter((b) => !owner.has(b.replace(/^task\//, "")));
   const problems = [];
   if (branch !== def) problems.push(`the root is on ${branch || "a detached HEAD"}, not ${def}`);
-  if (trees.length !== 1) problems.push(`${trees.length - 1} extra worktree(s): ${trees.slice(1).map((t) => t.path).join(", ")}`);
-  if (branches.length) problems.push(`task branches remain: ${branches.join(", ")}`);
+  if (unownedWorktrees.length) problems.push(`${unownedWorktrees.length} extra worktree(s) with no owner: ${unownedWorktrees.join(", ")}`);
+  if (unownedBranches.length) problems.push(`task branches with no owner: ${unownedBranches.join(", ")}`);
   if (dirty.length) problems.push(`${dirty.length} modified or untracked path(s)`);
-  return { clean: problems.length === 0, branch, defaultBranch: def, defaultBranchSource: source, worktrees: trees, taskBranches: branches, dirty, problems };
+  return { clean: problems.length === 0, branch, defaultBranch: def, defaultBranchSource: source, worktrees: trees, taskBranches: branches, dirty, problems, unownedWorktrees, unownedBranches };
+}
+
+/** Does this repository already have the worktree or the branch a slug names? */
+export function slugTaken(cwd, slug) {
+  const taken = [];
+  if (worktrees(cwd).some((t) => path.basename(t.path) === slug)) taken.push(`.worktrees/${slug}`);
+  if (taskBranches(cwd).includes(`task/${slug}`)) taken.push(`task/${slug}`);
+  return taken;
 }
 
 /** Remove one task worktree and its branch, never with --force on the worktree. */
