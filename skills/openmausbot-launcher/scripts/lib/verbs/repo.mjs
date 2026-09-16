@@ -4,7 +4,7 @@ import { verb, EXIT, Fail, VERBS } from "../cli.mjs";
 import { resolveConfig } from "../config.mjs";
 import { reconcileCheck, removeTask } from "../git.mjs";
 import { loadState, updateState, assertOpenRun } from "../state.mjs";
-import { openRuns, selectRun } from "../runs.mjs";
+import { openRuns, selectRun, runLabel } from "../runs.mjs";
 import { scanOrphans, killOrphan } from "../proc.mjs";
 
 export const DEFAULT_ORPHAN_PATTERN = "codex-linux-sandbox";
@@ -33,6 +33,10 @@ verb("reconcile", {
       if (cfg.dryRun) { claimed.push({ slug, run: run.runId, dryRun: true }); continue; }
       await updateState(cfg.paths, (d) => {
         const live = assertOpenRun(d, run.runId);
+        // One owner per slug: two runs answering for one worktree is how
+        // ownership flips when the first of them closes.
+        const held = openRuns(d).find((r) => r.runId !== run.runId && (r.slug === slug || (r.claimedSlugs ?? []).includes(slug)));
+        if (held) throw new Fail(EXIT.PRECONDITION, `${slug} already belongs to ${runLabel(held)}`, { hint: "a slug has one owner: remove it with --remove, or claim it for that run" });
         if (live.slug !== slug && !(live.claimedSlugs ?? []).includes(slug)) live.claimedSlugs = [...(live.claimedSlugs ?? []), slug];
         return d;
       });

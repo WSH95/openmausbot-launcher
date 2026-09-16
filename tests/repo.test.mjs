@@ -64,6 +64,16 @@ test("reconcile matches each worktree to the run that owns it and claims an orph
   assert.equal(r.code, 0, r.stdout); assert.equal(r.json.clean, true);
   assert.deepEqual(loadState(statePaths(dir)).runs.run1.claimedSlugs, ["stray"]);
   assert.equal(r.json.worktrees.find((w) => w.slug === "stray").run, "run1");
+  r = await runOmb(["reconcile", "--project", dir, "--claim", "stray", "--run", "t1"], { env });
+  assert.equal(r.code, 0, "claiming the same slug for the same run again changes nothing");
+  assert.deepEqual(loadState(statePaths(dir)).runs.run1.claimedSlugs, ["stray"]);
+  await updateState(statePaths(dir), (d) => { d.runs.run9 = { runId: "run9", status: "dispatched", slug: "t9", title: "T9", createdAt: "2026-09-16T03:00:00.000Z" }; return d; });
+  r = await runOmb(["reconcile", "--project", dir, "--claim", "stray", "--run", "t9"], { env });
+  assert.equal(r.code, 3, r.stdout); assert.match(r.json.error, /stray already belongs to t1/);
+  r = await runOmb(["reconcile", "--project", dir, "--claim", "t1", "--run", "t9"], { env });
+  assert.equal(r.code, 3, r.stdout); assert.match(r.json.error, /t1 already belongs to t1/, "a run's own slug is not claimable by another");
+  assert.deepEqual(loadState(statePaths(dir)).runs.run9.claimedSlugs, undefined);
+  await updateState(statePaths(dir), (d) => { delete d.runs.run9; return d; });
   r = await runOmb(["reconcile", "--project", dir, "--claim", "nothing-here"], { env });
   assert.equal(r.code, 3); assert.match(r.json.error, /nothing named nothing-here/);
   await updateState(statePaths(dir), (d) => { d.runs.run2 = { runId: "run2", status: "dispatched", slug: "t2", title: "T2", createdAt: "2026-09-16T02:00:00.000Z" }; return d; });

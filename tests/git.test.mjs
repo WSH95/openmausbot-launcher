@@ -64,6 +64,27 @@ test("a worktree and a branch an open run owns by name are not problems; anythin
   assert.equal(reconcileCheck(dir, null).clean, false, "with no runs to match, both are unowned again");
 });
 
+test("a run owns the exact pair .worktrees/<slug> on task/<slug>, and nothing that merely looks like it", () => {
+  const { dir, git } = makeRepo();
+  fs.appendFileSync(path.join(dir, ".git", "info", "exclude"), ".worktrees/\n");
+  git("worktree", "add", "-q", "-b", "task/t1", ".worktrees/t1", "main");
+  const elsewhere = path.join(tmpDir("oml-wt-elsewhere-"), "t2");
+  git("worktree", "add", "-q", "-b", "task/t2", elsewhere, "main");
+  git("worktree", "add", "-q", "-b", "wip/t3", ".worktrees/t3", "main");
+  const runs = [{ runId: "r1", slug: "t1", branch: "task/t1", status: "dispatched" },
+    { runId: "r2", slug: "t2", branch: "task/t2", status: "dispatched" },
+    { runId: "r3", slug: "t3", branch: "task/t3", status: "dispatched" }];
+  const c = reconcileCheck(dir, null, { runs });
+  const byName = (slug) => c.worktrees.find((w) => w.slug === slug);
+  assert.equal(byName("t1").run, "r1");
+  assert.equal(byName("t2").run, null, "the right name in the wrong place is not this run's worktree");
+  assert.equal(byName("t3").run, null, "the right place on the wrong branch is not either");
+  assert.deepEqual(c.unownedWorktrees.map((p) => path.basename(p)).sort(), ["t2", "t3"]);
+  assert.deepEqual(c.unownedBranches, ["task/t2"], "the branch a run recorded is only its own where its worktree is");
+  assert.equal(c.clean, false);
+  assert.match(c.problems.join(" "), /with no owner/);
+});
+
 test("removeTask never forces: a worktree holding an untracked file and its checked-out branch both survive", () => {
   const { dir, git } = makeRepo();
   fs.appendFileSync(path.join(dir, ".git", "info", "exclude"), ".worktrees/\n");

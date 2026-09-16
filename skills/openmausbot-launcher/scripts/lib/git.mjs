@@ -1,4 +1,5 @@
 // Git helpers: reconcile checks and task worktree removal.
+import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
@@ -68,11 +69,29 @@ export function reconcileCheck(cwd, facts, { runs = [] } = {}) {
   const { branch: def, source } = defaultBranchInfo(cwd, facts);
   const branches = taskBranches(cwd);
   const dirty = dirtyEntries(cwd);
+  // A run owns one exact pair: `.worktrees/<slug>` checked out on its branch.
+  // Matching the name alone would adopt a worktree of the same name somewhere
+  // else, or one in the right place on a different branch, and call a malformed
+  // leftover clean.
   const owner = new Map();
-  for (const run of runs) for (const slug of [run.slug, ...(run.claimedSlugs ?? [])]) if (slug && !owner.has(slug)) owner.set(slug, run);
-  const trees = worktrees(cwd).map((t, i) => (i === 0 ? { ...t, slug: null, run: null } : { ...t, slug: path.basename(t.path), run: owner.get(path.basename(t.path))?.runId ?? null }));
+  for (const run of runs) {
+    const pairs = [[run.slug, run.branch ?? (run.slug ? `task/${run.slug}` : null)], ...(run.claimedSlugs ?? []).map((s) => [s, `task/${s}`])];
+    for (const [slug, branch] of pairs) if (slug && branch && !owner.has(slug)) owner.set(slug, { run, branch });
+  }
+  const expectedPath = (slug) => {
+    const p = path.join(cwd, ".worktrees", slug);
+    try { return [p, fs.realpathSync(p)]; } catch { return [p]; }
+  };
+  const ownerOf = (t) => {
+    const slug = path.basename(t.path);
+    const want = owner.get(slug);
+    if (!want || t.branch !== want.branch) return null;
+    return expectedPath(slug).includes(t.path) ? want.run.runId : null;
+  };
+  const trees = worktrees(cwd).map((t, i) => (i === 0 ? { ...t, slug: null, run: null } : { ...t, slug: path.basename(t.path), run: ownerOf(t) }));
+  const owned = new Set(trees.filter((t) => t.run).map((t) => t.branch));
   const unownedWorktrees = trees.slice(1).filter((t) => !t.run).map((t) => t.path);
-  const unownedBranches = branches.filter((b) => !owner.has(b.replace(/^task\//, "")));
+  const unownedBranches = branches.filter((b) => !owned.has(b));
   const problems = [];
   if (branch !== def) problems.push(`the root is on ${branch || "a detached HEAD"}, not ${def}`);
   if (unownedWorktrees.length) problems.push(`${unownedWorktrees.length} extra worktree(s) with no owner: ${unownedWorktrees.join(", ")}`);
