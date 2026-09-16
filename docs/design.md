@@ -52,7 +52,10 @@ against the 0.1.56 source and folded in below:
    those three hosts is still unverified.
 3. **Topology: same machine.** OpenClaw gateway and OMB on the workstation:
    loopback, no pairing. Remote is a token in the environment or a 0600
-   file, tested against the fake server only; the `pair` verb is deferred.
+   file. *Closed 2026-09-16:* the `pair` verb (bead `oml-xnn`) writes that
+   file, so a remote host no longer needs a hand-written `curl`; it is
+   covered against the contract fake, and the first run over Tailscale is
+   what will make it evidence.
 4. **Team packages are supplied inputs.** `dev-team.openmaus.json` is an
    external test configuration. The launcher has no required package path,
    release, roster, or bot names. Import reads the chosen package, selects
@@ -108,8 +111,10 @@ resettable idle watchdog (45 s without a frame aborts and reconnects).
 
 **Configuration** (first wins): URL `--url` > state `server.url` > `OMB_URL`
 > `http://127.0.0.1:8799`; token `OMB_TOKEN` >
-`~/.config/openmausbot-launcher/tokens.json[url]` (0600; no `--token` flag,
-so no credential lands in argv or a transcript); data dir `--data-dir` >
+`~/.config/openmausbot-launcher/tokens.json[origin]` (0600; no `--token`
+flag, so no credential lands in argv or a transcript). `pair` is the only
+writer of that table, and `OMB_TOKEN_FILE` moves it; every other verb only
+reads it, and a token it did not need never fails a command. Data dir `--data-dir` >
 state > `OMB_DATA_DIR` > `~/.openmausbot`; binary `OMB_BIN` (path to
 `cli.js` or `openmausbot`) > `openmausbot` on PATH; project `--project` >
 `OMB_PROJECT` > nearest git root above cwd; state `--state` > `OMB_STATE` >
@@ -162,10 +167,10 @@ is needed; 6 stalled or failed.
 | `state` | `--show` | read the state | file |
 | `pair` | `--code XXXX-XXXX-XXXX [--label NAME] [--replace]` | exchanges a pairing code minted on the server (`openmausbot pair [--label NAME] [--client]`) for this launcher's session token. The whole preflight runs before any request, so a refusal never spends a single-use five-minute code: `--code` required, the token file 0600 and a JSON object, and no entry for this origin unless `--replace`. The exchange carries a random 16-hex `attemptId`, and a lost answer is retried exactly once with that same id, which the server replays within 60 s rather than spending a second code (`sessions.ts:31-35`). 415, 401 and 429 are reported in the server's own words, exit 3. The token is written under `tokens.json.lock` (`O_EXCL`, 2 s): the table is re-read inside the lock, written to a temp file, fsynced and renamed 0600 in a 0700 directory. It is never printed, logged, passed in argv, or put in the state file | `POST /api/auth/pair` (`index.ts:7318-7341`, `sessions.ts:269-303`) |
 
-Deferred to v2: `pair` (documented as `openmausbot pair` plus one `curl`
-into the 0600 token file), `send --room` (the rule is never to drive the
-lead from the room), `state --set`, macOS lifecycle, connector, credential,
-skill and routine requests in `answer`.
+Deferred to v2: `send --room` (the rule is never to drive the lead from the
+room), `state --set`, macOS lifecycle, connector, credential, skill and
+routine requests in `answer`. `pair` was deferred in v1 and landed on
+2026-09-16.
 
 ### Task lifecycle (`task`)
 

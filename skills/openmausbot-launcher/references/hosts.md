@@ -121,12 +121,12 @@ right:
   Its terminal backend is `local` with no sandbox, so the driver behaves as
   it does in a plain shell; export `OMB_BIN` in the launching shell.
 
-Inside the OpenClaw sandbox the driver reports a blocked socket the way it
-reports a dead server: `status` exits 1 with `cannot reach
-http://127.0.0.1:<port>: EPERM` and names the sandbox, but `doctor
---server` prints `nothing answers at http://127.0.0.1:<port>` because its
-health probe turns the network error into null. Read that line as "blocked
-or dead", and escalate before concluding the server is gone.
+Inside the OpenClaw sandbox the driver names a blocked socket for what it
+is: `status` exits 1 with `cannot reach http://127.0.0.1:<port>: EPERM` and
+names the sandbox, and since 2026-09-16 `doctor --server` says the same in
+its `health` check and carries the same hint. Only `ECONNREFUSED` reads as
+`nothing answers at <url> (ECONNREFUSED)`, which is a server that is not
+running.
 
 ## Phone mode with OpenClaw on the same machine (verified 2026-09-16)
 
@@ -211,18 +211,26 @@ The driver on another machine can only `import --adopt`, `status`, `watch`,
 `send`, `answer`, and `interrupt`; everything else needs the project
 checkout or the data dir. On the OpenMausBot machine:
 `openmausbot serve --tailscale` (or `--tunnel` after `openmausbot login`),
-then `openmausbot pair --label openclaw` and exchange the code once:
+then `openmausbot pair --label openclaw` — which mints the code on the port
+it serves, 8799 unless `--port 8899` says otherwise. Exchange it once from
+the other machine:
 
 ```sh
-curl -s -X POST https://<host>/api/auth/pair -H 'content-type: application/json' \
-  -d '{"code":"XXXX-XXXX-XXXX","label":"openclaw"}'
+<skill>/scripts/omb.mjs pair --code XXXX-XXXX-XXXX --label openclaw \
+  --url https://<host>
 ```
 
-Put the returned token into `~/.config/openmausbot-launcher/tokens.json`
-(mode 0600) as `{"https://<host>": "omb_sess_…"}`, or export `OMB_TOKEN`
-for one call; never put it on a command line. A client-scope session
-(`pair --client`) can send, answer, watch, and open tasks but not import,
-bind, or change models. A bearer token also wins over loopback trust, so
+That writes `~/.config/openmausbot-launcher/tokens.json` (mode 0600, in a
+0700 directory) keyed by the origin, and prints the session's label, scopes
+and expiry but never the token. A code is single use and lives five minutes;
+if the answer is lost in transit the verb retries once with the same attempt
+id, which the server replays rather than spending a second code. Pass
+`--replace` to overwrite an origin already in the table, after revoking the
+old session with `openmausbot sessions`. `OMB_TOKEN` still works for one
+call; never put a token on a command line. A client-scope session
+(`openmausbot pair --client`) can send, answer, watch, and open tasks but
+not import, bind, or change models — it is refused with `forbidden: this
+session lacks the admin scope`. A bearer token also wins over loopback trust, so
 `doctor` warns when `OMB_TOKEN` is set on a loopback URL. Prefer running
 the driver on the OpenMausBot machine through an OpenClaw node, or an SSH
 tunnel to loopback, which needs no token; pass `--remote` when the driver

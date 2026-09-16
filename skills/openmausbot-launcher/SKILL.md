@@ -193,7 +193,9 @@ only when the user says so, with `reconcile --remove <slug>`.
 - Never retarget a message to a different thread on a 409; the driver
   reports the active thread and waits for an explicit `--thread`.
 - Tokens live only in `OMB_TOKEN` or the 0600 token file, never in a
-  command line or a message.
+  command line or a message. For a remote server, `pair --code XXXX-XXXX-XXXX
+  --url https://host` mints that file entry from a code the owner made with
+  `openmausbot pair`; the file is 0600 and the token is never printed.
 - Never delete or replace `.omb/lock.sqlite` to clear a busy writer. For
   the legacy `.omb/lock` upgrade refusal, stop every launcher command and
   automation, update every installed copy, then remove only the legacy

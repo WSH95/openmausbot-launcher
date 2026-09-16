@@ -23,7 +23,13 @@ else needs `admin` — team import, `PATCH /api/bots/:id/model`,
 `access-control-allow-*` header (no CORS anywhere in `server/`), the server
 binds loopback, and remote reach is `--tailscale`, `--tunnel`, a reverse
 proxy behind `--public-url`, or an SSH tunnel (`cli.ts:113-136`); a proxied
-request without a session is refused 403 (`request-auth.ts:381`). On the
+request without a session is refused 403 (`request-auth.ts:381`). The four
+refusals the driver reports verbatim: 403 `forbidden: this session lacks the
+admin scope` (`request-auth.ts:346`); 401 `unauthorized: this session has
+expired or was revoked; pair this device again` for an unknown or expired
+bearer (`:375`); 403 `forbidden: this request came through a proxy (pair this
+device to use the server remotely)` (`:378`); 403 `forbidden: loopback host
+required (pair this device to use the server remotely)` (`:381`). On the
 packaged desktop build every mutating public route from outside the app is
 refused 403 `forbidden: this change must come from the desktop app or a
 paired device` (`request-auth.ts:293-309,364-370`); reads still work.
@@ -35,6 +41,12 @@ paired device` (`request-auth.ts:293-309,364-370`); reads still work.
 | `GET /api/health` | — | `{app:"openmausbot", pid, static}` (`index.ts:11363-11365`) | — |
 | `GET /.well-known/openmausbot/environment` | — (public, no auth: `index.ts:7315`) | `{environmentId, label, platform, version, capabilities{remoteSessions, selfUpdate}}` (`environment.ts:116-128`) | — |
 | `GET /api/auth/session` | — | loopback: `{kind:"loopback", scopes, environmentId}`; paired: `{kind:"session", id, label, scopes, expiresAt, via, environmentId}` (`index.ts:7362-7378`) | — |
+| `POST /api/auth/pair` | `{code, label?, attemptId?, cookie?}` — **public, before the auth gate** (`index.ts:7318-7341`) | 200 `{token, session{id,label,scopes,createdAt,lastSeenAt,expiresAt}, environment}`; the token is `omb_sess_` + 43 base64url characters and only its sha256 is stored (`sessions.ts:288`) | 415 `send the pairing code as JSON (content-type: application/json)` for any other content type, so a cross-site form cannot plant a session (`index.ts:7322-7324`); 401 `pairing code is wrong or has expired; create a new one on the server`, which also counts toward the lockout (`sessions.ts:283-286`); 429 `too many failed pairing attempts from your address; try again in ${seconds}s` after 10 failures from one source in 60 s, locked for 60 s (`sessions.ts:29,240-262,278-281`) |
+| `POST /api/auth/pairing` | `{label?, scopes?: ("admin"\|"client")[]}`; no scopes means both (`sessions.ts:209`) | 200 `{id, code, expiresAt, url\|null, hint\|null}`; the code is 12 symbols from a 32-symbol alphabet with no `0O1I`, presented `XXXX-XXXX-XXXX` and normalized on receipt, so it may be typed as read out (`sessions.ts:19-20,110-121`) | admin only |
+| `GET /api/auth/pairing` | — | 200 `{pairings:[{id,label,scopes,createdAt,expiresAt}]}` — open codes, never the codes themselves (`index.ts:7406`, `sessions.ts:223-226`) | admin only |
+| `DELETE /api/auth/pairing/:id` | — | 200 `{ok:true}` (`index.ts:7407-7411`) | 404 `no such pairing code`; admin only |
+| `GET /api/auth/sessions` | — | 200 `{sessions:[{id,label,scopes,createdAt,lastSeenAt,expiresAt}], current}` (`index.ts:7412-7414`) | admin only |
+| `DELETE /api/auth/sessions/:id` | — | 200 `{ok:true}`; the token stops authenticating at once (`index.ts:7415-7420`, `sessions.ts:334-340`) | 404 `no such session`; admin only |
 | `GET /api/instances` | — | `{instances:[{instanceId, driverKind, displayName, snapshot, models{default, options}, capabilities{effortLevels}, access}]}` (`index.ts:11408-11414`) | admin only |
 | `GET /api/bots?messages=0` | — | `{bots, groups, computerControl}`; each bot: id, name, title, description, section, threadId, busy, activity, cwd, approvalMode, modelSelection, chiefOfStaff, hidden, notifications, `tasks[]`, plus a message page (`index.ts:8623-8636`, `1456-1461`, `1157-1169`) | 400 `messages must be a non-negative whole number` |
 | `GET /api/team-map` | — | `{collaborations, queued:[{sourceBotId,targetBotId,reason}], running:[{sourceBotId,targetBotId,threadId,groupId?}]}`; hidden bots omitted (`index.ts:8407-8435`) | — |
@@ -197,7 +209,15 @@ all answer modes before posting; the fake models the real staged protocol.
   (`cli.ts:113-136`). Other commands: `pair [--label NAME] [--client]`,
   `sessions [revoke ID]`, `status`, `login`, `logout` (`cli.ts:64,115-127`).
 - `--no-pair` suppresses only the pairing link and QR code printed at start
-  (`cli.ts:503-508`); `openmausbot pair` still mints codes afterwards.
+  (`cli.ts:503-508`); `openmausbot pair` still mints codes afterwards. It
+  mints on the port it serves, 8799 by default (`cli.ts:73-74`, `223-229`),
+  and the launcher's `pair --code …` is what exchanges the code.
+- Pairing lifetimes: a code lives 5 minutes and is single use — the exchange
+  splices it out (`sessions.ts:21,286`); a session lives 30 days
+  (`sessions.ts:22`). A consumed code presented again with the **same**
+  `attemptId` (`/^[\w-]{8,64}$/`) inside 60 s returns the identical answer,
+  which is how a lost response is recovered without burning a second code
+  (`sessions.ts:31-35,273-276,302`).
 - Defaults: port `OMB_PORT` or 8799, data dir `OMB_DATA_DIR` or
   `~/.openmausbot` (`cli.ts:73-74`). `OMB_ASK_BOT_TIMEOUT_MS` sets the
   server-wide ask window (`index.ts:2193`).
