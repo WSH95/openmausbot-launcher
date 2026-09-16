@@ -394,6 +394,11 @@ test("every run-scoped verb asks which run when two are open, and interrupt says
   assert.equal(r.code, 3, r.stdout); assert.match(r.json.error, /switched tasks before it could be interrupted/);
   assert.match(r.json.hint, /wait for the lead to go idle, then task --abandon --run t10/);
   assert.equal((await runOmb(["interrupt", "--run", "t11", "--project", dir], { env })).code, 0, "the active thread is reachable");
+  // a closed run is history: it is reported, not spoken to
+  assert.equal((await runOmb(["task", "--abandon", "--run", "t10", "--project", dir], { env })).code, 0);
+  const closed = await runOmb(["send", "hello again", "--run", "t10", "--project", dir], { env });
+  assert.equal(closed.code, 3, closed.stdout); assert.match(closed.json.error, /run t10 is closed/); assert.match(closed.json.hint, /report --run/);
+  assert.equal((await runOmb(["report", "--run", "t10", "--project", dir, "--no-tests"], { env })).code, 0, "but report still reads it");
 });
 
 test("answer works on one run's own cards and refuses a request no run can claim without --request", async (t) => {

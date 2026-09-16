@@ -294,8 +294,15 @@ export async function deliverToLead(client, { leadId, run, otherRuns = [], text,
   }
 }
 
-/** The run a run-scoped verb acts on: named, the only open one, or a question for the user. */
-const runFor = (cfg, flags) => (flags.run || openRuns(cfg.state).length ? selectRun(cfg.state, flags.run) : null);
+/** The run a run-scoped verb acts on: named, the only open one, or a question
+ * for the user. A closed run is history — `report` reads it, nothing speaks to
+ * it, and least of all makes its thread the lead's active task again. */
+function runFor(cfg, flags) {
+  if (!flags.run && !openRuns(cfg.state).length) return null;
+  const run = selectRun(cfg.state, flags.run);
+  if (run.status === "closed") throw new Fail(EXIT.PRECONDITION, `run ${flags.run} is closed`, { hint: `report --run ${flags.run} reads it; a closed run takes no more messages` });
+  return run;
+}
 
 /** A matching sendId returns the canonical receipt with the ORIGINAL message, id and `at` included, and no replay marker (index.ts:10765-10777, send-idempotency.ts:21-40): a message stamped before this request began is a duplicate. That reads the server's clock; on loopback it is this clock, over a remote URL it assumes the clocks agree to within the gap between two sends. */
 async function deliver(client, cfg, { botId, threadId, text, sendId }) {
