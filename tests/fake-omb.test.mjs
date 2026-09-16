@@ -299,7 +299,9 @@ test("SSE: hello cursor, id lines, resume with since, replay, rejected foreign c
 test("auth: proxied loopback needs a session; client scope is default deny; admin token passes", async (t) => {
   const f = await startFake(); t.after(() => f.close());
   const { bots } = await importTeam(f);
-  assert.equal((await fetch(`${f.url}/api/bots`, { headers: { "x-forwarded-for": "1.2.3.4" } })).status, 401);
+  const unpaired = await j(await fetch(`${f.url}/api/bots`, { headers: { "x-forwarded-for": "1.2.3.4" } }));
+  assert.equal(unpaired.status, 403);
+  assert.equal(unpaired.body.error, "forbidden: this request came through a proxy (pair this device to use the server remotely)", "S: request-auth.ts:378");
   await f.control({ op: "token", token: "omb_sess_client", scopes: ["client"] });
   await f.control({ op: "token", token: "omb_sess_admin", scopes: ["admin", "client"] });
   const c = { authorization: "Bearer omb_sess_client" };
@@ -416,4 +418,79 @@ test("a created bot has no approvalMode until PATCHed; approvePeerComms must be 
   assert.equal(live.approvePeerComms, true); assert.equal(live.approvalMode, undefined);
   r = await j(await patch(`${f.url}/api/bots/${id}`, { approvalMode: "ask" }));
   assert.equal(r.status, 200); assert.equal(r.body.bot.approvalMode, "ask", "a PATCH materialises the field (index.ts:10145-10168)");
+});
+
+test("pairing codes are minted by the owner, exchanged once through the public pair route, replayed by attemptId, and refused with the server's words", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const proxied = { "x-forwarded-for": "1.2.3.4" };
+  // Minting is an admin route (S: index.ts:7388-7405); a proxied caller without a session is refused (S: request-auth.ts:378).
+  const denied = await j(await post(`${f.url}/api/auth/pairing`, { label: "launcher", scopes: ["client"] }, proxied));
+  assert.equal(denied.status, 403);
+  assert.equal(denied.body.error, "forbidden: this request came through a proxy (pair this device to use the server remotely)");
+  const minted = await j(await post(`${f.url}/api/auth/pairing`, { label: "launcher", scopes: ["client"] }));
+  assert.equal(minted.status, 200);
+  assert.match(minted.body.code, /^[23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}$/, "XXXX-XXXX-XXXX (S: sessions.ts:119-121)");
+  assert.ok(minted.body.id && minted.body.expiresAt > Date.now());
+  assert.deepEqual((await j(await fetch(`${f.url}/api/auth/pairing`))).body.pairings.map((p) => p.id), [minted.body.id]);
+
+  // The exchange is public but JSON-only (S: index.ts:7318-7323).
+  const notJson = await j(await fetch(`${f.url}/api/auth/pair`, { method: "POST", headers: { "content-type": "text/plain", ...proxied }, body: JSON.stringify({ code: minted.body.code }) }));
+  assert.equal(notJson.status, 415);
+  assert.equal(notJson.body.error, "send the pairing code as JSON (content-type: application/json)");
+  const wrong = await j(await post(`${f.url}/api/auth/pair`, { code: "AAAA-BBBB-CCCC" }, proxied));
+  assert.equal(wrong.status, 401);
+  assert.equal(wrong.body.error, "pairing code is wrong or has expired; create a new one on the server");
+
+  const attemptId = "abcdef0123456789";
+  const ok = await j(await post(`${f.url}/api/auth/pair`, { code: minted.body.code, label: "phone", attemptId }, proxied));
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.match(ok.body.token, /^omb_sess_[A-Za-z0-9_-]{43}$/, "S: sessions.ts:288");
+  assert.deepEqual(Object.keys(ok.body.session).sort(), ["createdAt", "expiresAt", "id", "label", "lastSeenAt", "scopes"]);
+  assert.equal(ok.body.session.label, "phone");
+  assert.deepEqual(ok.body.session.scopes, ["client"]);
+  assert.equal(ok.body.environment.environmentId, f.environmentId);
+  assert.deepEqual((await j(await fetch(`${f.url}/api/auth/pairing`))).body.pairings, [], "the code is consumed (S: sessions.ts:286)");
+
+  // The token authenticates, with the scopes the code carried.
+  const bearer = { authorization: `Bearer ${ok.body.token}` };
+  const session = await j(await fetch(`${f.url}/api/auth/session`, { headers: { ...bearer, ...proxied } }));
+  assert.equal(session.status, 200);
+  assert.deepEqual(session.body.scopes, ["client"]);
+  const admin = await j(await fetch(`${f.url}/api/instances`, { headers: { ...bearer, ...proxied } }));
+  assert.equal(admin.status, 403);
+  assert.equal(admin.body.error, "forbidden: this session lacks the admin scope", "S: request-auth.ts:346");
+  const listed = await j(await fetch(`${f.url}/api/auth/sessions`));
+  assert.deepEqual(listed.body.sessions.map((s) => s.id), [ok.body.session.id]);
+
+  // Single use, except the same attempt id within EXCHANGE_REPLAY_MS (S: sessions.ts:274-276, 302).
+  const replayed = await j(await post(`${f.url}/api/auth/pair`, { code: minted.body.code, label: "phone", attemptId }, proxied));
+  assert.deepEqual(replayed.body, ok.body, "a lost response is recovered without burning a second code");
+  const again = await j(await post(`${f.url}/api/auth/pair`, { code: minted.body.code, label: "phone", attemptId: "0123456789abcdef" }, proxied));
+  assert.equal(again.status, 401);
+  assert.equal(again.body.error, "pairing code is wrong or has expired; create a new one on the server");
+
+  // Revoking a session takes its token with it (S: index.ts:7415-7420).
+  assert.equal((await fetch(`${f.url}/api/auth/sessions/${ok.body.session.id}`, { method: "DELETE" })).status, 200);
+  assert.equal((await fetch(`${f.url}/api/auth/session`, { headers: { ...bearer, ...proxied } })).status, 401);
+  assert.equal((await j(await fetch(`${f.url}/api/auth/session`, { headers: { ...bearer, ...proxied } }))).body.error, "unauthorized: this session has expired or was revoked; pair this device again", "S: request-auth.ts:375");
+
+  // Ten failures in the window lock the source out (S: sessions.ts:29, 249-262).
+  let last = null;
+  for (let i = 0; i < 10; i++) last = await j(await post(`${f.url}/api/auth/pair`, { code: `ZZZZ-ZZZZ-ZZZ${i}` }, { "x-forwarded-for": "9.9.9.9" }));
+  assert.equal(last.status, 401, "the tenth failure is still an ordinary refusal");
+  const locked = await j(await post(`${f.url}/api/auth/pair`, { code: "ZZZZ-ZZZZ-ZZZZ" }, { "x-forwarded-for": "9.9.9.9" }));
+  assert.equal(locked.status, 429);
+  assert.equal(locked.body.error, "too many failed pairing attempts from your address; try again in 60s");
+  assert.equal((await j(await post(`${f.url}/api/auth/pair`, { code: "ZZZZ-ZZZZ-ZZZZ" }, proxied))).status, 401, "the lock is per source");
+});
+
+test("the fake can mint a pairing code without HTTP, for tests that only need the code", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const { pairing } = await f.control({ op: "pairing", label: "launcher", scopes: ["admin", "client"] });
+  assert.match(pairing.code, /^[23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}$/);
+  const ok = await j(await post(`${f.url}/api/auth/pair`, { code: pairing.code }));
+  assert.equal(ok.status, 200);
+  assert.deepEqual(ok.body.session.scopes, ["admin", "client"]);
+  assert.equal(ok.body.session.label, "launcher", "the code's own label names the device when the client sends none (S: sessions.ts:292)");
+  assert.equal((await fetch(`${f.url}/api/instances`, { headers: { authorization: `Bearer ${ok.body.token}`, "x-forwarded-for": "1.2.3.4" } })).status, 200);
 });

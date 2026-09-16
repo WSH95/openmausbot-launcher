@@ -16,6 +16,21 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { randomBytes, createHash } from "node:crypto";
 
+// ── pairing (S: server/sessions.ts) ──
+const PAIRING_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"; // S: sessions.ts:19 (no 0/O/1/I)
+const PAIRING_CODE_LENGTH = 12; // S: sessions.ts:20
+const PAIRING_CODE_TTL_MS = 5 * 60_000; // S: sessions.ts:21
+const SESSION_TTL_MS = 30 * 24 * 60 * 60_000; // S: sessions.ts:22
+const LOCKOUT = { failures: 10, windowMs: 60_000, lockMs: 60_000 }; // S: sessions.ts:29
+const EXCHANGE_REPLAY_MS = 60_000; // S: sessions.ts:35
+const sha256 = (s) => createHash("sha256").update(s).digest("hex");
+// 256 is a multiple of the 32-symbol alphabet, so the byte modulus is unbiased.
+const generatePairingCode = () => Array.from(randomBytes(PAIRING_CODE_LENGTH), (b) => PAIRING_CODE_ALPHABET[b % PAIRING_CODE_ALPHABET.length]).join("");
+/** XXXX-XXXX-XXXX, as the server presents it. S: sessions.ts:119-121. */
+const formatPairingCode = (code) => code.match(/.{1,4}/g)?.join("-") ?? code;
+/** Accept what a human typed: dashes, spaces, lowercase, lookalikes. S: sessions.ts:110-116. */
+const normalizePairingCode = (input) => String(input).toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/0/g, "O").replace(/1/g, "I");
+
 const BUSY = new Set(["working", "waiting-on-you", "no-signal"]); // S: server/store.ts:407-409
 const ECHO_PREFIX = "replied to the delegated task"; // S: server/index.ts:3387 (and :3358)
 const MAX_DESCRIPTION = 4000; // S: server/bot-package.ts (description ≤ 4000)
@@ -41,6 +56,7 @@ export async function createFake(opts = {}) {
   const state = {
     bots: [], groups: [], threads: new Map(), receipts: [], decisions: [],
     pendingDelegations: [], running: [], tokens: new Map(), // token -> scopes
+    pairings: [], sessions: [], replays: [], failures: new Map(), // S: sessions.ts:136-142
     delay: { count: 0, ms: 0 }, steer: false, lateSteerConflict: false,
     dropStreams: false, sequence: 0, instances: defaultInstances(),
   };
@@ -131,6 +147,78 @@ export async function createFake(opts = {}) {
     state.groups.push(g); return g;
   }
 
+  // ── pairing and sessions ── S: sessions.ts. A pairing code is single use and
+  // five minutes old at most; exchanging it yields an `omb_sess_…` token that
+  // lives 30 days. Failed exchanges are counted per source.
+  const environmentDescriptor = () => ({ environmentId, label: "fake", platform: "linux", version: "0.1.56", desktopManaged: false, capabilities: { remoteSessions: true, selfUpdate: "operator" } });
+  const publicSession = (s) => ({ id: s.id, label: s.label, scopes: [...s.scopes], createdAt: s.createdAt, lastSeenAt: s.lastSeenAt, expiresAt: s.expiresAt }); // never the token: S: sessions.ts:123-132
+  const publicPairing = (p) => ({ id: p.id, label: p.label, scopes: [...p.scopes], createdAt: p.createdAt, expiresAt: p.expiresAt }); // S: sessions.ts:223-226
+
+  function pruneAuth() { // S: sessions.ts:175-182
+    const t = now();
+    state.pairings = state.pairings.filter((p) => p.expiresAt > t);
+    state.replays = state.replays.filter((r) => r.expiresAt > t);
+    state.sessions = state.sessions.filter((s) => { if (s.expiresAt > t) return true; state.tokens.delete(s.token); return false; });
+  }
+
+  function openPairing({ label, scopes } = {}) { // S: sessions.ts:206-221
+    pruneAuth();
+    const code = generatePairingCode();
+    const p = { id: newId(), codeHash: sha256(code), scopes: scopes?.length ? [...new Set(scopes)] : ["admin", "client"], label: String(label ?? "").trim().slice(0, 80), createdAt: now(), expiresAt: now() + PAIRING_CODE_TTL_MS };
+    state.pairings.push(p);
+    return { id: p.id, code, expiresAt: p.expiresAt };
+  }
+
+  function recordFailure(source) { // S: sessions.ts:248-262
+    const t = now();
+    const entry = state.failures.get(source) ?? { count: 0, windowStart: t, lockedUntil: 0 };
+    if (t - entry.windowStart > LOCKOUT.windowMs) { entry.count = 0; entry.windowStart = t; }
+    entry.count += 1;
+    if (entry.count >= LOCKOUT.failures) { entry.lockedUntil = t + LOCKOUT.lockMs; entry.count = 0; entry.windowStart = t; }
+    state.failures.set(source, entry);
+  }
+
+  /** The lockout key. Every fake peer is loopback, so a forwarded hop wins. S: request-auth.ts:111-120. */
+  function requestSource(req) {
+    const hops = String(req.headers["x-forwarded-for"] ?? "").split(",").map((h) => h.trim()).filter(Boolean);
+    return hops.length ? hops[hops.length - 1] : (req.socket?.remoteAddress || "unknown");
+  }
+
+  function exchange({ code, label, attemptId, source }) { // S: sessions.ts:269-303
+    pruneAuth();
+    const t = now();
+    const presented = sha256(normalizePairingCode(code ?? ""));
+    // A consumed code presented again with the SAME attempt id inside the
+    // window gets the same answer, so a lost response strands nobody.
+    const attempt = typeof attemptId === "string" && /^[\w-]{8,64}$/.test(attemptId) ? attemptId : null; // S: sessions.ts:273
+    const replay = attempt ? state.replays.find((r) => r.attemptId === attempt && r.codeHash === presented) : undefined;
+    if (replay) return replay.result;
+    const locked = state.failures.get(source);
+    if (locked && locked.lockedUntil > t) return { ok: false, status: 429, error: `too many failed pairing attempts from your address; try again in ${Math.ceil((locked.lockedUntil - t) / 1000)}s` }; // S: sessions.ts:278-281
+    const index = state.pairings.findIndex((p) => p.codeHash === presented);
+    if (index < 0) {
+      recordFailure(source);
+      return { ok: false, status: 401, error: "pairing code is wrong or has expired; create a new one on the server" }; // S: sessions.ts:283-286
+    }
+    const [pairing] = state.pairings.splice(index, 1); // single use: S: sessions.ts:286
+    state.failures.delete(source);
+    const token = `omb_sess_${randomBytes(32).toString("base64url")}`; // S: sessions.ts:288
+    const session = { id: newId(), label: (String(label ?? "").trim() || pairing.label || "Unnamed device").slice(0, 80), scopes: [...pairing.scopes], createdAt: t, lastSeenAt: t, expiresAt: t + SESSION_TTL_MS }; // S: sessions.ts:289-297
+    state.sessions.push({ ...session, token });
+    state.tokens.set(token, session.scopes);
+    const result = { ok: true, token, session };
+    if (attempt) state.replays.push({ codeHash: presented, attemptId: attempt, result, expiresAt: t + EXCHANGE_REPLAY_MS }); // S: sessions.ts:302
+    return result;
+  }
+
+  function revokeSession(id) { // S: sessions.ts:334-340
+    const s = state.sessions.find((x) => x.id === id);
+    if (!s) return false;
+    state.sessions = state.sessions.filter((x) => x.id !== id);
+    state.tokens.delete(s.token);
+    return true;
+  }
+
   // ── auth ── S: request-auth.ts:319-384. loopback without proxy headers = admin;
   // a bearer session wins over loopback; client scope is a default-deny table.
   const CLIENT_ALLOW = [ // S: request-auth.ts:185-250 (the subset the driver can hit)
@@ -142,19 +230,21 @@ export async function createFake(opts = {}) {
     ["POST", /^\/api\/groups\/[\w-]+\/messages$/], ["GET", /^\/api\/routines$/], ["GET", /^\/api\/config$/],
   ];
   function authorize(req, method, pathname) {
-    if (pathname === "/.well-known/openmausbot/environment" || pathname.startsWith("/__fake")) return { kind: "public" };
+    // Two public routes come before the gate: what this server is, and turning
+    // a pairing code into a session. S: index.ts:7314-7318.
+    if (pathname === "/.well-known/openmausbot/environment" || (method === "POST" && pathname === "/api/auth/pair") || pathname.startsWith("/__fake")) return { kind: "public" };
     const bearer = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? "")?.[1];
     if (bearer) {
       const scopes = state.tokens.get(bearer);
-      if (!scopes) return { deny: [401, "unauthorized: unknown session"] };
-      const needAdmin = !CLIENT_ALLOW.some(([m, re]) => m === method && re.test(pathname));
-      if (needAdmin && !scopes.includes("admin")) return { deny: [403, "forbidden: this needs the owner"] };
-      return { kind: "session", scopes };
+      if (!scopes) return { deny: [401, "unauthorized: this session has expired or was revoked; pair this device again"] }; // S: request-auth.ts:375
+      const needed = CLIENT_ALLOW.some(([m, re]) => m === method && re.test(pathname)) ? "client" : "admin"; // S: request-auth.ts:252-258 (default deny)
+      if (!scopes.includes(needed)) return { deny: [403, `forbidden: this session lacks the ${needed} scope`] }; // S: request-auth.ts:344-347
+      return { kind: "session", scopes, sessionId: state.sessions.find((s) => s.token === bearer)?.id ?? null };
     }
     const proxied = ["x-forwarded-for", "x-forwarded-proto", "x-forwarded-host", "forwarded"].some((h) => req.headers[h]);
+    if (proxied) return { deny: [403, "forbidden: this request came through a proxy (pair this device to use the server remotely)"] }; // S: request-auth.ts:378
     const host = String(req.headers.host ?? "").split(":")[0];
-    const loopback = ["127.0.0.1", "localhost", "::1", "[::1]"].includes(host) && !proxied;
-    if (!loopback) return { deny: [401, "unauthorized: pair this device"] };
+    if (!["127.0.0.1", "localhost", "::1", "[::1]"].includes(host)) return { deny: [403, "forbidden: loopback host required (pair this device to use the server remotely)"] }; // S: request-auth.ts:381
     return { kind: "loopback", scopes: ["admin", "client"] };
   }
 
@@ -172,12 +262,36 @@ export async function createFake(opts = {}) {
     const auth = authorize(req, method, p);
     if (auth.deny) return json(res, auth.deny[0], { error: auth.deny[1] });
     try {
+      let m;
       if (p.startsWith("/__fake")) return control(req, res, method, p);
-      if (method === "GET" && p === "/.well-known/openmausbot/environment") {
-        return json(res, 200, { environmentId, label: "fake", platform: "linux", version: "0.1.56", capabilities: { remoteSessions: true, selfUpdate: "operator" } });
-      }
+      if (method === "GET" && p === "/.well-known/openmausbot/environment") return json(res, 200, environmentDescriptor());
       if (method === "GET" && p === "/api/health") return json(res, 200, { app: "openmausbot", pid: process.pid, static: false });
       if (method === "GET" && p === "/api/auth/session") return json(res, 200, { kind: auth.kind, scopes: auth.scopes });
+      if (method === "POST" && p === "/api/auth/pair") { // S: index.ts:7318-7341
+        // JSON only: a cross-site HTML form cannot send this content type
+        // without a preflight, so a stray code cannot be planted as a session.
+        if (!/^application\/json\b/i.test(String(req.headers["content-type"] ?? ""))) return json(res, 415, { error: "send the pairing code as JSON (content-type: application/json)" }); // S: index.ts:7322-7324
+        const body = await readBody(req) ?? {};
+        const result = exchange({ code: typeof body.code === "string" ? body.code : "", label: typeof body.label === "string" ? body.label : "", attemptId: body.attemptId, source: requestSource(req) });
+        if (!result.ok) return json(res, result.status, { error: result.error }); // S: index.ts:7331-7334
+        return json(res, 200, { token: result.token, session: result.session, environment: environmentDescriptor() });
+      }
+      if (method === "POST" && p === "/api/auth/pairing") { // S: index.ts:7388-7405
+        const body = await readBody(req) ?? {};
+        const requested = Array.isArray(body.scopes) ? body.scopes.filter((v) => v === "admin" || v === "client") : undefined;
+        const opened = openPairing({ label: typeof body.label === "string" ? body.label : undefined, scopes: requested });
+        return json(res, 200, { id: opened.id, code: formatPairingCode(opened.code), expiresAt: opened.expiresAt, url: null, hint: "this server has no public address to put in a link: set OMB_PUBLIC_URL, or open /pair on the address you use and type the code" });
+      }
+      if (method === "GET" && p === "/api/auth/pairing") { pruneAuth(); return json(res, 200, { pairings: state.pairings.map(publicPairing) }); } // S: index.ts:7406
+      if (method === "GET" && p === "/api/auth/sessions") { pruneAuth(); return json(res, 200, { sessions: state.sessions.map(publicSession), current: auth.sessionId ?? null }); } // S: index.ts:7412-7414
+      if ((m = p.match(/^\/api\/auth\/pairing\/([\w-]+)$/)) && method === "DELETE") { // S: index.ts:7407-7411
+        const before = state.pairings.length;
+        state.pairings = state.pairings.filter((x) => x.id !== m[1]);
+        return state.pairings.length !== before ? json(res, 200, { ok: true }) : json(res, 404, { error: "no such pairing code" });
+      }
+      if ((m = p.match(/^\/api\/auth\/sessions\/([\w-]+)$/)) && method === "DELETE") { // S: index.ts:7415-7420
+        return revokeSession(m[1]) ? json(res, 200, { ok: true }) : json(res, 404, { error: "no such session" });
+      }
       if (method === "GET" && p === "/api/instances") return json(res, 200, { instances: state.instances });
       if (method === "GET" && p === "/api/decisions") return json(res, 200, { decisions: state.decisions.slice(0, Number(url.searchParams.get("limit") ?? 200)) });
       if (method === "GET" && p === "/api/team-map") { // S: index.ts:8407-8437 (hidden bots omitted)
@@ -193,7 +307,6 @@ export async function createFake(opts = {}) {
         if (!body.name) return json(res, 400, { error: "name required" });
         return json(res, 201, { bot: publicBot(makeBot({ ...body, name: uniqueName(String(body.name)) })) });
       }
-      let m;
       if ((m = p.match(/^\/api\/teams\/import$/)) && method === "POST") return importTeam(req, res, url);
       if ((m = p.match(/^\/api\/bots\/([\w-]+)\/model$/)) && method === "PATCH") return patchModel(req, res, m[1]);
       if ((m = p.match(/^\/api\/bots\/([\w-]+)\/tasks$/)) && method === "POST") return postTask(req, res, m[1]);
@@ -471,6 +584,7 @@ export async function createFake(opts = {}) {
       case "busyElsewhere": { if (!bot) throw Object.assign(new Error("no such bot"), { status: 404 }); bot.busyElsewhere = op.where ?? null; return; }
       case "hide": { if (!bot) throw Object.assign(new Error("no such bot"), { status: 404 }); bot.hidden = op.hidden !== false; return; }
       case "token": state.tokens.set(op.token, op.scopes ?? ["client"]); return;
+      case "pairing": { const opened = openPairing({ label: op.label, scopes: op.scopes }); return { pairing: { id: opened.id, code: formatPairingCode(opened.code), expiresAt: opened.expiresAt } }; }
       case "newEnvironment": environmentId = `${newId()}-${newId()}`; fs.writeFileSync(environmentFile, environmentId); return { environmentId };
       case "event": { fs.appendFileSync(path.join(dataDir, "events", `${threadId}.ndjson`), `${JSON.stringify({ at: now(), ...op.event })}\n`); return; }
       case "bot": return { bot: publicBot(makeBot({ ...op, name: uniqueName(op.name) })) };
