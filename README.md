@@ -9,6 +9,14 @@ The skill includes install guidance for Claude Code, Codex CLI, Grok Build,
 OpenClaw, Hermes Agent, and DeepSeek Harness. The OpenClaw phone recipe
 uses a workstation gateway and Telegram; it is documented but unverified.
 
+This repository does not contain OpenMausBot. It is a launcher: a `SKILL.md`
+and a dependency-free Node driver (sixteen verbs, about 2,500 lines under
+`skills/openmausbot-launcher/scripts/`) that drives a separately installed
+[OpenMausBot](https://github.com/milind-soni/OpenMausBot) 0.1.56 server over
+its HTTP API, CLI, and data-dir files. Install that package yourself, then
+either put `openmausbot` on `PATH` or point `OMB_BIN` at its `cli.js`;
+`omb doctor` reports which one it found and the version.
+
 Supply a compatible team package with `omb import <package.json>`. The
 launcher reads its roster and lead from that input; `dev-team.openmaus.json`
 is an external test configuration, with no required package path or roster.

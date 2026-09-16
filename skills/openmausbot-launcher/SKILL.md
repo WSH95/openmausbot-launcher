@@ -46,7 +46,10 @@ Ask the user for what the driver cannot know: the project directory, the
 team package path, the test command, the engine and effort for each role,
 the merge policy (`auto` merges and cleans up by itself; `ask` reports and
 waits), the task log path and tracker, and whether plan reviews run as
-asks or delegations. Then:
+asks or delegations. OpenMausBot itself is not part of this skill: install
+the `openmausbot` package separately and either put it on `PATH` or set
+`OMB_BIN` to its `cli.js`; `doctor`'s `binary` check names the path and
+version it resolved. Then:
 
 ```
 omb doctor --project <dir>                       # node, binary, git, project, Stop hook
