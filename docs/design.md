@@ -285,13 +285,19 @@ delegation` (`index.ts:7915`) open one; the reply echo and the settlement
 chips (`index.ts:3396-3400`, `delegations.ts:506,535`, and
 `error: delegation to @X could not start`) close one; the busy retry
 (`delegations.ts:491`) closes nothing; the queue-drop chip
-(`delegations.ts:441`) empties the queue. A settlement whose target was never
+(`delegations.ts:441`) empties the queue and closes every window it left
+open, so no later turn on a shared thread is attributed to a run whose
+queueing turn was interrupted. A settlement whose target was never
 seen queued — a renamed bot, a chip older than the window — leaves the count
 where it is and sets `unknown`: ambiguity never settles anything.
 
 A busy bot is this run's when one of its chips or its implementer claim says
 so, another run's when only that run's chips or claim say so, and **every**
-open run's when nothing can place it. The lead is the same rule with one
+open run's when nothing can place it. A bot a run cannot claim contributes no
+work state to that run's evidence at all — neither `busy` nor `activity` —
+because its turns starting and finishing are the other run's progress, not
+this one's; only the fleet-wide health states (`dead`, `no-signal`) stay
+visible to every run. The lead is the same rule with one
 extra source: a busy lead counts for every open run unless the runtime log
 (`events/<thread>.ndjson`) shows exactly one run's lead thread with a
 `turn.started` and no `turn.completed`. A pending request keeps the run that

@@ -379,3 +379,43 @@ test("status evaluates every open run, and still reads as one run when only one 
   assert.equal(brief.stdout.trim().split("\n").length, 2, brief.stdout);
   assert.match(brief.stdout, /t10 · running/); assert.match(brief.stdout, /t11 ·/);
 });
+
+test("delegationWindows records how each window opened and closes them when the queue is dropped", async () => {
+  const { delegationWindows } = await import("../skills/openmausbot-launcher/scripts/lib/snapshot.mjs");
+  const at = (n) => T0 + n * 1000;
+  const queued = delegationWindows([chip("Delegated to @Nova: implement T10", at(1)), echoOf("Nova", at(5))], T0);
+  assert.deepEqual(queued, { Nova: [{ from: at(1), to: at(5), kind: "queued" }] });
+  const open = delegationWindows([chip("Delegated to @Nova", at(1))], T0);
+  assert.deepEqual(open, { Nova: [{ from: at(1), to: null, kind: "queued" }] });
+  const converted = delegationWindows([chip("@Nova is still working — ask converted to a delegation", at(1))], T0);
+  assert.deepEqual(converted, { Nova: [{ from: at(1), to: null, kind: "converted" }] }, "the ask's own turn began before this chip");
+  // the queueing turn was interrupted: nothing is still running for this run
+  const dropped = delegationWindows([chip("Delegated to @Nova", at(1)), chip("Delegated to @Quill", at(2)), chip("2 queued delegations dropped — the turn did not finish", at(3))], T0);
+  assert.deepEqual(dropped, { Nova: [{ from: at(1), to: at(3), kind: "queued" }], Quill: [{ from: at(2), to: at(3), kind: "queued" }] });
+  const after = delegationWindows([chip("Delegated to @Nova", at(1)), chip("Delegation to @Nova completed without a text reply", at(2)), chip("Delegated to @Nova", at(4))], T0);
+  assert.deepEqual(after.Nova, [{ from: at(1), to: at(2), kind: "queued" }, { from: at(4), to: null, kind: "queued" }]);
+});
+
+test("another run's bot changing activity is not a change in this run's evidence", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const env = { OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir };
+  const { dir } = makeRepo();
+  assert.equal((await runOmb(["import", PKG, "--project", dir, "--url", f.url], { env })).code, 0);
+  assert.equal((await runOmb(["bind", "--project", dir, "--default", "claude/claude-sonnet-5"], { env })).code, 0);
+  const vex = await addImplementer(f, dir, env);
+  const a = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const b = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
+  assert.equal(b.code, 0, b.stdout);
+  const st = loadState(statePaths(dir));
+  const runs = Object.values(st.runs);
+  const client = createClient({ url: f.url });
+  const evidenceForA = async () => evidenceOf((await snapshotRuns(client, { team: st.team, runs }, { dataDir: f.dataDir })).views[a.json.runId]);
+  const before = JSON.stringify(await evidenceForA());
+  await f.control({ op: "activity", botId: vex.id, activity: "working" });
+  assert.equal(JSON.stringify(await evidenceForA()), before, "T11's implementer starting a turn is not T10's evidence");
+  await f.control({ op: "activity", botId: vex.id, activity: "idle" });
+  assert.equal(JSON.stringify(await evidenceForA()), before, "nor is it finishing one");
+  // and what is this run's still moves it
+  await f.control({ op: "delegated", threadId: a.json.leadThreadId, name: "Vex" });
+  assert.notEqual(JSON.stringify(await evidenceForA()), before, "a delegation of its own does");
+});

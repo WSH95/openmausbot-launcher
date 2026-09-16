@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 export const BUSY = new Set(["working", "waiting-on-you", "no-signal"]);
+const HEALTH = new Set(["dead", "no-signal"]); // fleet-wide, not one run's work
 export const ECHO_RE = /^@.+? replied to the delegated task/s; // server/index.ts:3387 (and :3358); names may contain spaces
 export const DELEGATION_RE = /^Delegation to @(.+?) (completed without a text reply|failed|waiting|dropped|canceled|denied)/; // index.ts:3392-3401, delegations.ts:495
 export const DEFAULTS = { quietMs: 30_000, dropMs: 2 * 60_000, stallMs: 40 * 60_000 };
@@ -56,27 +57,37 @@ export function openDelegations(leadTail, sinceAt = null) {
 }
 
 /**
- * When each delegation from this run was open, by target name: from the queued
- * chip to the settlement that closed it, `to` null while it is still open. A
- * turn on a thread two runs share can only be attributed inside one of these.
+ * When each delegation from this run was open, by target name: from the chip
+ * that opened it to the settlement that closed it, `to` null while it is still
+ * open. A turn on a thread two runs share can only be attributed inside one of
+ * these, and `kind` says how to read the start: a `queued` delegation's turn
+ * begins after its chip, while a `converted` one is an ask whose turn was
+ * ALREADY running when the wait timed out (index.ts:7894-7917).
  */
 export function delegationWindows(leadTail, sinceAt = null) {
   const out = {};
   const openFor = (name) => (out[name] ??= []).find((w) => w.to === null);
   for (const m of leadTail ?? []) {
     if (sinceAt != null && typeof m.at === "number" && m.at < sinceAt) continue;
-    let name = null; let settles = false;
+    let name = null; let settles = false; let kind = "queued";
     if (m.kind === "activity" && typeof m.tool?.name === "string") {
       const chip = m.tool.name.trim();
       let x;
-      if ((x = QUEUED_RE.exec(chip)) || (x = ASK_CONVERTED_RE.exec(chip))) name = x[1];
+      if ((x = QUEUED_RE.exec(chip))) name = x[1];
+      else if ((x = ASK_CONVERTED_RE.exec(chip))) { name = x[1]; kind = "converted"; }
       else if ((x = SETTLED_RE.exec(chip)) || (x = START_FAILED_RE.exec(chip))) { name = x[1]; settles = true; }
+      else if (DROPPED_RE.test(chip)) {
+        // The queueing turn was interrupted: nothing queued is still this
+        // run's, so no later turn on a shared thread may be attributed to it.
+        for (const list of Object.values(out)) for (const w of list) if (w.to === null) w.to = m.at;
+        continue;
+      }
     } else if (m.role === "bot" && m.kind === "text" && m.from) {
       const x = REPLIED_RE.exec(m.text ?? "");
       if (x) { name = x[1]; settles = true; }
     }
     if (!name) continue;
-    if (!settles) { (out[name] ??= []).push({ from: m.at, to: null }); continue; }
+    if (!settles) { (out[name] ??= []).push({ from: m.at, to: null, kind }); continue; }
     const live = openFor(name);
     if (live) live.to = m.at;
   }
@@ -303,6 +314,11 @@ export async function snapshot(client, state, { dataDir = null, now = Date.now()
   if (runs.length > 1) { try { executing = await executingThread(dataDir, runs.map((r) => r.leadThreadId), { deadline, signal }); } catch { executing = null; } }
   const dels = new Map(runs.map((r) => [r.runId, openDelegations(tails.get(r.leadThreadId) ?? [], r.sentAt ?? null)]));
 
+  // A bot this run cannot claim contributes no work state to its evidence: its
+  // turns starting and finishing are the other run's business. Only the
+  // fleet-wide health states stay, because a dead or silent bot is everyone's.
+  const scopedState = (bot, run) => (attributable(bot, run) ? bot : { ...bot, busy: false, activity: HEALTH.has(bot.activity) ? bot.activity : null });
+
   /** Might this run be waiting on this bot? Ours when a chip or the dispatch says
    * so; another run's when only its chips or its claim say so; otherwise every
    * open run has to keep waiting — ambiguity never hands one run exclusive
@@ -341,7 +357,7 @@ export async function snapshot(client, state, { dataDir = null, now = Date.now()
       for (const r of receiptsForRun) observedOutcomes.push({ ...r, id: `receipt:${r.id}`, at: r.finishedAt, kind: "receipt", name: r.toBotName ?? null, status: r.status ?? null, ok: r.status === "completed" });
     }
     const del = dels.get(run?.runId) ?? openDelegations(msgs, run?.sentAt ?? null);
-    const scoped = bots.map((b) => ({ ...b, busy: b.busy && attributable(b, run) }));
+    const scoped = bots.map((b) => scopedState(b, run));
     const pending = []; const claims = [];
     for (const p of pendingAll) {
       const owners = run ? ownersOf(p) : [null];
@@ -358,7 +374,7 @@ export async function snapshot(client, state, { dataDir = null, now = Date.now()
       at: now, complete: incomplete.length === 0, incomplete,
       bots: scoped, lead: scoped.find((b) => b.id === leadId) ?? null,
       teamMap: { queued: tm.queued.filter((q) => attributable(bots.find((b) => b.id === q.targetBotId), run)), running: tm.running.filter((r) => attributable(bots.find((b) => b.id === r.targetBotId), run)) },
-      leadThreadId, runThreads, leadTail: msgs,
+      leadThreadId, runThreads, leadTail: msgs, executing,
       leadText: lastLead ? { id: lastLead.id, at: lastLead.at, text: lastLead.text } : null,
       lastUser: latestUser ? { id: latestUser.id, at: latestUser.at, text: latestUser.text } : null,
       outcomes: mergeOutcomes(run?.lastEval?.outcomes, observedOutcomes),
