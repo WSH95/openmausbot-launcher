@@ -1,0 +1,1068 @@
+{
+ "schemaVersion": 1,
+ "recordedAt": "2026-09-16T17:07:16Z",
+ "purpose": "v2 remote run (beads oml-xnn, oml-9kp): the pair verb and the HTTP-only verb set driven over a Tailscale HTTPS tunnel against real OpenMausBot 0.1.56, with an owner-scope and a client-scope session, the binding gap that the run exposed, and its fix.",
+ "coverage": {
+  "path": "openmausbot serve --tailscale -> tailscale serve https://wsh.taila20f43.ts.net -> the driver with --remote --url and a bearer token from the 0600 token file",
+  "tested": [
+   "openmausbot serve --tailscale publishes the loopback server on the tailnet with an HTTPS certificate",
+   "a proxied request without a token is refused with 403 even though the server trusts loopback",
+   "openmausbot pair mints a single-use code and the driver's pair verb exchanges it into a 0600 token file",
+   "an owner-scope (admin,client) and a client-scope session, side by side, in two token files",
+   "a used pairing code replayed from the tailnet is refused in the server's own words",
+   "doctor --remote and doctor --server --remote through the tunnel with and without a token",
+   "client scope refused on an admin route (GET /api/instances)",
+   "send --remote and the lead's reply read back with status --tail --remote",
+   "a run opened locally, then watched and interrupted through the tunnel by both sessions",
+   "interrupt --remote from a client-scope session (a client-allowed route)",
+   "report, reconcile, session revocation and a clean shutdown of the tunnelled server"
+  ],
+  "notTested": [
+   "a second machine: the driver ran on the server's own host and reached it through the tailnet address",
+   "Telegram, OpenClaw or any other host driving the remote verbs (this run used the operator's shell)",
+   "answer --remote and an approval card through the tunnel",
+   "openmausbot --tunnel (the Tailscale Funnel/tunnel variant) or any transport other than tailscale serve",
+   "a remote watch that observes a delegation chain: only the lead ran, for one turn",
+   "token file contention between two launchers writing the same origin",
+   "a session that expires rather than being revoked"
+  ],
+  "newOmbBotTurns": 2,
+  "paidHostTurns": "none for this phase; the pass's Codex review sessions are counted in the pass total, not here",
+  "commandSource": "scratchpad/remote-precheck.txt and remote-run-1..7.txt. Each output is sliced verbatim from those files. The section labels name the verb and its flags; the exact argv of each invocation was not captured, so every `command` field is a reconstruction from the label plus the session brief, and a `note` marks what is unknown.",
+  "outputProjection": "No token, key, or valid pairing code appears in this record. The two pairing codes are single-use and were consumed on 2026-09-16; both sessions are revoked."
+ },
+ "environment": {
+  "date": "2026-09-16",
+  "tailscale": {
+   "dnsName": "wsh.taila20f43.ts.net",
+   "certDomains": [
+    "wsh.taila20f43.ts.net"
+   ],
+   "httpsEnabledBy": "the user, in the Tailscale admin console",
+   "installedBy": "the user (sudo), logged in",
+   "operatorGrant": "sudo tailscale set --operator=$USER",
+   "serveStatus": "https://wsh.taila20f43.ts.net (tailnet only)\n|-- / proxy http://127.0.0.1:8899",
+   "clientAddressSeenByTheServer": "100.88.158.53",
+   "version": "not recorded"
+  },
+  "server": {
+   "startCommand": "env -i PATH=/home/wsh/.local/bin:/usr/local/bin:/usr/bin:/bin HOME=/home/wsh OMB_ASK_BOT_TIMEOUT_MS=600000 setsid nohup /home/wsh/.local/bin/node $CLI serve --port 8899 --data-dir \"$DD\" --tailscale --no-pair > $SP/remote-serve.log 2>&1",
+   "startedBy": "the operator, by hand (not omb up)",
+   "startedAt": "2026-09-16T15:34Z (approximate; the pre-check ran at 15:35Z)",
+   "stoppedAt": "2026-09-16T16:51:32Z",
+   "url": "http://127.0.0.1:8899",
+   "tunnelUrl": "https://wsh.taila20f43.ts.net",
+   "ports": [
+    8899,
+    8900
+   ],
+   "pids": {
+    "setsidWrapper": 76752,
+    "cliServe": 76759,
+    "health": 76827,
+    "note": "the pid file recorded the setsid wrapper 76752; SIGTERM went to the cli.js serve process 76759; the state file records healthPid 76827 and healthStart 1622400"
+   },
+   "dataDir": "/home/wsh/.cache/agent-team/omb-launcher-data-v2remote-CGHy3C",
+   "environmentId": "15204312-7b3a-4022-90ec-cac6e5b1637c",
+   "version": "0.1.56",
+   "capabilities": {
+    "remoteSessions": true,
+    "selfUpdate": "operator"
+   },
+   "label": "WSH",
+   "platform": "linux",
+   "askTimeoutMs": 600000,
+   "noPair": "started with --no-pair, so the server printed no pairing code of its own; codes were minted on demand with openmausbot pair",
+   "log": "scratchpad/remote-serve.log"
+  },
+  "fixture": {
+   "project": "/tmp/oml-v2-remote-l5cKYy/project",
+   "branch": "main",
+   "commit": "64fa0970b43da65373cc3aff53b3d65ca7adfcf3",
+   "commitSubject": "init",
+   "state": "/tmp/oml-v2-remote-l5cKYy/project/.omb/state.json (version 1, rev 16)",
+   "binding": "server.url http://127.0.0.1:8899, owned false (attached), environmentId 15204312-7b3a-4022-90ec-cac6e5b1637c",
+   "worktreeRemoved": false,
+   "note": "the fixture is a temporary git repository with one commit; the shared state file is what the remote verbs read"
+  },
+  "driver": {
+   "node": "24.11.0 (/home/wsh/.local/bin/node)",
+   "ombBin": "/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js",
+   "ombToken": "empty in the wrapper environment; remote calls read the token from the token file",
+   "wrappers": [
+    "scratchpad/omb.sh (repository checkout)",
+    "scratchpad/omb-wt.sh (temporary worktree /tmp/oml-wt-01901f9, driver at 01901f9)"
+   ],
+   "commitsUnderTest": {
+    "before the fix": "fb84e4f (pair verb and its docs)",
+    "after the fix": "01901f9 (session binding by environment id)",
+    "later in the same pass": "0a55d39 (hint wording), 446094b (pair holds the token-file lock across the exchange)"
+   }
+  },
+  "setup": {
+   "commands": [
+    "up (attached to the hand-started server)",
+    "doctor --server",
+    "import <package>",
+    "bind",
+    "facts"
+   ],
+   "commandSource": "the session brief and the SDD ledger; the exact argv of the setup commands is not in a raw log",
+   "doctorServer": "10/10 from the operator shell",
+   "engines": [
+    "grok",
+    "claude",
+    "codex",
+    "hermes"
+   ],
+   "package": {
+    "path": "/home/wsh/Documents/agent-team-devpack/packages/dev-team/dev-team.openmaus.json",
+    "name": "Agent Team dev team",
+    "release": "0.4.2",
+    "sha256": "48e4ac637c7afb6d9e82f0ecf035967411d9c75e61ac8e0603ee7b62a3255949",
+    "unchanged": true
+   },
+   "facts": {
+    "defaultBranch": "main",
+    "test": "none",
+    "setup": "none",
+    "merge": "auto",
+    "taskLog": "README.md",
+    "tracker": "none",
+    "planReview": "ask"
+   },
+   "team": {
+    "section": "Agent Team dev team",
+    "adoptedAt": "2026-09-16T16:32:34.175Z",
+    "adoptNote": "the state's final team record comes from the loopback re-adopt that restored the binding after the gap; team.package is null there",
+    "lead": {
+     "id": "0c942a97-34fe-4994-b37c-22c1f3e28d64",
+     "name": "Sudo",
+     "title": "Team Lead",
+     "model": "codex/gpt-5.6-luna/high",
+     "approvalMode": "auto"
+    },
+    "bots": [
+     {
+      "id": "baab785b-233e-4a0d-b06f-b2feb7add84f",
+      "name": "Quill",
+      "title": "Code Reviewer",
+      "model": "grok/grok-4.6/medium",
+      "approvalMode": "ask"
+     },
+     {
+      "id": "68ae84b4-4655-4f99-a376-1a4e11aaeb84",
+      "name": "Nova",
+      "title": "Implementer",
+      "model": "claude/claude-opus-5/high",
+      "approvalMode": "auto"
+     },
+     {
+      "id": "bca4dcc1-31d3-4e21-b4fd-39a8c3ef5091",
+      "name": "Vale",
+      "title": "Plan Reviewer",
+      "model": "codex/gpt-5.6-terra/high",
+      "approvalMode": "auto"
+     },
+     {
+      "id": "3d0088a3-7042-4092-8aa3-7f14fd429e2b",
+      "name": "Sage",
+      "title": "Planner",
+      "model": "claude/claude-sonnet-5/high",
+      "approvalMode": "auto"
+     },
+     {
+      "id": "0c942a97-34fe-4994-b37c-22c1f3e28d64",
+      "name": "Sudo",
+      "title": "Team Lead",
+      "model": "codex/gpt-5.6-luna/high",
+      "approvalMode": "auto"
+     }
+    ],
+    "rooms": [
+     {
+      "id": "43f1fa7f-eea3-4d7c-8c39-0ced117bb998",
+      "name": "Dev Room",
+      "threadId": "c0269d6a-b05d-4b04-b8eb-d26f2c1e4bb6"
+     }
+    ]
+   }
+  }
+ },
+ "pairing": {
+  "mintedOn": "the server host, with openmausbot pair --port 8899",
+  "at": "2026-09-16T16:29:00Z",
+  "codes": [
+   {
+    "code": "ZNZ4-VGWT-CKKW",
+    "label": "launcher",
+    "scopesRequested": "default (admin,client)",
+    "singleUse": true,
+    "consumed": true,
+    "expiryPrinted": "12:34:00 PM (single use)",
+    "openOrScan": "https://wsh.taila20f43.ts.net/pair#code=ZNZ4-VGWT-CKKW"
+   },
+   {
+    "code": "SYEH-YGMD-WYYW",
+    "label": "launcher-client",
+    "scopesRequested": "--client",
+    "singleUse": true,
+    "consumed": true,
+    "expiryPrinted": "12:34:00 PM (single use)",
+    "openOrScan": "https://wsh.taila20f43.ts.net/pair#code=SYEH-YGMD-WYYW"
+   }
+  ],
+  "codeNote": "both codes were spent on 2026-09-16 and both sessions are revoked; they are recorded here only because they can no longer be used.",
+  "sessions": [
+   {
+    "id": "b269f445-b39a-412a-9468-5225e88f88b2",
+    "label": "launcher",
+    "scopes": [
+     "admin",
+     "client"
+    ],
+    "expiresAt": 1792168140747,
+    "expiresAtIso": "2026-10-16T16:29:00.747Z",
+    "revoked": true,
+    "revokedAt": "2026-09-16T16:51:31Z",
+    "environmentId": "15204312-7b3a-4022-90ec-cac6e5b1637c"
+   },
+   {
+    "id": "ee76fe1c-4fc8-440d-b208-2686e7f0ddcb",
+    "label": "launcher-client",
+    "scopes": [
+     "client"
+    ],
+    "expiresAt": 1792168141110,
+    "expiresAtIso": "2026-10-16T16:29:01.110Z",
+    "revoked": true,
+    "revokedAt": "2026-09-16T16:51:31Z",
+    "environmentId": "15204312-7b3a-4022-90ec-cac6e5b1637c"
+   }
+  ],
+  "tokenFiles": [
+   {
+    "path": "/home/wsh/.config/openmausbot-launcher/tokens.json",
+    "mode": "0600",
+    "bytes": 94,
+    "directory": "/home/wsh/.config/openmausbot-launcher",
+    "directoryMode": "0700",
+    "role": "owner session"
+   },
+   {
+    "path": "/tmp/claude-1000/-home-wsh-Documents-openmausbot-launcher/52fa8a01-6826-4be4-b3c1-44f44ed6b287/scratchpad/tokens-client.json",
+    "mode": "0600",
+    "bytes": 94,
+    "directory": "the session scratchpad",
+    "directoryMode": "not recorded",
+    "role": "client session, selected with OMB_TOKEN_FILE"
+   }
+  ],
+  "tokenFileNote": "the driver printed the path, the label, the scopes and the expiry, never the token. Neither file's contents were read while writing this record.",
+  "replay": {
+   "attempt": "the owner code, already spent, exchanged again from the tailnet",
+   "status": 401,
+   "error": "pairing code is wrong or has expired; create a new one on the server",
+   "hint": "mint a new code on the server: openmausbot pair --port 8799 [--client]",
+   "hintProblem": "the hint names 8799, the CLI default, not the 8899 the server was on. Wording only; commit 0a55d39 later in the pass rewrote the pair and status hints",
+   "serverLog": "pairing refused from 100.88.158.53: pairing code is wrong or has expired; create a new one on the server",
+   "exitCode": 3
+  },
+  "sessionsList": "id                                    device           scope   last seen  expires   \nb269f445-b39a-412a-9468-5225e88f88b2  launcher         admin   just now   2026-10-16\nee76fe1c-4fc8-440d-b208-2686e7f0ddcb  launcher-client  client  just now   2026-10-16"
+ },
+ "commands": [
+  {
+   "label": "start the server behind Tailscale",
+   "actor": "operator shell",
+   "command": "env -i PATH=/home/wsh/.local/bin:/usr/local/bin:/usr/bin:/bin HOME=/home/wsh OMB_ASK_BOT_TIMEOUT_MS=600000 setsid nohup /home/wsh/.local/bin/node $CLI serve --port 8899 --data-dir \"$DD\" --tailscale --no-pair > $SP/remote-serve.log 2>&1",
+   "exitCode": "not recorded",
+   "output": "tailscale: serving https://wsh.taila20f43.ts.net → http://127.0.0.1:8899 (only your tailnet can reach it)\n(node:76827) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\nopenmausbot webhook receiver on http://127.0.0.1:8900\nopenmausbot open-source edition\nbrand: default\nopenmausbot server on http://127.0.0.1:8899\n\nOpenMausBot is running on http://127.0.0.1:8899, reachable at https://wsh.taila20f43.ts.net\ndata: /home/wsh/.cache/agent-team/omb-launcher-data-v2remote-CGHy3C\nstop with Ctrl+C",
+   "source": "scratchpad/remote-precheck.txt, scratchpad/remote-serve.log",
+   "note": "the command is quoted as the shell echoed it on completion, with $CLI = /home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js, $DD = /home/wsh/.cache/agent-team/omb-launcher-data-v2remote-CGHy3C and $SP = the scratchpad. The output is the server log as it stood at the pre-check"
+  },
+  {
+   "label": "tailscale serve status",
+   "actor": "operator shell",
+   "command": "tailscale serve status",
+   "exitCode": "not recorded",
+   "output": "https://wsh.taila20f43.ts.net (tailnet only)\n|-- / proxy http://127.0.0.1:8899",
+   "source": "scratchpad/remote-precheck.txt"
+  },
+  {
+   "label": "health through the tailnet",
+   "actor": "operator shell",
+   "command": "curl https://wsh.taila20f43.ts.net/api/health",
+   "exitCode": "not recorded",
+   "output": "{\"app\":\"openmausbot\"} HTTP 200",
+   "source": "scratchpad/remote-precheck.txt",
+   "note": "the exact curl argv is not recorded; the trailing \"HTTP 200\" is the status code the probe printed"
+  },
+  {
+   "label": "environment through the tailnet",
+   "actor": "operator shell",
+   "command": "curl https://wsh.taila20f43.ts.net/.well-known/openmausbot/environment",
+   "exitCode": "not recorded",
+   "output": "{\"environmentId\":\"15204312-7b3a-4022-90ec-cac6e5b1637c\",\"label\":\"WSH\",\"platform\":\"linux\",\"version\":\"0.1.56\",\"capabilities\":{\"remoteSessions\":true,\"selfUpdate\":\"operator\"}}",
+   "source": "scratchpad/remote-precheck.txt"
+  },
+  {
+   "label": "a protected route through the tailnet without a token",
+   "actor": "operator shell",
+   "command": "curl https://wsh.taila20f43.ts.net/api/bots",
+   "exitCode": "not recorded",
+   "output": "{\"error\":\"forbidden: this request came through a proxy (pair this device to use the server remotely)\"} HTTP 403",
+   "source": "scratchpad/remote-precheck.txt",
+   "note": "request-auth.ts:378 in the pinned 0.1.56 source is the refusal; loopback trust does not extend to a proxied request"
+  },
+  {
+   "label": "2026-09-16T16:29:00Z mint owner code",
+   "actor": "server host",
+   "command": "openmausbot pair --port 8899 --label launcher",
+   "exitCode": "not recorded",
+   "output": "pairing code:  ZNZ4-VGWT-CKKW\nexpires:       12:34:00 PM (single use)\nopen or scan:  https://wsh.taila20f43.ts.net/pair#code=ZNZ4-VGWT-CKKW\n▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄\n█ ▄▄▄▄▄ █▄▄████▀ ▄▀▀▄▀▄▀ ██ ▄▄▄▄▄ █\n█ █   █ █ ▀█ ▄▄▄▄▀▀▀▀▀█▀  █ █   █ █\n█ █▄▄▄█ █▄ ▄▄▀▄▀███▀▀██▄█▄█ █▄▄▄█ █\n█▄▄▄▄▄▄▄█▄▀▄▀▄▀ █▄▀ ▀▄█▄█ █▄▄▄▄▄▄▄█\nowner code: ZNZ4-VGWT-CKKW",
+   "source": "scratchpad/remote-run-1.txt",
+   "note": "minted on the OpenMausBot machine. The QR block is truncated where the capture ended, and the trailing \"owner code: …\" line is the capture script's own echo, not CLI output. The printed expiry, 12:34:00 PM local time, is 16:34Z: five minutes after the mint"
+  },
+  {
+   "label": "pair (owner) via the tailnet",
+   "actor": "owner launcher",
+   "command": "<skill>/scripts/omb.mjs pair --code ZNZ4-VGWT-CKKW --label launcher --url https://wsh.taila20f43.ts.net",
+   "exitCode": "not recorded",
+   "output": "{\"ok\":true,\"verb\":\"pair\",\"url\":\"https://wsh.taila20f43.ts.net\",\"tokenFile\":\"/home/wsh/.config/openmausbot-launcher/tokens.json\",\"replaced\":false,\"session\":{\"id\":\"b269f445-b39a-412a-9468-5225e88f88b2\",\"label\":\"launcher\",\"scopes\":[\"admin\",\"client\"],\"expiresAt\":1792168140747},\"environmentId\":\"15204312-7b3a-4022-90ec-cac6e5b1637c\"}\n\n-rw------- 94 /home/wsh/.config/openmausbot-launcher/tokens.json\ndrwx------ /home/wsh/.config/openmausbot-launcher",
+   "source": "scratchpad/remote-run-1.txt",
+   "note": "the two trailing lines are a stat of the written token file and of its directory, not driver output"
+  },
+  {
+   "label": "mint client code",
+   "actor": "server host",
+   "command": "openmausbot pair --port 8899 --label launcher-client --client",
+   "exitCode": "not recorded",
+   "output": "pairing code:  SYEH-YGMD-WYYW\nexpires:       12:34:00 PM (single use)\nopen or scan:  https://wsh.taila20f43.ts.net/pair#code=SYEH-YGMD-WYYW\n▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄\n█ ▄▄▄▄▄ █▄▄████▀ ▄ ▄█▄▄▀ ██ ▄▄▄▄▄ █\n█ █   █ █ ▀█ ▄▄▄▄▀▀▀▄▄█▀  █ █   █ █\nclient code: SYEH-YGMD-WYYW",
+   "source": "scratchpad/remote-run-1.txt",
+   "note": "the QR block is truncated where the capture ended, and the trailing \"client code: …\" line is the capture script's own echo, not CLI output"
+  },
+  {
+   "label": "pair (client) via the tailnet",
+   "actor": "client launcher",
+   "command": "OMB_TOKEN_FILE=/tmp/claude-1000/-home-wsh-Documents-openmausbot-launcher/52fa8a01-6826-4be4-b3c1-44f44ed6b287/scratchpad/tokens-client.json <skill>/scripts/omb.mjs pair --code SYEH-YGMD-WYYW --label launcher-client --url https://wsh.taila20f43.ts.net",
+   "exitCode": "not recorded",
+   "output": "{\"ok\":true,\"verb\":\"pair\",\"url\":\"https://wsh.taila20f43.ts.net\",\"tokenFile\":\"/tmp/claude-1000/-home-wsh-Documents-openmausbot-launcher/52fa8a01-6826-4be4-b3c1-44f44ed6b287/scratchpad/tokens-client.json\",\"replaced\":false,\"session\":{\"id\":\"ee76fe1c-4fc8-440d-b208-2686e7f0ddcb\",\"label\":\"launcher-client\",\"scopes\":[\"client\"],\"expiresAt\":1792168141110},\"environmentId\":\"15204312-7b3a-4022-90ec-cac6e5b1637c\"}\n\n-rw------- 94 /tmp/claude-1000/-home-wsh-Documents-openmausbot-launcher/52fa8a01-6826-4be4-b3c1-44f44ed6b287/scratchpad/tokens-client.json",
+   "source": "scratchpad/remote-run-1.txt",
+   "note": "the trailing line is a stat of the written token file, not driver output"
+  },
+  {
+   "label": "replay of a used code (expect 401 → exit 3)",
+   "actor": "owner launcher",
+   "command": "<skill>/scripts/omb.mjs pair --code ZNZ4-VGWT-CKKW --label launcher --url https://wsh.taila20f43.ts.net",
+   "exitCode": 3,
+   "output": "{\"ok\":false,\"verb\":\"pair\",\"error\":\"pairing code is wrong or has expired; create a new one on the server\",\"status\":401,\"hint\":\"mint a new code on the server: openmausbot pair --port 8799 [--client]\"}",
+   "source": "scratchpad/remote-run-1.txt",
+   "note": "a replay of the owner code already spent above. The record does not say which token file it targeted or whether --replace was passed; the answer is the server's own 401, so the preflight admitted the attempt. The exit code 3 is the one named in the section label, not a captured exit line. Server log: \"pairing refused from 100.88.158.53: pairing code is wrong or has expired; create a new one on the server\". The hint names --port 8799, the CLI default, not the port in use (8899)"
+  },
+  {
+   "label": "sessions on the server",
+   "actor": "server host",
+   "command": "openmausbot sessions --port 8899",
+   "exitCode": "not recorded",
+   "output": "id                                    device           scope   last seen  expires   \nb269f445-b39a-412a-9468-5225e88f88b2  launcher         admin   just now   2026-10-16\nee76fe1c-4fc8-440d-b208-2686e7f0ddcb  launcher-client  client  just now   2026-10-16\n\nrevoke one with: openmausbot sessions revoke <id>",
+   "source": "scratchpad/remote-run-1.txt"
+  },
+  {
+   "label": "2026-09-16T16:29:21Z owner: doctor --remote",
+   "actor": "owner launcher",
+   "command": "<skill>/scripts/omb.mjs doctor --remote --url https://wsh.taila20f43.ts.net --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "doctor · remote · 4 checks, 0 failed",
+   "source": "scratchpad/remote-run-2.txt"
+  },
+  {
+   "label": "owner: doctor --server --remote",
+   "actor": "owner launcher",
+   "command": "<skill>/scripts/omb.mjs doctor --server --remote --url https://wsh.taila20f43.ts.net --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "doctor · remote · 9 checks, 0 failed · engines grok, claude, codex, hermes",
+   "source": "scratchpad/remote-run-2.txt"
+  },
+  {
+   "label": "owner: status --remote",
+   "actor": "owner launcher",
+   "command": "<skill>/scripts/omb.mjs status --remote --url https://wsh.taila20f43.ts.net --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "{\"ok\":false,\"verb\":\"status\",\"error\":\"the server is not the one this team was imported on (identity changed or missing)\",\"hint\":\"re-import the package or run import --adopt to establish the current server binding\"}",
+   "source": "scratchpad/remote-run-2.txt",
+   "note": "the binding gap: the state was bound to http://127.0.0.1:8899 and session.mjs:75 required recorded.url === cfg.url"
+  },
+  {
+   "label": "owner: import --adopt --remote",
+   "actor": "owner launcher",
+   "command": "<skill>/scripts/omb.mjs import --adopt \"Agent Team dev team\" --remote --url https://wsh.taila20f43.ts.net --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "import · Agent Team dev team · lead Sudo · 5 bots, 1 room(s)",
+   "source": "scratchpad/remote-run-2.txt",
+   "note": "the workaround for the refusal above; it rebound the state to the tunnel URL and broke the local verbs. The exact --adopt argument is not in the raw record"
+  },
+  {
+   "label": "client: status --remote",
+   "actor": "client launcher",
+   "command": "OMB_TOKEN_FILE=/tmp/claude-1000/-home-wsh-Documents-openmausbot-launcher/52fa8a01-6826-4be4-b3c1-44f44ed6b287/scratchpad/tokens-client.json <skill>/scripts/omb.mjs status --remote --url https://wsh.taila20f43.ts.net --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "status · no run · team idle",
+   "source": "scratchpad/remote-run-2.txt"
+  },
+  {
+   "label": "client: doctor --server --remote (admin route → scope refusal)",
+   "actor": "client launcher",
+   "command": "OMB_TOKEN_FILE=/tmp/claude-1000/-home-wsh-Documents-openmausbot-launcher/52fa8a01-6826-4be4-b3c1-44f44ed6b287/scratchpad/tokens-client.json <skill>/scripts/omb.mjs doctor --server --remote --url https://wsh.taila20f43.ts.net --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": 0,
+   "output": "{\"ok\":false,\"verb\":\"doctor\",\"error\":\"GET /api/instances -> 403: forbidden: this session lacks the admin scope\",\"status\":403}",
+   "source": "scratchpad/remote-run-2.txt",
+   "note": "client scope refused on the admin route GET /api/instances. The raw file prints \"exit=0\" after this output without labelling which command it belongs to; a doctor failure of this shape exits 1 or 3 (cli.mjs:43), so the 0 is most likely the enclosing shell block's"
+  },
+  {
+   "label": "tokenless: status --remote via the tailnet",
+   "actor": "tokenless launcher",
+   "command": "<skill>/scripts/omb.mjs status --remote --url https://wsh.taila20f43.ts.net --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "{\"ok\":false,\"verb\":\"status\",\"error\":\"the server identity could not be verified\",\"hint\":\"check the URL and server, then import --adopt or re-import\"}",
+   "source": "scratchpad/remote-run-2.txt",
+   "note": "no pairing entry for this origin; how the token file was suppressed for this call is not recorded. An unauthenticated /api/health through the tunnel answers 200 without a pid (index.ts:7352-7354), so the driver reports an identity failure rather than a missing token"
+  },
+  {
+   "label": "tokenless: doctor --remote",
+   "actor": "tokenless launcher",
+   "command": "<skill>/scripts/omb.mjs doctor --remote --url https://wsh.taila20f43.ts.net --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "doctor · remote · 4 checks, 0 failed",
+   "source": "scratchpad/remote-run-2.txt"
+  },
+  {
+   "label": "2026-09-16T16:30:28Z task (local)",
+   "actor": "operator shell (local)",
+   "command": "<skill>/scripts/omb.mjs task … --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "{\"ok\":false,\"verb\":\"task\",\"error\":\"task needs the project checkout on the server's machine\",\"hint\":\"remote hosts can status, watch, send, answer, and interrupt\"}",
+   "source": "scratchpad/remote-run-3.txt",
+   "note": "refused because the state was bound to the tunnel URL by the adopt above. The brief text of this refused attempt is not recorded"
+  },
+  {
+   "label": "2026-09-16T16:30:28Z owner: watch --remote 90 s",
+   "actor": "owner launcher",
+   "command": "<skill>/scripts/omb.mjs watch --remote --url https://wsh.taila20f43.ts.net --max-seconds 90 --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": 3,
+   "output": "{\"ok\":false,\"verb\":\"watch\",\"error\":\"no open run to watch\",\"hint\":\"start one with task, or use status\"}",
+   "source": "scratchpad/remote-run-3.txt"
+  },
+  {
+   "label": "2026-09-16T16:30:29Z owner: send --remote (nonce e2279e7b)",
+   "actor": "owner launcher",
+   "command": "<skill>/scripts/omb.mjs send \"remote check e2279e7b: reply with just the nonce e2279e7b\" --remote --url https://wsh.taila20f43.ts.net --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "{\"ok\":true,\"verb\":\"send\",\"bot\":\"Sudo\",\"threadId\":\"4975c501-a14d-4aab-8d16-cccf987585ab\",\"messageId\":\"a7e74e9e-639d-480a-9c53-a4473cecc449\",\"steered\":false,\"queued\":false,\"queueId\":null,\"duplicate\":false,\"sendId\":\"send-4198055b8ca697c0\"}",
+   "source": "scratchpad/remote-run-3.txt",
+   "note": "the acknowledgment send; operator-authored nonce e2279e7b"
+  },
+  {
+   "label": "2026-09-16T16:30:29Z owner: watch --remote 90 s",
+   "actor": "owner launcher",
+   "command": "<skill>/scripts/omb.mjs watch --remote --url https://wsh.taila20f43.ts.net --max-seconds 90 --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": 3,
+   "output": "{\"ok\":false,\"verb\":\"watch\",\"error\":\"no open run to watch\",\"hint\":\"start one with task, or use status\"}",
+   "source": "scratchpad/remote-run-3.txt"
+  },
+  {
+   "label": "owner: status --tail 3 --remote",
+   "actor": "owner launcher",
+   "command": "<skill>/scripts/omb.mjs status --tail 3 --remote --url https://wsh.taila20f43.ts.net --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "{\"run\": null, \"state\": null, \"tail\": [{\"id\": \"a7e74e9e-639d-480a-9c53-a4473cecc449\", \"at\": 1789576229216, \"role\": \"user\", \"kind\": \"text\", \"from\": null, \"text\": \"remote check e2279e7b: reply with just the nonce e2279e7b\"}]}",
+   "source": "scratchpad/remote-run-3.txt"
+  },
+  {
+   "label": "2026-09-16T16:30:29Z owner: interrupt --remote",
+   "actor": "owner launcher",
+   "command": "<skill>/scripts/omb.mjs interrupt --remote --url https://wsh.taila20f43.ts.net --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "{\"ok\":false,\"verb\":\"interrupt\",\"error\":\"no run thread is recorded for Sudo\",\"hint\":\"interrupt only stops the run's own turn\"}",
+   "source": "scratchpad/remote-run-3.txt",
+   "note": "no run was open, so no run thread was recorded for Sudo"
+  },
+  {
+   "label": "client: status --remote --brief",
+   "actor": "client launcher",
+   "command": "OMB_TOKEN_FILE=/tmp/claude-1000/-home-wsh-Documents-openmausbot-launcher/52fa8a01-6826-4be4-b3c1-44f44ed6b287/scratchpad/tokens-client.json <skill>/scripts/omb.mjs status --remote --url https://wsh.taila20f43.ts.net --brief --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "status · no run · Sudo working",
+   "source": "scratchpad/remote-run-3.txt"
+  },
+  {
+   "label": "client: watch --remote 35 s --brief",
+   "actor": "client launcher",
+   "command": "OMB_TOKEN_FILE=/tmp/claude-1000/-home-wsh-Documents-openmausbot-launcher/52fa8a01-6826-4be4-b3c1-44f44ed6b287/scratchpad/tokens-client.json <skill>/scripts/omb.mjs watch --remote --url https://wsh.taila20f43.ts.net --max-seconds 35 --brief --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": 3,
+   "output": "{\"ok\":false,\"verb\":\"watch\",\"error\":\"no open run to watch\",\"hint\":\"start one with task, or use status\"}",
+   "source": "scratchpad/remote-run-3.txt"
+  },
+  {
+   "label": "2026-09-16T16:30:54Z owner: status --tail 3 --remote (nonce reply?)",
+   "actor": "owner launcher",
+   "command": "<skill>/scripts/omb.mjs status --tail 3 --remote --url https://wsh.taila20f43.ts.net --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "[{\"id\": \"a7e74e9e-639d-480a-9c53-a4473cecc449\", \"at\": 1789576229216, \"role\": \"user\", \"kind\": \"text\", \"from\": null, \"text\": \"remote check e2279e7b: reply with just the nonce e2279e7b\"}, {\"id\": \"c10e8f5b-434c-4173-b315-ea7604b079ad\", \"at\": 1789576241071, \"role\": \"bot\", \"kind\": \"text\", \"from\": null, \"text\": \"e2279e7b\"}]",
+   "source": "scratchpad/remote-run-4.txt",
+   "note": "the read that shows Sudo's reply to the remote send"
+  },
+  {
+   "label": "2026-09-16T16:30:54Z task (local, explicit loopback URL)",
+   "actor": "operator shell (local)",
+   "command": "<skill>/scripts/omb.mjs task … --url http://127.0.0.1:8899 --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "{\"ok\":false,\"verb\":\"task\",\"error\":\"the data dir does not belong to this server\",\"hint\":\"pass the matching --data-dir\"}",
+   "source": "scratchpad/remote-run-4.txt",
+   "note": "second attempt at the binding gap: passing the loopback URL back hit the data-dir rule"
+  },
+  {
+   "label": "2026-09-16T16:30:55Z owner: watch --remote 90 s --brief",
+   "actor": "owner launcher",
+   "command": "<skill>/scripts/omb.mjs watch --remote --url https://wsh.taila20f43.ts.net --max-seconds 90 --brief --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": 3,
+   "output": "{\"ok\":false,\"verb\":\"watch\",\"error\":\"no open run to watch\",\"hint\":\"start one with task, or use status\"}",
+   "source": "scratchpad/remote-run-4.txt"
+  },
+  {
+   "label": "owner: status --tail 3 --remote",
+   "actor": "owner launcher",
+   "command": "<skill>/scripts/omb.mjs status --tail 3 --remote --url https://wsh.taila20f43.ts.net --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "{\"run\": null, \"state\": null, \"tail\": [{\"id\": \"a7e74e9e-639d-480a-9c53-a4473cecc449\", \"at\": 1789576229216, \"role\": \"user\", \"kind\": \"text\", \"from\": null, \"text\": \"remote check e2279e7b: reply with just the nonce e2279e7b\"}, {\"id\": \"c10e8f5b-434c-4173-b315-ea7604b079ad\", \"at\": 1789576241071, \"role\": \"bot\", \"kind\": \"text\", \"from\": null, \"text\": \"e2279e7b\"}]}",
+   "source": "scratchpad/remote-run-4.txt"
+  },
+  {
+   "label": "2026-09-16T16:30:55Z owner: interrupt --remote",
+   "actor": "owner launcher",
+   "command": "<skill>/scripts/omb.mjs interrupt --remote --url https://wsh.taila20f43.ts.net --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "{\"ok\":false,\"verb\":\"interrupt\",\"error\":\"no run thread is recorded for Sudo\",\"hint\":\"interrupt only stops the run's own turn\"}",
+   "source": "scratchpad/remote-run-4.txt"
+  },
+  {
+   "label": "client: watch --remote 35 s --brief",
+   "actor": "client launcher",
+   "command": "OMB_TOKEN_FILE=/tmp/claude-1000/-home-wsh-Documents-openmausbot-launcher/52fa8a01-6826-4be4-b3c1-44f44ed6b287/scratchpad/tokens-client.json <skill>/scripts/omb.mjs watch --remote --url https://wsh.taila20f43.ts.net --max-seconds 35 --brief --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": 3,
+   "output": "{\"ok\":false,\"verb\":\"watch\",\"error\":\"no open run to watch\",\"hint\":\"start one with task, or use status\"}",
+   "source": "scratchpad/remote-run-4.txt"
+  },
+  {
+   "label": "client: interrupt --remote (client scope, allowed route)",
+   "actor": "client launcher",
+   "command": "OMB_TOKEN_FILE=/tmp/claude-1000/-home-wsh-Documents-openmausbot-launcher/52fa8a01-6826-4be4-b3c1-44f44ed6b287/scratchpad/tokens-client.json <skill>/scripts/omb.mjs interrupt --remote --url https://wsh.taila20f43.ts.net --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "{\"ok\":false,\"verb\":\"interrupt\",\"error\":\"no run thread is recorded for Sudo\",\"hint\":\"interrupt only stops the run's own turn\"}",
+   "source": "scratchpad/remote-run-4.txt",
+   "note": "interrupt is a client-allowed route: the refusal is the driver's, for want of a run thread, not a scope refusal"
+  },
+  {
+   "label": "2026-09-16T16:31:18Z task (local, --url loopback --data-dir)",
+   "actor": "operator shell (local)",
+   "command": "<skill>/scripts/omb.mjs task … --url http://127.0.0.1:8899 --data-dir /home/wsh/.cache/agent-team/omb-launcher-data-v2remote-CGHy3C --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "{\"ok\":false,\"verb\":\"task\",\"error\":\"the server is not the one this team was imported on (identity changed or missing)\",\"hint\":\"re-import the package or run import --adopt to establish the current server binding\"}",
+   "source": "scratchpad/remote-run-5.txt",
+   "note": "third attempt: with the matching data dir the identity rule refused, because the remote adopt had recorded healthStart null"
+  },
+  {
+   "label": "2026-09-16T16:31:18Z owner: watch --remote 90 s --brief",
+   "actor": "owner launcher",
+   "command": "<skill>/scripts/omb.mjs watch --remote --url https://wsh.taila20f43.ts.net --max-seconds 90 --brief --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": 3,
+   "output": "{\"ok\":false,\"verb\":\"watch\",\"error\":\"no open run to watch\",\"hint\":\"start one with task, or use status\"}",
+   "source": "scratchpad/remote-run-5.txt"
+  },
+  {
+   "label": "owner: status --remote (run + tail)",
+   "actor": "owner launcher",
+   "command": "<skill>/scripts/omb.mjs status --remote --url https://wsh.taila20f43.ts.net --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "{\"run\": null, \"state\": null, \"tail\": [{\"id\": \"a7e74e9e-639d-480a-9c53-a4473cecc449\", \"at\": 1789576229216, \"role\": \"user\", \"kind\": \"text\", \"from\": null, \"text\": \"remote check e2279e7b: reply with just the nonce e2279e7b\"}, {\"id\": \"c10e8f5b-434c-4173-b315-ea7604b079ad\", \"at\": 1789576241071, \"role\": \"bot\", \"kind\": \"text\", \"from\": null, \"text\": \"e2279e7b\"}]}",
+   "source": "scratchpad/remote-run-5.txt"
+  },
+  {
+   "label": "2026-09-16T16:31:18Z owner: interrupt --remote (idle run thread)",
+   "actor": "owner launcher",
+   "command": "<skill>/scripts/omb.mjs interrupt --remote --url https://wsh.taila20f43.ts.net --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "{\"ok\":false,\"verb\":\"interrupt\",\"error\":\"no run thread is recorded for Sudo\",\"hint\":\"interrupt only stops the run's own turn\"}",
+   "source": "scratchpad/remote-run-5.txt"
+  },
+  {
+   "label": "client: watch --remote 35 s --brief",
+   "actor": "client launcher",
+   "command": "OMB_TOKEN_FILE=/tmp/claude-1000/-home-wsh-Documents-openmausbot-launcher/52fa8a01-6826-4be4-b3c1-44f44ed6b287/scratchpad/tokens-client.json <skill>/scripts/omb.mjs watch --remote --url https://wsh.taila20f43.ts.net --max-seconds 35 --brief --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": 3,
+   "output": "{\"ok\":false,\"verb\":\"watch\",\"error\":\"no open run to watch\",\"hint\":\"start one with task, or use status\"}",
+   "source": "scratchpad/remote-run-5.txt"
+  },
+  {
+   "label": "client: interrupt --remote",
+   "actor": "client launcher",
+   "command": "OMB_TOKEN_FILE=/tmp/claude-1000/-home-wsh-Documents-openmausbot-launcher/52fa8a01-6826-4be4-b3c1-44f44ed6b287/scratchpad/tokens-client.json <skill>/scripts/omb.mjs interrupt --remote --url https://wsh.taila20f43.ts.net --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "{\"ok\":false,\"verb\":\"interrupt\",\"error\":\"no run thread is recorded for Sudo\",\"hint\":\"interrupt only stops the run's own turn\"}",
+   "source": "scratchpad/remote-run-5.txt"
+  },
+  {
+   "label": "2026-09-16T16:49:46Z driver at 01901f9; owner: status --remote (shared state bound to loopback)",
+   "actor": "owner launcher",
+   "command": "/tmp/oml-wt-01901f9/skills/openmausbot-launcher/scripts/omb.mjs status --remote --url https://wsh.taila20f43.ts.net --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": 0,
+   "output": "status · no run · team idle",
+   "source": "scratchpad/remote-run-6.txt",
+   "note": "driver at commit 01901f9 from a temporary worktree (scratchpad/omb-wt.sh); the shared state is bound to http://127.0.0.1:8899 and is no longer refused"
+  },
+  {
+   "label": "2026-09-16T16:49:46Z task (local, default loopback binding)",
+   "actor": "operator shell (local)",
+   "command": "/tmp/oml-wt-01901f9/… omb.mjs task \"This is a connectivity check, not a development task: reply with the single word READY and do nothing else; do not delegate and do not create a worktree.\" --title \"remote check\" --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "{\"ok\":true,\"verb\":\"task\",\"runId\":\"73549ddbbd6f2318\",\"status\":\"dispatched\",\"title\":\"remote check\",\"slug\":\"remote-check\",\"tag\":\"oml:73549ddb\",\"leadThreadId\":\"139a86f5-c1cd-4098-b2d5-62b7a1d5e138\",\"threads\":{\"0c942a97-34fe-4994-b37c-22c1f3e28d64\":\"139a86f5-c1cd-4098-b2d5-62b7a1d5e138\",\"baab785b-233e-4a0d-b06f-b2feb7add84f\":\"b7cf0558-edd1-4b25-bcca-30ce5a867afb\",\"68ae84b4-4655-4f99-a376-1a4e11aaeb84\":\"04c8fd8e-7bd7-4bbf-8d1b-7c2654b59129\",\"bca4dcc1-31d3-4e21-b4fd-39a8c3ef5091\":\"78c0bedb-7243-4bf7-91",
+   "source": "scratchpad/remote-run-6.txt",
+   "note": "output truncated where the capture ended; the full thread map, brief and receipt are in the state file's history entry for run 73549ddbbd6f2318. The driver appends the run-marker paragraph to the brief"
+  },
+  {
+   "label": "2026-09-16T16:49:46Z owner: watch --remote 90 s --brief",
+   "actor": "owner launcher",
+   "command": "/tmp/oml-wt-01901f9/… omb.mjs watch --remote --url https://wsh.taila20f43.ts.net --max-seconds 90 --brief --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": 5,
+   "output": "remote-check · ATTENTION · settled without the run marker · Sudo 32s ago: \"READY\" → read, then omb send \"…\"",
+   "source": "scratchpad/remote-run-6.txt",
+   "note": "exit 5 is ATTENTION: correct here, because the brief asked for READY only and never for the run marker"
+  },
+  {
+   "label": "owner: status --remote (run + tail 2)",
+   "actor": "owner launcher",
+   "command": "/tmp/oml-wt-01901f9/… omb.mjs status --remote --url https://wsh.taila20f43.ts.net --tail 2 --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "{\"run\": {\"runId\": \"73549ddbbd6f2318\", \"status\": \"dispatched\", \"title\": \"remote check\", \"leadThreadId\": null}, \"state\": \"attention\", \"tail\": [{\"id\": \"cb2e187b-b845-4eb3-ada4-ba407976b8cc\", \"at\": 1789577386784, \"role\": \"user\", \"kind\": \"text\", \"from\": null, \"text\": \"This is a connectivity check, not a development task: reply with the single word READY and do nothing else; do not delegate and do not create a worktree. When the task is finished, end your closing report with a line containing only `DONE oml:73549ddb`.\"}, {\"id\": \"f56fbd0e-5ec8-4a86-9ec3-128fcd1f1453\", \"at\": 1789577394701, \"role\": \"bot\", \"kind\": \"text\", \"from\": null, \"text\": \"READY\"}]}",
+   "source": "scratchpad/remote-run-6.txt"
+  },
+  {
+   "label": "2026-09-16T16:50:27Z owner: interrupt --remote",
+   "actor": "owner launcher",
+   "command": "/tmp/oml-wt-01901f9/… omb.mjs interrupt --remote --url https://wsh.taila20f43.ts.net --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "{\"ok\":true,\"verb\":\"interrupt\",\"bot\":\"Sudo\",\"threadId\":\"139a86f5-c1cd-4098-b2d5-62b7a1d5e138\",\"interrupted\":true}",
+   "source": "scratchpad/remote-run-6.txt"
+  },
+  {
+   "label": "client: watch --remote 35 s --brief",
+   "actor": "client launcher",
+   "command": "OMB_TOKEN_FILE=/tmp/claude-1000/-home-wsh-Documents-openmausbot-launcher/52fa8a01-6826-4be4-b3c1-44f44ed6b287/scratchpad/tokens-client.json /tmp/oml-wt-01901f9/… omb.mjs watch --remote --url https://wsh.taila20f43.ts.net --max-seconds 35 --brief --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": 5,
+   "output": "remote-check · ATTENTION · settled without the run marker · Sudo 1m ago: \"READY\" → read, then omb send \"…\"",
+   "source": "scratchpad/remote-run-6.txt"
+  },
+  {
+   "label": "client: interrupt --remote",
+   "actor": "client launcher",
+   "command": "OMB_TOKEN_FILE=/tmp/claude-1000/-home-wsh-Documents-openmausbot-launcher/52fa8a01-6826-4be4-b3c1-44f44ed6b287/scratchpad/tokens-client.json /tmp/oml-wt-01901f9/… omb.mjs interrupt --remote --url https://wsh.taila20f43.ts.net --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "{\"ok\":true,\"verb\":\"interrupt\",\"bot\":\"Sudo\",\"threadId\":\"139a86f5-c1cd-4098-b2d5-62b7a1d5e138\",\"interrupted\":true}",
+   "source": "scratchpad/remote-run-6.txt",
+   "note": "a client-scope session interrupted the run: the route is client-allowed"
+  },
+  {
+   "label": "2026-09-16T16:51:30Z report (local, closes the run)",
+   "actor": "operator shell (local)",
+   "command": "/tmp/oml-wt-01901f9/… omb.mjs report --no-tests --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "{\"ok\": true, \"verb\": \"report\", \"runId\": \"73549ddbbd6f2318\", \"result\": \"incomplete\", \"closed\": true, \"turns\": null, \"threads\": [{\"bot\": \"Sudo\", \"threadId\": \"139a86f5-c1cd-4098-b2d5-62b7a1d5e138\", \"available\": true, \"turns\": 1, \"seconds\": 7.894, \"totals\": {\"input\": 21125, \"output\": 57, \"cachedInput\": 9984}, \"models\": [\"gpt-5.6-luna\"]}, {\"bot\": \"Quill\", \"threadId\": \"b7cf0558-edd1-4b25-bcca-30ce5a867afb\", \"available\": false, \"turns\": 0, \"seconds\": 0, \"totals\": {\"input\": 0, \"output\": 0, \"cachedInput\": 0}, \"models\": []}, {\"bot\": \"Nova\", \"threadId\": \"04c8fd8e-7bd7-4bbf-8d1b-7c2654b59129\", \"available\": false, \"turns\": 0, \"seconds\": 0, \"totals\": {\"input\": 0, \"output\": 0, \"cachedInput\": 0}, \"models\": []}, {\"bot\": \"Vale\", \"threadId\": \"78c0bedb-7243-4bf7-91c0-765107e322a7\", \"available\": false, \"turns\": 0, \"seconds\": 0, \"totals\": {\"input\": 0, \"output\": 0, \"cachedInput\": 0}, \"models\": []}, {\"bot\": \"Sa",
+   "source": "scratchpad/remote-run-7.txt",
+   "note": "output truncated where the capture ended (mid Sage row); the closed result is in the state file's history entry"
+  },
+  {
+   "label": "status after report",
+   "actor": "operator shell (local)",
+   "command": "/tmp/oml-wt-01901f9/… omb.mjs status --brief --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "status · no run · team idle",
+   "source": "scratchpad/remote-run-7.txt"
+  },
+  {
+   "label": "reconcile",
+   "actor": "operator shell (local)",
+   "command": "/tmp/oml-wt-01901f9/… omb.mjs reconcile --brief --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "reconcile · clean",
+   "source": "scratchpad/remote-run-7.txt"
+  },
+  {
+   "label": "2026-09-16T16:51:31Z revoke sessions",
+   "actor": "server host",
+   "command": "openmausbot sessions revoke b269f445-b39a-412a-9468-5225e88f88b2; openmausbot sessions revoke ee76fe1c-4fc8-440d-b208-2686e7f0ddcb; openmausbot sessions --port 8899",
+   "exitCode": "not recorded",
+   "output": "revoked b269f445-b39a-412a-9468-5225e88f88b2: that device is signed out and its stream is closed\nrevoked ee76fe1c-4fc8-440d-b208-2686e7f0ddcb: that device is signed out and its stream is closed\nno paired devices yet: run `openmausbot pair`",
+   "source": "scratchpad/remote-run-7.txt",
+   "note": "the exact argv of the three calls is not in the raw record; the --port flag is required for a non-default port"
+  },
+  {
+   "label": "revoked token through the tunnel (expect 401)",
+   "actor": "owner launcher",
+   "command": "<skill>/scripts/omb.mjs status --remote --url https://wsh.taila20f43.ts.net --project /tmp/oml-v2-remote-l5cKYy/project",
+   "exitCode": "not recorded",
+   "output": "{\"ok\":false,\"verb\":\"status\",\"error\":\"the server identity could not be verified\",\"hint\":\"check the URL and server, then import --adopt or re-import\"}",
+   "source": "scratchpad/remote-run-7.txt",
+   "note": "the owner token file still held the revoked session. The message is the same one an unauthenticated call gets, because the health route answers 200 without a pid either way"
+  },
+  {
+   "label": "2026-09-16T16:51:32Z stop the server (SIGTERM supervisor 76752)",
+   "actor": "operator shell",
+   "command": "kill <pid>; ss -ltn; ps -o pid=,args= …",
+   "exitCode": "not recorded",
+   "output": "LISTEN 0      511                      127.0.0.1:8899       0.0.0.0:*          \nLISTEN 0      511                      127.0.0.1:8900       0.0.0.0:*          \n76759 /home/wsh/.local/bin/node /home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js serve --port 8899 --data-dir /home/wsh/.cache/agent-team/omb-launcher-data-v2remote-CGHy3C --tailscale --no-pair",
+   "source": "scratchpad/remote-run-7.txt",
+   "note": "the exact argv is not recorded. The output is the listening sockets and the server process line taken before the SIGTERM; the pid file held the setsid wrapper 76752, and the cli.js serve process was 76759"
+  },
+  {
+   "label": "tailscale serve off",
+   "actor": "operator shell",
+   "command": "tailscale serve --https=443 off; tail -3 $SP/remote-serve.log",
+   "exitCode": "not recorded",
+   "output": "No serve config\npairing refused from 100.88.158.53: pairing code is wrong or has expired; create a new one on the server\n[omb-turn] bot=0c942a97-34fe-4994-b37c-22c1f3e28d64 text=\"remote check e2279e7b: reply with just the nonce e2279e7b\" images=0 depth=0 card=false\n[omb-turn] bot=0c942a97-34fe-4994-b37c-22c1f3e28d64 text=\"This is a connectivity check, not a development task: reply with the s\" images=0 depth=0 card=false",
+   "source": "scratchpad/remote-run-7.txt",
+   "note": "the exact argv is not recorded. The block holds \"No serve config\" followed by the last three lines of the server log"
+  }
+ ],
+ "bindingGap": {
+  "bead": "oml-9kp",
+  "found": "2026-09-16T16:29:21Z, on the first remote verb of the run",
+  "cause": "session.mjs:75 required recorded.url === cfg.url, so a state bound to http://127.0.0.1:8899 refused every call that named the tunnel URL, even with the same environment id",
+  "firstAttempt": [
+   {
+    "step": "owner status --remote",
+    "output": "{\"ok\":false,\"verb\":\"status\",\"error\":\"the server is not the one this team was imported on (identity changed or missing)\",\"hint\":\"re-import the package or run import --adopt to establish the current server binding\"}"
+   },
+   {
+    "step": "import --adopt --remote (the workaround)",
+    "output": "import · Agent Team dev team · lead Sudo · 5 bots, 1 room(s)",
+    "consequence": "status then worked for both tokens, but the state was now bound to the tunnel URL"
+   },
+   {
+    "step": "task (local) after the adopt",
+    "output": "{\"ok\":false,\"verb\":\"task\",\"error\":\"task needs the project checkout on the server's machine\",\"hint\":\"remote hosts can status, watch, send, answer, and interrupt\"}"
+   },
+   {
+    "step": "task --url http://127.0.0.1:8899",
+    "output": "{\"ok\":false,\"verb\":\"task\",\"error\":\"the data dir does not belong to this server\",\"hint\":\"pass the matching --data-dir\"}"
+   },
+   {
+    "step": "task --url http://127.0.0.1:8899 --data-dir <data dir>",
+    "output": "{\"ok\":false,\"verb\":\"task\",\"error\":\"the server is not the one this team was imported on (identity changed or missing)\",\"hint\":\"re-import the package or run import --adopt to establish the current server binding\"}",
+    "why": "the remote adopt had recorded healthStart null, so the local identity check could not pass either"
+   },
+   {
+    "step": "watch --remote, both sessions, three times",
+    "output": "{\"ok\":false,\"verb\":\"watch\",\"error\":\"no open run to watch\",\"hint\":\"start one with task, or use status\"}",
+    "why": "no run could be opened, so remote watch and interrupt could not be exercised at all"
+   }
+  ],
+  "consequence": "the remote variant's whole point — a run opened on the dev box, watched and interrupted from elsewhere — was unreachable. Remote watch and interrupt were not exercised before the fix.",
+  "restore": {
+   "command": "<skill>/scripts/omb.mjs import --adopt \"Agent Team dev team\" --url http://127.0.0.1:8899 --data-dir /home/wsh/.cache/agent-team/omb-launcher-data-v2remote-CGHy3C --project /tmp/oml-v2-remote-l5cKYy/project",
+   "result": "the local binding restored; the state records healthStart 1622400 and adoptedAt 2026-09-16T16:32:34.175Z"
+  },
+  "fix": {
+   "commit": "01901f9",
+   "subject": "fix(session): bind the team to the server's environment id, not to one URL",
+   "rule": "in remote mode the URL comparison is dropped as long as the live, recorded and team environment ids agree; local mode keeps the URL, where another loopback port is another server",
+   "tests": "tests/identity.test.mjs: a locally bound state reachable at a second origin for the same fake and refused for a different one; local mode still pins the URL; a run opened locally watched and interrupted through the other URL"
+  },
+  "afterFix": {
+   "at": "2026-09-16T16:49:46Z",
+   "driver": "01901f9, run from the temporary worktree /tmp/oml-wt-01901f9",
+   "ownerStatusRemote": "status · no run · team idle (exit 0) on the loopback-bound state",
+   "note": "no re-adopt was needed; the shared state stayed bound to http://127.0.0.1:8899 and the remote calls only passed --remote --url"
+  }
+ },
+ "acknowledgment": {
+  "at": "2026-09-16T16:30:29Z",
+  "mode": "owner token, state bound to the tunnel URL at that moment (after the workaround adopt)",
+  "thread": "4975c501-a14d-4aab-8d16-cccf987585ab",
+  "bot": "Sudo (0c942a97-34fe-4994-b37c-22c1f3e28d64)",
+  "nonce": "e2279e7b",
+  "send": {
+   "messageId": "a7e74e9e-639d-480a-9c53-a4473cecc449",
+   "sendId": "send-4198055b8ca697c0",
+   "at": 1789576229216,
+   "atIso": "2026-09-16T16:30:29.216Z",
+   "text": "remote check e2279e7b: reply with just the nonce e2279e7b",
+   "steered": false,
+   "queued": false,
+   "duplicate": false
+  },
+  "reply": {
+   "messageId": "c10e8f5b-434c-4173-b315-ea7604b079ad",
+   "at": 1789576241071,
+   "atIso": "2026-09-16T16:30:41.071Z",
+   "text": "e2279e7b"
+  },
+  "latencySeconds": 11.855,
+  "ombTurn": {
+   "turnId": "11b3f329-cafc-44bb-a8b0-2c9f82a1dcfb",
+   "provider": "codex",
+   "providerSessionId": "01a0ab0e-3278-7c83-a4c9-36cbcc1e41a4",
+   "model": "gpt-5.6-luna",
+   "startedAt": "2026-09-16T16:30:29.286Z",
+   "completedAt": "2026-09-16T16:30:41.157Z",
+   "ok": true,
+   "usage": {
+    "input": 18425,
+    "output": 30,
+    "cachedInput": 9984
+   },
+   "source": "/home/wsh/.cache/agent-team/omb-launcher-data-v2remote-CGHy3C/events/4975c501-a14d-4aab-8d16-cccf987585ab.ndjson"
+  },
+  "serverLog": "[omb-turn] bot=0c942a97-34fe-4994-b37c-22c1f3e28d64 text=\"remote check e2279e7b: reply with just the nonce e2279e7b\" images=0 depth=0 card=false",
+  "botTurnNumber": "4 of the pass"
+ },
+ "run": {
+  "runId": "73549ddbbd6f2318",
+  "tag": "oml:73549ddb",
+  "slug": "remote-check",
+  "title": "remote check",
+  "dispatchedAt": 1789577386784,
+  "dispatchedAtIso": "2026-09-16T16:49:46.784Z",
+  "sentSha": "64fa0970b43da65373cc3aff53b3d65ca7adfcf3",
+  "sendId": "task-73549ddbbd6f2318",
+  "dispatchMode": "local (the project checkout is on the server's machine); every observation after it was remote",
+  "brief": "This is a connectivity check, not a development task: reply with the single word READY and do nothing else; do not delegate and do not create a worktree.\n\nWhen the task is finished, end your closing report with a line containing only `DONE oml:73549ddb`.",
+  "briefNote": "the second paragraph is the run marker the driver appends; the first is the operator's, and it asks for READY only",
+  "leadThreadId": "139a86f5-c1cd-4098-b2d5-62b7a1d5e138",
+  "threads": {
+   "0c942a97-34fe-4994-b37c-22c1f3e28d64": "139a86f5-c1cd-4098-b2d5-62b7a1d5e138",
+   "baab785b-233e-4a0d-b06f-b2feb7add84f": "b7cf0558-edd1-4b25-bcca-30ce5a867afb",
+   "68ae84b4-4655-4f99-a376-1a4e11aaeb84": "04c8fd8e-7bd7-4bbf-8d1b-7c2654b59129",
+   "bca4dcc1-31d3-4e21-b4fd-39a8c3ef5091": "78c0bedb-7243-4bf7-91c0-765107e322a7",
+   "3d0088a3-7042-4092-8aa3-7f14fd429e2b": "3b4c3fe3-c65d-46b9-81e3-b2cb73e5664a"
+  },
+  "threadsSource": "/tmp/oml-v2-remote-l5cKYy/project/.omb/state.json (the task output in remote-run-6.txt is truncated)",
+  "leadReply": {
+   "messageId": "f56fbd0e-5ec8-4a86-9ec3-128fcd1f1453",
+   "at": 1789577394701,
+   "atIso": "2026-09-16T16:49:54.701Z",
+   "text": "READY",
+   "latencySeconds": 7.917
+  },
+  "ombTurn": {
+   "turnId": "d23ccd59-b072-4b41-8f4b-f20e13ffa12f",
+   "provider": "codex",
+   "providerSessionId": "01a0ab1f-dc2d-7a11-aa54-6ba2f09e9edc",
+   "model": "gpt-5.6-luna",
+   "startedAt": "2026-09-16T16:49:46.825Z",
+   "completedAt": "2026-09-16T16:49:54.719Z",
+   "ok": true,
+   "usage": {
+    "input": 21125,
+    "output": 57,
+    "cachedInput": 9984
+   },
+   "source": "/home/wsh/.cache/agent-team/omb-launcher-data-v2remote-CGHy3C/events/139a86f5-c1cd-4098-b2d5-62b7a1d5e138.ndjson"
+  },
+  "botTurnNumber": "5 of the pass",
+  "watch": [
+   {
+    "session": "owner",
+    "budgetSeconds": 90,
+    "exitCode": 5,
+    "output": "remote-check · ATTENTION · settled without the run marker · Sudo 32s ago: \"READY\" → read, then omb send \"…\"",
+    "correct": "the brief asked for READY only, so the marker was never going to appear; ATTENTION is the right verdict"
+   },
+   {
+    "session": "client",
+    "budgetSeconds": 35,
+    "exitCode": 5,
+    "output": "remote-check · ATTENTION · settled without the run marker · Sudo 1m ago: \"READY\" → read, then omb send \"…\""
+   }
+  ],
+  "interrupt": [
+   {
+    "session": "owner",
+    "at": "2026-09-16T16:50:27Z",
+    "output": "{\"ok\":true,\"verb\":\"interrupt\",\"bot\":\"Sudo\",\"threadId\":\"139a86f5-c1cd-4098-b2d5-62b7a1d5e138\",\"interrupted\":true}"
+   },
+   {
+    "session": "client",
+    "output": "{\"ok\":true,\"verb\":\"interrupt\",\"bot\":\"Sudo\",\"threadId\":\"139a86f5-c1cd-4098-b2d5-62b7a1d5e138\",\"interrupted\":true}",
+    "note": "client scope is allowed on the interrupt route"
+   }
+  ],
+  "report": {
+   "command": "report --no-tests (local)",
+   "at": "2026-09-16T16:51:30Z",
+   "result": "incomplete",
+   "closed": true,
+   "closedAt": "2026-09-16T16:51:30.802Z",
+   "durationSec": 104,
+   "closing": "READY",
+   "unknown": [
+    "tests-pass"
+   ],
+   "failedChecks": [
+    "run-done",
+    "task-log-changed",
+    "record-commit"
+   ],
+   "threads": [
+    {
+     "bot": "Sudo",
+     "threadId": "139a86f5-c1cd-4098-b2d5-62b7a1d5e138",
+     "available": true,
+     "turns": 1,
+     "seconds": 7.894,
+     "totals": {
+      "input": 21125,
+      "output": 57,
+      "cachedInput": 9984
+     },
+     "models": [
+      "gpt-5.6-luna"
+     ]
+    },
+    {
+     "bot": "Quill",
+     "threadId": "b7cf0558-edd1-4b25-bcca-30ce5a867afb",
+     "available": false,
+     "turns": 0,
+     "seconds": 0,
+     "totals": {
+      "input": 0,
+      "output": 0,
+      "cachedInput": 0
+     },
+     "models": []
+    },
+    {
+     "bot": "Nova",
+     "threadId": "04c8fd8e-7bd7-4bbf-8d1b-7c2654b59129",
+     "available": false,
+     "turns": 0,
+     "seconds": 0,
+     "totals": {
+      "input": 0,
+      "output": 0,
+      "cachedInput": 0
+     },
+     "models": []
+    },
+    {
+     "bot": "Vale",
+     "threadId": "78c0bedb-7243-4bf7-91c0-765107e322a7",
+     "available": false,
+     "turns": 0,
+     "seconds": 0,
+     "totals": {
+      "input": 0,
+      "output": 0,
+      "cachedInput": 0
+     },
+     "models": []
+    },
+    {
+     "bot": "Sage",
+     "threadId": "3b4c3fe3-c65d-46b9-81e3-b2cb73e5664a",
+     "available": false,
+     "turns": 0,
+     "seconds": 0,
+     "totals": {
+      "input": 0,
+      "output": 0,
+      "cachedInput": 0
+     },
+     "models": [],
+     "note": "the Sage row is cut off in remote-run-7.txt where the capture ended; its zeros are read from the state file's history entry"
+    }
+   ],
+   "topLevelTurns": null,
+   "reportSource": "scratchpad/remote-run-7.txt for the JSON; /tmp/oml-v2-remote-l5cKYy/project/.omb/state.json for the closed record"
+  }
+ },
+ "runtimeEventSources": [
+  {
+   "threadId": "4975c501-a14d-4aab-8d16-cccf987585ab",
+   "what": "the remote send acknowledgment",
+   "file": "/home/wsh/.cache/agent-team/omb-launcher-data-v2remote-CGHy3C/events/4975c501-a14d-4aab-8d16-cccf987585ab.ndjson",
+   "sha256": "c596879798a0c345cd19951eab99aa4b319c08acca5f51e91e9a33111a94431c",
+   "lines": 12
+  },
+  {
+   "threadId": "139a86f5-c1cd-4098-b2d5-62b7a1d5e138",
+   "what": "the run's lead thread",
+   "file": "/home/wsh/.cache/agent-team/omb-launcher-data-v2remote-CGHy3C/events/139a86f5-c1cd-4098-b2d5-62b7a1d5e138.ndjson",
+   "sha256": "bd54a9d976ff4a340ebe90286c853d9e7a9842400537134549790a8d971b63c5",
+   "lines": 7
+  },
+  {
+   "serveLog": "scratchpad/remote-serve.log",
+   "note": "holds the tailscale line, the pairing refusal from 100.88.158.53 and the two [omb-turn] lines"
+  }
+ ],
+ "incidents": [
+  {
+   "id": 1,
+   "description": "The team binding was a URL, not an identity: a state bound to http://127.0.0.1:8899 refused every --remote call that named the tunnel, and adopting the tunnel URL broke the local verbs. Remote watch and interrupt could not be exercised until it was fixed.",
+   "source": "scratchpad/remote-run-2..5.txt",
+   "bead": "oml-9kp",
+   "resolved": true,
+   "fixCommit": "01901f9"
+  },
+  {
+   "id": 2,
+   "description": "A tokenless or revoked bearer through the tunnel reads \"the server identity could not be verified\", not \"no token\": an unauthenticated /api/health answers 200 without a pid (index.ts:7352-7354), so the driver cannot tell a missing credential from a different server.",
+   "source": "scratchpad/remote-run-2.txt, remote-run-7.txt",
+   "resolved": "partly",
+   "resolution": "commit 0a55d39 names the missing token file and the real port in the pair and status hints; the health route's own shape is upstream and unchanged"
+  },
+  {
+   "id": 3,
+   "description": "The pair refusal hint named --port 8799, the CLI default, while the server was on 8899.",
+   "source": "scratchpad/remote-run-1.txt",
+   "resolved": true,
+   "fixCommit": "0a55d39"
+  },
+  {
+   "id": 4,
+   "description": "The Codex review of the pair verb found that the single-use code was spent before the token-file lock and preflight, which could leave a 30-day session with nowhere to live.",
+   "source": "the pass's Codex review (session 01a0ab0c-0d64-7500-9f9b-b71912d056de) against the code, not a run failure",
+   "resolved": true,
+   "fixCommit": "446094b"
+  },
+  {
+   "id": 5,
+   "description": "The recorded serve pid (76752) was the setsid wrapper, not the server; the SIGTERM had to go to the cli.js serve process 76759. The server was hand-started, so the driver's own ownership proof did not apply.",
+   "source": "scratchpad/remote-serve.pid, remote-run-7.txt",
+   "resolved": true
+  }
+ ],
+ "cleanup": {
+  "reconcile": "reconcile · clean",
+  "statusAfterReport": "status · no run · team idle",
+  "sessionsRevoked": "revoked b269f445-b39a-412a-9468-5225e88f88b2: that device is signed out and its stream is closed\nrevoked ee76fe1c-4fc8-440d-b208-2686e7f0ddcb: that device is signed out and its stream is closed\nno paired devices yet: run `openmausbot pair`",
+  "revokedTokenProbe": "{\"ok\":false,\"verb\":\"status\",\"error\":\"the server identity could not be verified\",\"hint\":\"check the URL and server, then import --adopt or re-import\"}",
+  "serverStopped": "SIGTERM to pid 76759 at 2026-09-16T16:51:32Z; ports 8899 and 8900 closed afterwards",
+  "tailscaleServe": "No serve config",
+  "worktree": "the temporary driver worktree /tmp/oml-wt-01901f9 was removed",
+  "tokenFiles": "left in place on the operator's machine; both sessions they hold are revoked",
+  "dataDirKept": "/home/wsh/.cache/agent-team/omb-launcher-data-v2remote-CGHy3C (kept for the event records cited here)",
+  "fixtureKept": "/tmp/oml-v2-remote-l5cKYy/project (kept for the state file cited here)",
+  "pushes": "none"
+ },
+ "verification": {
+  "fullSuite": {
+   "command": "npm test",
+   "passed": 218,
+   "failed": 0,
+   "skipped": 0,
+   "durationSeconds": 58.538,
+   "note": "run on this documentation commit (218 passed, 0 failed); the suite is unchanged by this pass's docs"
+  }
+ }
+}

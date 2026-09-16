@@ -53,9 +53,16 @@ against the 0.1.56 source and folded in below:
 3. **Topology: same machine.** OpenClaw gateway and OMB on the workstation:
    loopback, no pairing. Remote is a token in the environment or a 0600
    file. *Closed 2026-09-16:* the `pair` verb (bead `oml-xnn`) writes that
-   file, so a remote host no longer needs a hand-written `curl`; it is
-   covered against the contract fake, and the first run over Tailscale is
-   what will make it evidence.
+   file, so a remote host no longer needs a hand-written `curl`, and it ran
+   for real the same day against OpenMausBot 0.1.56 behind `serve
+   --tailscale`: two single-use codes exchanged into two token files, an
+   owner-scope and a client-scope session, and the HTTP-only verb set driven
+   through `https://wsh.taila20f43.ts.net`, including a run opened locally
+   and then watched and interrupted through the tunnel. `docs/evidence.md`
+   ("v2 remote run") and
+   `docs/validation/2026-09-16-remote-tailscale.json` hold the record. The
+   driver ran on the server's own machine through the tailnet address, so a
+   genuinely separate machine is still unverified.
 4. **Team packages are supplied inputs.** `dev-team.openmaus.json` is an
    external test configuration. The launcher has no required package path,
    release, roster, or bot names. Import reads the chosen package, selects
@@ -523,14 +530,27 @@ codes 0, 4, and 5 while letting 1, 2, 3, and 6 through as real failures;
 telegram`. Verified 2026-09-16 in script mode, with the caveat that jobs
 fire only while the `hermes-gateway.service` user unit runs.
 
-**Remote variant (documented only).** `openmausbot serve --tailscale` (or
-`--tunnel` after `login`), `openmausbot pair --label openclaw`, one `curl
-POST /api/auth/pair` whose token goes into the 0600 token file (never into a
-transcript or argv); the remote host runs `import --adopt` once, then
-`status`, `watch`, `send`, `answer`, `interrupt`; everything else runs on
-the dev box. Preferred: run the script on the dev box through an OpenClaw
-node, or an SSH tunnel to loopback. Loopback is owner trust, not isolation:
-never bind the server publicly.
+**Remote variant**, verified 2026-09-16 over Tailscale. `openmausbot serve
+--port 8899 --data-dir <dir> --tailscale --no-pair`, started by hand in a
+sanitized environment and attached with `up`, publishes the loopback port on
+the tailnet and nothing else; a proxied request without a token is refused
+with 403, "pair this device to use the server remotely". `openmausbot pair
+--port 8899 [--client]` mints a single-use five-minute code and the driver's
+own `pair --code … --url https://<name>` exchanges it into the 0600 token
+file (never into a transcript or argv), so the hand-written `curl` is gone.
+The shared state stays bound to loopback: the remote caller adds `--remote
+--url https://<name>` to `status`, `watch`, `send`, `answer`, and
+`interrupt`, and a run opened on the dev box is then watchable and
+interruptible through the tunnel, by a client-scope session as well as the
+owner's. `import --adopt` is for a state with no team yet, never for changing
+the URL of a bound one; everything else runs on the dev box. A client session
+is refused on the admin route behind `doctor --server`; a missing or revoked
+token reads as "the server identity could not be verified"; `openmausbot
+sessions revoke <id>` ends a session before its thirty days. Preferred: run
+the script on the dev box through an OpenClaw node, or an SSH tunnel to
+loopback. Loopback is owner trust, not isolation: never bind the server
+publicly. Still unverified: `--tunnel` after `login`, and a driver on a
+genuinely separate machine.
 
 ## Testing
 
@@ -715,3 +735,12 @@ hold the record; the devpack gate `atw-07l.27` is met. The suite grew from
 8. Node 24 is the supported runtime for local and remote operation.
    SQLite may emit an experimental warning on stderr. See the lock upgrade
    procedure above; mixed launcher versions must not run concurrently.
+9. The remote path, verified 2026-09-16 over Tailscale: the binding is the
+   environment id, not a URL (bead `oml-9kp`, commit `01901f9`), so the
+   shared state stays bound to loopback and only the call names the tunnel.
+   Two residual holes. An absent or revoked bearer is indistinguishable from
+   a wrong server, because an unauthenticated `/api/health` through a proxy
+   answers 200 without a pid (`index.ts:7352-7354`); and a paired session
+   lives thirty days unless `openmausbot sessions revoke` ends it. A driver
+   on a genuinely separate machine, `--tunnel`, and `answer` through the
+   tunnel remain unverified.

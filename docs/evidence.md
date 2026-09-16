@@ -1048,3 +1048,324 @@ channel and any watch longer than the terminal tool's configured timeout; a dsh
 shell time limit and `watch` in remote mode; `watch`, `task`, `answer`, `interrupt`
 and `report` on all three hosts. The M1 hosts (Claude Code, Codex CLI, Grok Build)
 were not re-run in this pass.
+
+## 2026-09-16 — v2 remote run: pair and the remote verbs over Tailscale (2 bot turns)
+
+The remote variant that `references/hosts.md` and `docs/design.md` carried as
+"documented only" now has command evidence. Real OpenMausBot **0.1.56**, started
+by hand with `--tailscale`, published its loopback port on the tailnet as
+`https://wsh.taila20f43.ts.net`; the launcher paired with it twice over that
+tunnel — once for an owner-scope session, once for a client-scope one — and ran
+the HTTP-only verb set through it. Beads `oml-xnn` (the `pair` verb) and
+`oml-9kp` (the binding rule this run broke). The structured record is
+[validation/2026-09-16-remote-tailscale.json](validation/2026-09-16-remote-tailscale.json):
+54 commands with their outputs verbatim, the session, message and thread ids, the
+binding gap, and the shutdown.
+
+**What this establishes.** `openmausbot serve --tailscale` publishes the server
+on the tailnet with an HTTPS certificate and nothing else; a proxied request
+without a token is refused even though the same server trusts loopback. The
+`pair` verb exchanges a code minted by `openmausbot pair` into a 0600 token file
+and prints the session's label, scopes and expiry but never the token, for an
+owner session and a client session side by side in two files. A spent code
+replayed from the tailnet is refused in the server's own words. Through the
+tunnel the driver ran `doctor`, `doctor --server`, `status`, `send`,
+`status --tail`, `watch` and `interrupt`; a client-scope session was refused on
+the one admin route and allowed on `interrupt`. A run dispatched locally was
+watched and interrupted from the tunnel by both sessions. The lead answered
+twice in the phase — once to a remote `send`, once to the run's brief — for
+exactly **two OMB turns**.
+
+**What it does not establish.** There was no second machine: the driver ran on
+the server's own host and reached it through the tailnet address, so this is the
+tunnel and the token path, not a network partition. No Telegram, no OpenClaw and
+no other agent host took part — every command came from the operator's shell.
+`answer` and an approval card through the tunnel, `--tunnel` after `openmausbot
+login`, a delegation chain under a remote `watch`, a session left to expire
+rather than revoked, and two launchers writing one origin are all untested.
+
+### Environment and fixture
+
+- Tailscale installed and logged in by the user (sudo); MagicDNS name
+  `wsh.taila20f43.ts.net`; HTTPS certificates enabled by the user in the admin
+  console (`CertDomains: ['wsh.taila20f43.ts.net']`); `sudo tailscale set
+  --operator=$USER` so the operator shell could serve. The Tailscale version is
+  not recorded.
+- The server was started by hand, not by `up`, in a sanitized environment:
+
+```sh
+env -i PATH=/home/wsh/.local/bin:/usr/local/bin:/usr/bin:/bin HOME=/home/wsh \
+  OMB_ASK_BOT_TIMEOUT_MS=600000 setsid nohup /home/wsh/.local/bin/node $CLI \
+  serve --port 8899 --data-dir "$DD" --tailscale --no-pair > $SP/remote-serve.log 2>&1
+```
+
+  `$CLI` is
+  `/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js`,
+  `$DD` is
+  `/home/wsh/.cache/agent-team/omb-launcher-data-v2remote-CGHy3C`. It started at
+  about 15:34Z and was stopped at 16:51:32Z. The log opens with
+
+```
+tailscale: serving https://wsh.taila20f43.ts.net → http://127.0.0.1:8899 (only your tailnet can reach it)
+…
+OpenMausBot is running on http://127.0.0.1:8899, reachable at https://wsh.taila20f43.ts.net
+```
+
+- `tailscale serve status` (15:35Z) read `https://wsh.taila20f43.ts.net (tailnet
+  only)` with `|-- / proxy http://127.0.0.1:8899`. Through the tunnel,
+  `/api/health` answered `{"app":"openmausbot"} HTTP 200` and the well-known
+  environment answered
+
+```json
+{"environmentId":"15204312-7b3a-4022-90ec-cac6e5b1637c","label":"WSH","platform":"linux","version":"0.1.56","capabilities":{"remoteSessions":true,"selfUpdate":"operator"}}
+```
+
+- A protected route through the tunnel without a token is refused, while the same
+  route on loopback is not:
+
+```json
+{"error":"forbidden: this request came through a proxy (pair this device to use the server remotely)"} HTTP 403
+```
+
+  That is `request-auth.ts:378` in the pinned 0.1.56 source: loopback trust does
+  not survive a proxy hop, which is what makes pairing necessary rather than
+  optional.
+- Three pids, because the server was hand-started: `76752` the `setsid` wrapper
+  the pid file recorded, `76759` the `cli.js serve` process, `76827` the health
+  process the state file records (`healthStart 1622400`). Ports 8899 and 8900
+  (the webhook receiver).
+- Fixture project `/tmp/oml-v2-remote-l5cKYy/project`, branch `main`, one commit
+  `64fa0970b43da65373cc3aff53b3d65ca7adfcf3` ("init"). `up` **attached** to the
+  hand-started server (`owned: false`), `doctor --server` passed 10/10 with
+  engines `grok, claude, codex, hermes`, the same unchanged package
+  (`dev-team.openmaus.json` 0.4.2, SHA-256
+  `48e4ac637c7afb6d9e82f0ecf035967411d9c75e61ac8e0603ee7b62a3255949`) was
+  imported, the roster bound and `facts` set (`test: none`, `setup: none`,
+  `merge: auto`, `taskLog: README.md`, `tracker: none`, `planReview: ask`). The
+  exact argv of those setup commands is not in a raw log; the state file holds
+  their result.
+- Lead Sudo `0c942a97-34fe-4994-b37c-22c1f3e28d64` on `codex/gpt-5.6-luna/high`,
+  with Sage, Vale, Nova and Quill configured and never executed.
+- The driver ran on Node 24.11.0 from the repository checkout at `fb84e4f` for
+  the first half and from a temporary worktree `/tmp/oml-wt-01901f9` at `01901f9`
+  for the second.
+
+### Pairing
+
+Codes were minted on the server host and exchanged from the tailnet address.
+Both are single use, both were spent on 2026-09-16, and both sessions are
+revoked; they are printed here because they can no longer be used.
+
+```sh
+openmausbot pair --port 8899 --label launcher                 # ZNZ4-VGWT-CKKW
+<skill>/scripts/omb.mjs pair --code ZNZ4-VGWT-CKKW --label launcher \
+  --url https://wsh.taila20f43.ts.net
+openmausbot pair --port 8899 --label launcher-client --client  # SYEH-YGMD-WYYW
+OMB_TOKEN_FILE=<scratchpad>/tokens-client.json <skill>/scripts/omb.mjs pair \
+  --code SYEH-YGMD-WYYW --label launcher-client --url https://wsh.taila20f43.ts.net
+```
+
+The mint prints the code, an expiry five minutes out ("12:34:00 PM (single
+use)", 16:34Z), a `https://wsh.taila20f43.ts.net/pair#code=…` link and a QR
+block. The exchange answered:
+
+```json
+{"ok":true,"verb":"pair","url":"https://wsh.taila20f43.ts.net","tokenFile":"/home/wsh/.config/openmausbot-launcher/tokens.json","replaced":false,"session":{"id":"b269f445-b39a-412a-9468-5225e88f88b2","label":"launcher","scopes":["admin","client"],"expiresAt":1792168140747},"environmentId":"15204312-7b3a-4022-90ec-cac6e5b1637c"}
+```
+
+and, with `OMB_TOKEN_FILE` pointed at a second file, session
+`ee76fe1c-4fc8-440d-b208-2686e7f0ddcb` with scopes `["client"]`. Both expire
+2026-10-16, thirty days out. Both files are `-rw-------`, 94 bytes; the owner's
+directory `/home/wsh/.config/openmausbot-launcher` is `drwx------`. No token was
+printed, and neither file was read while writing this record.
+
+Replaying the spent owner code from the tailnet is refused by the server, not by
+the preflight (exit 3):
+
+```json
+{"ok":false,"verb":"pair","error":"pairing code is wrong or has expired; create a new one on the server","status":401,"hint":"mint a new code on the server: openmausbot pair --port 8799 [--client]"}
+```
+
+The server log recorded the attempt with the caller's tailnet address: `pairing
+refused from 100.88.158.53: pairing code is wrong or has expired; create a new
+one on the server`. The hint named 8799, the CLI's default port, while the server
+was on 8899 — wording only, fixed later the same day in `0a55d39`.
+`openmausbot sessions --port 8899` then listed both devices:
+
+```
+id                                    device           scope   last seen  expires
+b269f445-b39a-412a-9468-5225e88f88b2  launcher         admin   just now   2026-10-16
+ee76fe1c-4fc8-440d-b208-2686e7f0ddcb  launcher-client  client  just now   2026-10-16
+```
+
+### The remote verb set
+
+Through `--remote --url https://wsh.taila20f43.ts.net`, with the state file
+shared from the fixture:
+
+| Session | Command | Result |
+|---|---|---|
+| owner | `doctor --remote` | `doctor · remote · 4 checks, 0 failed` |
+| owner | `doctor --server --remote` | `doctor · remote · 9 checks, 0 failed · engines grok, claude, codex, hermes` |
+| client | `status --remote` | `status · no run · team idle` |
+| client | `doctor --server --remote` | `{"ok":false,"verb":"doctor","error":"GET /api/instances -> 403: forbidden: this session lacks the admin scope","status":403}` |
+| tokenless | `status --remote` | `{"ok":false,"verb":"status","error":"the server identity could not be verified","hint":"check the URL and server, then import --adopt or re-import"}` |
+| tokenless | `doctor --remote` | `doctor · remote · 4 checks, 0 failed` |
+
+Two things to read carefully. A client-scope session is refused only where the
+driver touches an admin route — `doctor --server` reads `/api/instances`; the
+same session's `status`, `watch` and `interrupt` all worked. And a
+tokenless call does **not** say "no token": an unauthenticated `/api/health`
+through the tunnel answers 200 without a pid (`index.ts:7352-7354`), so the
+driver cannot tell a missing credential from a different server and reports the
+identity failure instead. A revoked bearer reads the same way, for the same
+reason (see Cleanup). `0a55d39` improved the hint to name the token file and the
+real port; the health route's shape is upstream and unchanged.
+
+### The binding gap (bead `oml-9kp`)
+
+The first remote verb of the run failed, at 16:29:21Z:
+
+```json
+{"ok":false,"verb":"status","error":"the server is not the one this team was imported on (identity changed or missing)","hint":"re-import the package or run import --adopt to establish the current server binding"}
+```
+
+`session.mjs:75` required `recorded.url === cfg.url`, so a state bound to
+`http://127.0.0.1:8899` refused every call naming the tunnel even though the
+environment id matched. The obvious workaround made it worse. `import --adopt
+--remote` answered `import · Agent Team dev team · lead Sudo · 5 bots, 1
+room(s)` and rebound the team to the tunnel URL; `status` then worked for both
+tokens, and the local verbs stopped working in three different ways:
+
+```json
+{"ok":false,"verb":"task","error":"task needs the project checkout on the server's machine","hint":"remote hosts can status, watch, send, answer, and interrupt"}
+{"ok":false,"verb":"task","error":"the data dir does not belong to this server","hint":"pass the matching --data-dir"}
+{"ok":false,"verb":"task","error":"the server is not the one this team was imported on (identity changed or missing)","hint":"re-import the package or run import --adopt to establish the current server binding"}
+```
+
+— the URL rule from the other side, then the data-dir rule, then the identity
+rule again, because the remote adopt had recorded `healthStart: null`. With no
+run to open, all seven `watch --remote` calls in that window — four owner, three
+client — answered `{"ok":false,"verb":"watch","error":"no open run to
+watch","hint":"start one with task, or use status"}` (exit 3), and all five
+`interrupt --remote` calls — three owner, two client — answered `no run thread
+is recorded for Sudo`. The remote variant's whole
+point — a run opened on the dev box and watched from elsewhere — was
+unreachable, so remote `watch` and `interrupt` were not exercised at all before
+the fix.
+
+The local binding was restored with `import --adopt "Agent Team dev team" --url
+http://127.0.0.1:8899 --data-dir <data dir>` (`healthStart 1622400`, adopted
+16:32:34.175Z), and the rule was fixed in `01901f9`: the identity is the
+environment id, and a URL is one path to it. In remote mode the URL comparison is
+dropped as long as the live, recorded and team environment ids agree; local mode
+keeps it, where another loopback port is another server. At 16:49:46Z, with the
+driver at `01901f9` and the shared state still bound to loopback, the same
+command answered `status · no run · team idle` (exit 0) with no re-adopt.
+
+### The remote acknowledgment (bot turn 4)
+
+At 16:30:29Z, with the owner token and the state bound to the tunnel at that
+moment, `send --remote` delivered an operator-authored nonce to Sudo's own
+thread `4975c501-a14d-4aab-8d16-cccf987585ab`:
+
+```json
+{"ok":true,"verb":"send","bot":"Sudo","threadId":"4975c501-a14d-4aab-8d16-cccf987585ab","messageId":"a7e74e9e-639d-480a-9c53-a4473cecc449","steered":false,"queued":false,"queueId":null,"duplicate":false,"sendId":"send-4198055b8ca697c0"}
+```
+
+The text was `remote check e2279e7b: reply with just the nonce e2279e7b`
+(16:30:29.216Z). Sudo answered `e2279e7b` as
+`c10e8f5b-434c-4173-b315-ea7604b079ad` at 16:30:41.071Z, **11.9 s** later, read
+back through `status --tail 3 --remote`. The thread's event file records turn
+`11b3f329-cafc-44bb-a8b0-2c9f82a1dcfb`, Codex session
+`01a0ab0e-3278-7c83-a4c9-36cbcc1e41a4`, model `gpt-5.6-luna`, `ok: true`, usage
+18425 in / 30 out / 9984 cached. The server log line for it is `[omb-turn]
+bot=0c942a97-34fe-4994-b37c-22c1f3e28d64 text="remote check e2279e7b: reply with
+just the nonce e2279e7b" images=0 depth=0 card=false`.
+
+### The run: dispatched locally, watched through the tunnel (bot turn 5)
+
+At 16:49:46Z the driver at `01901f9` opened run `73549ddbbd6f2318` locally
+(slug `remote-check`, tag `oml:73549ddb`, lead thread
+`139a86f5-c1cd-4098-b2d5-62b7a1d5e138`, dispatched from
+`64fa0970b43da65373cc3aff53b3d65ca7adfcf3`) with a brief that deliberately asks
+for one word:
+
+```
+This is a connectivity check, not a development task: reply with the single word READY and do nothing else; do not delegate and do not create a worktree.
+
+When the task is finished, end your closing report with a line containing only `DONE oml:73549ddb`.
+```
+
+The second paragraph is the run marker the driver appends; the first is the
+operator's, and "do nothing else" rules it out, so the marker was never going to
+appear. Sudo replied `READY`
+(`f56fbd0e-5ec8-4a86-9ec3-128fcd1f1453`, 16:49:54.701Z, **7.9 s**), turn
+`d23ccd59-b072-4b41-8f4b-f20e13ffa12f`, Codex session
+`01a0ab1f-dc2d-7a11-aa54-6ba2f09e9edc`, usage 21125 / 57 / 9984, and stopped.
+
+Every observation after the dispatch was remote; only `report` and `reconcile`
+ran locally, at the end. `watch --remote --max-seconds 90 --brief` from the
+owner session ended at exit 5:
+
+```
+remote-check · ATTENTION · settled without the run marker · Sudo 32s ago: "READY" → read, then omb send "…"
+```
+
+which is the right verdict for a brief that never asked for the marker. The
+client session's `watch --remote --max-seconds 35 --brief` printed the same line
+(`Sudo 1m ago`), also exit 5. Both sessions then interrupted the lead's thread
+through the tunnel, the client session included:
+
+```json
+{"ok":true,"verb":"interrupt","bot":"Sudo","threadId":"139a86f5-c1cd-4098-b2d5-62b7a1d5e138","interrupted":true}
+```
+
+`report --no-tests` closed the run `incomplete` at 16:51:30.802Z after 104 s:
+Sudo 1 turn, 7.894 s, `gpt-5.6-luna`, 21125 in / 57 out / 9984 cached; the other
+four threads unavailable with no turns; `closing: "READY"`; `unknown:
+["tests-pass"]`; failed checks `run-done`, `task-log-changed`, `record-commit`.
+`reconcile` answered `reconcile · clean`.
+
+### Cleanup and accounting
+
+Both sessions were revoked from the server host at 16:51:31Z:
+
+```
+revoked b269f445-b39a-412a-9468-5225e88f88b2: that device is signed out and its stream is closed
+revoked ee76fe1c-4fc8-440d-b208-2686e7f0ddcb: that device is signed out and its stream is closed
+no paired devices yet: run `openmausbot pair`
+```
+
+The owner token file still held the revoked session, and using it through the
+tunnel reads exactly like having no token at all:
+
+```json
+{"ok":false,"verb":"status","error":"the server identity could not be verified","hint":"check the URL and server, then import --adopt or re-import"}
+```
+
+The server was stopped at 16:51:32Z with `SIGTERM` to pid 76759 — the pid file
+held the `setsid` wrapper 76752, so the recorded pid was not the one to signal —
+after which ports 8899 and 8900 are closed. `tailscale serve` reports `No serve
+config`. The temporary driver worktree `/tmp/oml-wt-01901f9` was removed. The
+fixture and the data directory were kept, because the ids above are read from
+them. No pushes.
+
+Bot turns: **2**, both Sudo, both `ok: true`, turns 4 and 5 of the v2 pass:
+
+| OMB turn | Thread | Completed | Usage in/out (cached in) |
+|---|---|---|---|
+| `11b3f329-cafc-44bb-a8b0-2c9f82a1dcfb` | `4975c501-…` (remote send) | 16:30:41.157Z | 18425 / 30 (9984) |
+| `d23ccd59-b072-4b41-8f4b-f20e13ffa12f` | `139a86f5-…` (the run) | 16:49:54.719Z | 21125 / 57 (9984) |
+
+No paid host sessions belong to this phase; the pass's Codex review sessions are
+counted in the pass total, not here.
+
+### Not exercised
+
+A second machine (the driver ran on the server's own host through the tailnet
+address); `answer --remote` and an approval card through the tunnel; `--tunnel`
+or any transport other than `tailscale serve`; a remote `watch` over a
+delegation chain, since only the lead ran and only for one turn; `pair
+--replace` against a live entry; two launchers writing one origin; a session
+left to expire. The four non-lead bots were configured and never executed.

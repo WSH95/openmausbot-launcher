@@ -205,43 +205,95 @@ output directory, so copy anything worth keeping first.
 The 2026-09-16 run used the `status --brief` form of the adapter because no
 run was open; a cron `watch` against a live run is still unverified.
 
-## Remote variant (documented only)
+## Remote variant
 
-The driver on another machine can only `import --adopt`, `status`, `watch`,
-`send`, `answer`, and `interrupt`; everything else needs the project
-checkout or the data dir.
+Verified 2026-09-16 against real OpenMausBot 0.1.56 behind a Tailscale HTTPS
+tunnel (`docs/evidence.md`, "v2 remote run", and
+`docs/validation/2026-09-16-remote-tailscale.json`). The driver ran on the
+server's own machine through the tailnet address, so the tunnel, the token and
+the scope rules are evidenced; a genuinely separate machine is not.
 
-The binding is the server's environment id, not one URL. Share the project's
-state file (or a copy) with the remote observer and pass
-`--remote --url https://<host>`: a run opened locally on
-`http://127.0.0.1:8899` stays watchable and interruptible through the tunnel.
-Do **not** run `import --adopt` to change the URL of a state that is already
-bound — that rebinds the team to the tunnel URL and breaks the local verbs
-(`task` then reports "needs the project checkout on the server's machine").
-`--adopt` is for a state with no team yet. On the OpenMausBot machine:
-`openmausbot serve --tailscale` (or `--tunnel` after `openmausbot login`),
-then `openmausbot pair --label openclaw` — which mints the code on the port
-it serves, 8799 unless `--port 8899` says otherwise. Exchange it once from
-the other machine:
+A remote driver can only `import --adopt`, `status`, `watch`, `send`, `answer`,
+and `interrupt`. Everything else needs the project checkout or the data dir:
+`task` refuses with "task needs the project checkout on the server's machine".
+
+**On the OpenMausBot machine.** Publish the loopback port on the tailnet and
+mint one code per device:
 
 ```sh
-<skill>/scripts/omb.mjs pair --code XXXX-XXXX-XXXX --label openclaw \
-  --url https://<host>
+openmausbot serve --port 8899 --data-dir <dir> --tailscale --no-pair
+openmausbot pair --port 8899 --label launcher           # owner: admin,client
+openmausbot pair --port 8899 --label phone --client     # client scope only
 ```
 
-That writes `~/.config/openmausbot-launcher/tokens.json` (mode 0600, in a
-0700 directory) keyed by the origin, and prints the session's label, scopes
-and expiry but never the token. A code is single use and lives five minutes;
-if the answer is lost in transit the verb retries once with the same attempt
-id, which the server replays rather than spending a second code. Pass
-`--replace` to overwrite an origin already in the table, after revoking the
-old session with `openmausbot sessions`. `OMB_TOKEN` still works for one
-call; never put a token on a command line. A client-scope session
-(`openmausbot pair --client`) can send, answer, watch, and open tasks but
-not import, bind, or change models — it is refused with `forbidden: this
-session lacks the admin scope`. A bearer token also wins over loopback trust, so
-`doctor` warns when `OMB_TOKEN` is set on a loopback URL. Prefer running
-the driver on the OpenMausBot machine through an OpenClaw node, or an SSH
-tunnel to loopback, which needs no token; pass `--remote` when the driver
-runs on another machine through that tunnel. Never bind the server publicly:
-loopback is owner trust, not isolation.
+`--tailscale` logs `tailscale: serving https://<name> → http://127.0.0.1:8899
+(only your tailnet can reach it)`; `--tunnel` after `openmausbot login` is the
+other transport and is unverified. Start that server by hand — `up` spawns
+`serve … --no-pair` without `--tailscale` — and let `up` attach to it
+(`owned: false`). Give it a sanitized environment, since the CLI forwards its
+own: `env -i PATH=… HOME=… OMB_ASK_BOT_TIMEOUT_MS=600000`, no provider keys, no
+`OMB_TOKEN`. Tailscale itself needs the user: install and `tailscale up`, HTTPS
+certificates enabled in the admin console, and `sudo tailscale set
+--operator=$USER` so serving needs no sudo. `pair` mints on the port it serves,
+8799 unless `--port` says otherwise; a code is single use and lives five
+minutes.
+
+Pairing is not optional. Loopback trust does not survive the proxy hop — a
+tunnelled request without a token is refused with `forbidden: this request came
+through a proxy (pair this device to use the server remotely)` (403).
+
+**On the device that will drive it.** Exchange the code once:
+
+```sh
+<skill>/scripts/omb.mjs pair --code XXXX-XXXX-XXXX --label launcher \
+  --url https://<name>
+```
+
+That writes `~/.config/openmausbot-launcher/tokens.json` (mode 0600, in a 0700
+directory) keyed by the origin and prints the session's id, label, scopes and
+expiry — thirty days — but never the token. `OMB_TOKEN_FILE` names another
+file, which is how an owner and a client session live side by side on one
+machine. If the answer is lost in transit the verb retries once with the same
+attempt id, which the server replays rather than spending a second code. A code
+already spent is refused by the server itself: `pairing code is wrong or has
+expired; create a new one on the server` (401, exit 3), logged on the server
+with the caller's tailnet address. Pass `--replace` to overwrite an origin
+already in the table, after revoking the old session. `OMB_TOKEN` still works
+for one call; never put a token on a command line.
+
+**Keep the shared state bound to loopback.** The binding is the server's
+environment id, not one URL: share the project's state file (or a copy) and add
+`--remote --url https://<name>` to each verb. A run opened locally on
+`http://127.0.0.1:8899` is then watchable and interruptible through the tunnel —
+verified for an owner-scope and a client-scope session, `interrupt` included.
+Do **not** run `import --adopt` to change the URL of a state that is already
+bound: that rebinds the team to the tunnel and breaks the local verbs (`task`
+then reports "needs the project checkout on the server's machine", and putting
+the loopback URL back reports a data-dir or an identity failure instead).
+`--adopt` is for a state with no team yet.
+
+**Scope.** A client-scope session (`openmausbot pair --client`) can send,
+answer, watch, interrupt, and open tasks, but not import, bind, or change
+models. The admin route behind `doctor --server` refuses it with `GET
+/api/instances -> 403: forbidden: this session lacks the admin scope`, while its
+`status`, `watch` and `interrupt` all work. A bearer token beats loopback trust,
+so `doctor` warns when `OMB_TOKEN` is set on a loopback URL.
+
+**A missing or revoked token reads as an identity failure**, not as a missing
+credential: both produce `the server identity could not be verified`, because an
+unauthenticated `/api/health` through the tunnel answers 200 without a pid. Check
+the token file before doubting the URL. `doctor --remote` still passes 4/4
+without any token, since it only checks what it can reach.
+
+**Revoke the device when you are done** rather than leaving a thirty-day session
+alive:
+
+```sh
+openmausbot sessions --port 8899             # id, device, scope, last seen, expiry
+openmausbot sessions revoke <session id>     # "that device is signed out and its stream is closed"
+```
+
+Prefer running the driver on the OpenMausBot machine through an OpenClaw node,
+or an SSH tunnel to loopback, which needs no token; pass `--remote` when the
+driver runs on another machine through that tunnel. Never bind the server
+publicly: loopback is owner trust, not isolation.
