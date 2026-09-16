@@ -42,6 +42,23 @@ export async function readEventStream(res, { onFrame, signal, idleMs = 45_000, d
   } finally { clearTimeout(idle); signal?.removeEventListener("abort", onAbort); void reader.cancel().catch(() => {}); }
 }
 
+/**
+ * Is this frame about THIS run? Only a frame on the run's own threads, or
+ * about a bot the run holds — its lead, its implementer, a delegate it is
+ * waiting on — may reset its quiet window. A gap in the stream is everybody's.
+ */
+export function ownFrame(frame, { botIds, threadIds }) {
+  const d = frame.data;
+  if (!d) return false;
+  switch (d.kind) {
+    case "hello": return d.resumed === false;
+    case "bot": case "bot.deleted": return botIds.has(d.bot?.id ?? d.id);
+    case "message": case "message.patch": case "thread": return threadIds.has(d.threadId);
+    case "notify": return botIds.has(d.notification?.botId) || threadIds.has(d.notification?.threadId);
+    default: return false;
+  }
+}
+
 /** Is this frame about the team or the run? */
 export function relevantFrame(frame, { teamIds, threadIds, section }) {
   const d = frame.data;
@@ -76,6 +93,14 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
   const start = performance.now();
   const teamIds = new Set([...team.bots.map((b) => b.id), team.lead.id]);
   const threadIds = new Set(Object.values(task.threads ?? {}).concat(task.leadThreadId ? [task.leadThreadId] : []));
+  // With another run open, the team's traffic is not all this run's: a frame
+  // that is not this run's may be worth a fresh snapshot, but it must not
+  // restart the quiet window this run's verdict depends on. With one run open
+  // every frame is that run's, as it always was.
+  const scoped = runs.some((r) => r.runId !== task.runId);
+  let ownBotIds = new Set([team.lead.id, task.implementer?.id].filter(Boolean));
+  let ownThreadIds = new Set([task.leadThreadId, ...(task.implementer?.id ? [task.threads?.[task.implementer.id]] : [])].filter(Boolean));
+  const mine = (frame) => !scoped || ownFrame(frame, { botIds: ownBotIds, threadIds: ownThreadIds });
   let cursor = task.lastEval?.cursor ?? null;
   let receivedCursor = cursor;
   let quietSince = null;
@@ -93,7 +118,7 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
   const deadlineTimer = setTimeout(() => { controller.abort(); wake(); }, Math.max(0, deadline - performance.now()));
   // The same question withinDeadline asks, so a budget it refuses is one this loop calls expired.
   const expired = () => outOfBudget(deadline, controller.signal);
-  const invalidate = () => { invalidations++; quietSince = null; wake(); };
+  const invalidate = (own = true) => { invalidations++; if (own) quietSince = null; wake(); };
 
   let markStreamReady;
   const streamReady = new Promise((resolve) => { markStreamReady = resolve; });
@@ -109,7 +134,7 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
             streamFailures = 0;
             if (frame.data?.kind === "ping") return;
             if (frame.id) receivedCursor = frame.id;
-            if (relevantFrame(frame, { teamIds, threadIds, section: team.section })) invalidate();
+            if (relevantFrame(frame, { teamIds, threadIds, section: team.section })) invalidate(mine(frame));
           },
         });
         // Start reading buffered hello/replay frames before hydration can
@@ -128,7 +153,9 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
   const streamTask = runStream();
   let receiptsWatcher = null;
   if (dataDir) {
-    try { receiptsWatcher = fs.watch(dataDir, (_ev, name) => { if (name === "delegation-receipts.json" && !expired()) invalidate(); }); }
+    // The receipts file is the whole server's. A write to it is worth a fresh
+    // snapshot; whether it carried one of this run's receipts, that snapshot says.
+    try { receiptsWatcher = fs.watch(dataDir, (_ev, name) => { if (name === "delegation-receipts.json" && !expired()) invalidate(!scoped); }); }
     catch (e) { log(`receipts: ${e.message}`); }
   }
 
@@ -153,6 +180,11 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
       const now = Date.now();
       for (const bot of snap.bots) teamIds.add(bot.id);
       for (const thread of snap.runThreads) threadIds.add(thread.threadId);
+      // Who this run holds right now: its lead thread, its implementer, and the
+      // bots it has an open delegation to (snapshot.mjs, openDelegations).
+      ownBotIds = new Set([team.lead.id, task.implementer?.id].filter(Boolean));
+      for (const bot of snap.bots) if ((snap.openDelegations?.byName[bot.name] ?? 0) > 0) ownBotIds.add(bot.id);
+      ownThreadIds = new Set([task.leadThreadId, ...[...ownBotIds].filter((id) => id !== team.lead.id).map((id) => task.threads?.[id] ?? snap.bots.find((b) => b.id === id)?.threadId)].filter(Boolean));
       const busyNow = snap.bots.some((b) => b.busy) || snap.teamMap.queued.length > 0 || snap.teamMap.running.length > 0;
       const hasUnappliedFrames = targetInvalidations !== invalidations;
       if (snap.complete && !expired()) {

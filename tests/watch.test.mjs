@@ -202,3 +202,44 @@ test("a deadline inside the sub-millisecond window ends the watch as a timeout, 
   assert.equal(outOfBudget(performance.now() + 50, AbortSignal.abort()), true, "an aborted signal is out of budget too");
   await assert.rejects(withinDeadline(() => "never runs", performance.now() + 0.4), /observation deadline reached/, "withinDeadline refuses the same deadline outOfBudget rejects");
 });
+
+test("frameScope separates a frame that concerns the team from one that concerns this run", async () => {
+  const { ownFrame } = await import("../skills/openmausbot-launcher/scripts/lib/watch.mjs");
+  const ctx = { botIds: new Set(["lead", "nova"]), threadIds: new Set(["lt", "nt"]) };
+  assert.equal(ownFrame({ data: { kind: "message", threadId: "lt" } }, ctx), true);
+  assert.equal(ownFrame({ data: { kind: "message", threadId: "other" } }, ctx), false);
+  assert.equal(ownFrame({ data: { kind: "message.patch", threadId: "nt" } }, ctx), true);
+  assert.equal(ownFrame({ data: { kind: "bot", bot: { id: "nova" } } }, ctx), true);
+  assert.equal(ownFrame({ data: { kind: "bot", bot: { id: "vex" } } }, ctx), false);
+  assert.equal(ownFrame({ data: { kind: "notify", notification: { botId: "lead" } } }, ctx), true);
+  assert.equal(ownFrame({ data: { kind: "notify", notification: { threadId: "other" } } }, ctx), false);
+  assert.equal(ownFrame({ data: { kind: "hello", resumed: false } }, ctx), true, "a gap in the stream is everybody's");
+  assert.equal(ownFrame({ data: { kind: "ping" } }, ctx), false);
+});
+
+test("watch --run settles one run while the other keeps a second implementer busy on the active task", async (t) => {
+  const { f, dir, lead, run: a } = await setup(t);
+  const vex = (await f.control({ op: "bot", name: "Vex", title: "Implementer", section: "Dev team" })).bot;
+  const b = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
+  assert.equal(b.code, 0, b.stdout + b.stderr);
+  assert.equal((await (await fetch(`${f.url}/api/bots`)).json()).bots.find((x) => x.id === lead.id).threadId, b.json.leadThreadId, "B's task is the active one");
+  // B is in full swing: its implementer works and its thread never stops moving
+  await f.control({ op: "delegated", threadId: b.json.leadThreadId, name: "Vex" });
+  await f.control({ op: "activity", botId: vex.id, activity: "working" });
+  await f.control({ op: "leadSay", threadId: a.leadThreadId, text: `Closing report: merged as 1234567.\n\nDONE ${a.tag}` });
+  let flip = false;
+  const noise = setInterval(() => {
+    flip = !flip;
+    void f.control({ op: "activity", botId: vex.id, activity: flip ? "working" : "idle" }).catch(() => {});
+    void f.control({ op: "leadSay", threadId: b.json.leadThreadId, text: "still working" }).catch(() => {});
+  }, 200);
+  t.after(() => clearInterval(noise));
+  const r = await runOmb(["watch", "--run", "t10", "--project", dir, "--max-seconds", "12", ...fast], { env });
+  clearInterval(noise);
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.equal(r.json.state, "done", "the other run's traffic never reset this run's quiet window");
+  assert.ok(r.json.elapsedSec < 10, `settled in ${r.json.elapsedSec}s`);
+  const saved = loadState(statePaths(dir));
+  assert.equal(saved.runs[a.runId].lastEval.state, "done");
+  assert.equal(saved.runs[b.json.runId].lastEval.state, "running", "the other run's watermarks were left alone");
+});
