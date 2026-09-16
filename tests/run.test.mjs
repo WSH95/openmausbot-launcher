@@ -395,3 +395,24 @@ test("every run-scoped verb asks which run when two are open, and interrupt says
   assert.match(r.json.hint, /wait for the lead to go idle, then task --abandon --run t10/);
   assert.equal((await runOmb(["interrupt", "--run", "t11", "--project", dir], { env })).code, 0, "the active thread is reachable");
 });
+
+test("answer works on one run's own cards and refuses a request no run can claim without --request", async (t) => {
+  const { f, dir, team } = await setup(t);
+  const a = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  await f.control({ op: "bot", name: "Vex", title: "Implementer", section: "Dev team" });
+  const b = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
+  assert.equal(b.code, 0, b.stdout);
+  await f.control({ op: "card", threadId: a.json.leadThreadId, requestId: "q-a", kind: "question", text: "Which table?" });
+  await f.control({ op: "card", threadId: b.json.leadThreadId, requestId: "q-b", kind: "question", text: "Which loader?" });
+  let r = await runOmb(["answer", "--message", "the wide one", "--run", "t10", "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.requestId, "q-a", "each run answers on its own thread without --request");
+  r = await runOmb(["answer", "--message", "the fast one", "--run", "t11", "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.requestId, "q-b");
+  // a card from a bot neither run delegated to belongs to nobody
+  const quill = team.bots.find((x) => x.key === "quill");
+  await f.control({ op: "card", threadId: (await fleet(f)).find((x) => x.id === quill.id).threadId, requestId: "loose", kind: "approval", text: "May Quill push?" });
+  r = await runOmb(["answer", "--allow", "--run", "t10", "--project", dir], { env });
+  assert.equal(r.code, 3, r.stdout); assert.match(r.json.error, /no open run owns request loose/); assert.match(r.json.hint, /--request loose/);
+  r = await runOmb(["answer", "--allow", "--request", "loose", "--run", "t10", "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.outcome, "allowed-once");
+});

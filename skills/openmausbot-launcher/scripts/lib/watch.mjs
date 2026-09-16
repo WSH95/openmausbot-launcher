@@ -2,7 +2,7 @@
 // snapshots are the truth, quiet evidence lives inside one invocation, and
 // the cursor checkpoint is the id of the last frame actually applied.
 import fs from "node:fs";
-import { snapshot, evaluate, evidenceOf, mergeOutcomes, withinDeadline, outOfBudget, TERMINAL, DEFAULTS } from "./snapshot.mjs";
+import { snapshot, evaluate, evidenceOf, mergeOutcomes, withinDeadline, outOfBudget, cardKeyOf, TERMINAL, DEFAULTS } from "./snapshot.mjs";
 
 const pause = (ms, signal) => new Promise((resolve) => {
   if (signal?.aborted || ms <= 0) return resolve();
@@ -72,7 +72,7 @@ export function mergeCheckpoint(existing, watermarks) {
 
 /** Watch uses one monotonic observation deadline, including every invalidation
  * drain. Only complete snapshots advance the cursor covered by REST truth. */
-export async function watchRun({ client, team, task, dataDir = null, maxSeconds = 100, until = "settled", pollMs = 30_000, quietMs = DEFAULTS.quietMs, dropMs = DEFAULTS.dropMs, stallMs = DEFAULTS.stallMs, idleMs = 45_000, coalesceMs = 2_000, nudge = null, log = () => {}, deadline = performance.now() + maxSeconds * 1000 }) {
+export async function watchRun({ client, team, task, runs = [], dataDir = null, maxSeconds = 100, until = "settled", pollMs = 30_000, quietMs = DEFAULTS.quietMs, dropMs = DEFAULTS.dropMs, stallMs = DEFAULTS.stallMs, idleMs = 45_000, coalesceMs = 2_000, nudge = null, log = () => {}, deadline = performance.now() + maxSeconds * 1000 }) {
   const start = performance.now();
   const teamIds = new Set([...team.bots.map((b) => b.id), team.lead.id]);
   const threadIds = new Set(Object.values(task.threads ?? {}).concat(task.leadThreadId ? [task.leadThreadId] : []));
@@ -147,7 +147,7 @@ export async function watchRun({ client, team, task, dataDir = null, maxSeconds 
       if (expired()) break;
       const targetInvalidations = invalidations;
       const targetCursor = receivedCursor;
-      snap = await snapshot(client, { team, task: { ...task, lastEval: { ...task.lastEval, outcomes } } }, { dataDir, deadline, signal: controller.signal });
+      snap = await snapshot(client, { team, task: { ...task, lastEval: { ...task.lastEval, outcomes } }, runs: runs.map((r) => (r.runId === task.runId ? { ...r, lastEval: { ...task.lastEval, outcomes } } : r)) }, { dataDir, deadline, signal: controller.signal });
       outcomes = mergeOutcomes(outcomes, snap.outcomes); snap.outcomes = outcomes;
       lastSnapAt = performance.now();
       const now = Date.now();
@@ -195,7 +195,7 @@ export async function watchRun({ client, team, task, dataDir = null, maxSeconds 
         timer = setTimeout(done, waitMs); waiter = done;
       });
     }
-    if (!snap) snap = await snapshot(client, { team, task }, { dataDir, deadline, signal: controller.signal });
+    if (!snap) snap = await snapshot(client, { team, task, runs }, { dataDir, deadline, signal: controller.signal });
     if (!ev) ev = evaluate(snap, task);
     if (outcome === "timeout" && (TERMINAL.has(ev.state) || appliedInvalidations !== invalidations)) ev = { ...ev, state: "running", unknown: true, quiet: false, reasons: ["observation deadline reached before verification"] };
     sig = signatureOf(snap, ev);
@@ -207,6 +207,9 @@ export async function watchRun({ client, team, task, dataDir = null, maxSeconds 
   }
   return {
     outcome, ev, snap, sig, changes, cursor, nudged, timedOut: outcome === "timeout", elapsedSec: Math.round((performance.now() - start) / 1000),
+    // What this run owns of what is pending now: a card keeps the run that saw
+    // it first, and one that has been answered stops being remembered.
+    cards: Object.fromEntries(snap.pending.filter((p) => p.shared !== true).map((p) => [cardKeyOf(p), true])),
     changedSinceReport: !sameSig(reported, sig), pollingOnly, receiptsWatched: receiptsWatcher !== null, lastChangeAt,
     watermarks: { state: ev.state, cursor, lastLeadMessageId: snap.leadText?.id ?? null, lastChangeAt, quietSince: null, outcomes: mergeOutcomes(snap.outcomes), evidence: evidenceOf(snap), lastReported: sig },
   };

@@ -25,7 +25,7 @@ verb("status", {
     const client = createClient(cfg);
     await requireSameEnvironment(cfg, client);
     const task = openRuns(cfg.state)[0] ?? null;
-    const snap = await snapshot(client, { team, task }, { dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null });
+    const snap = await snapshot(client, { team, task, runs: openRuns(cfg.state) }, { dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null });
     const tail = Number(flags.tail ?? 0);
     const conversation = { lead: snap.leadText, lastUser: snap.lastUser, ...(tail > 0 ? { tail: snap.leadTail.slice(-tail).map((m) => ({ id: m.id, at: m.at, role: m.role, kind: m.kind, from: m.from?.name ?? null, text: summarizeLong(m) })) } : {}) };
     if (!task) {
@@ -338,11 +338,15 @@ verb("answer", {
       const out = await VERBS.get("send").handler({ flags: { ...flags }, positionals: [bare], verb: "send" });
       return { result: { viaSend: true, ...out.result }, brief: out.brief };
     }
-    const snap = await snapshot(client, { team, task }, { dataDir: null });
+    const snap = await snapshot(client, { team, task, runs: openRuns(cfg.state) }, { dataDir: null });
     const cards = snap.pending.filter((p) => p.kind !== "waiting");
     let target;
     if (flags.request) { target = cards.find((p) => p.requestId === flags.request) ?? null; if (!target) throw new Fail(EXIT.PRECONDITION, `no pending request ${flags.request}`, { hint: cards.length ? `pending: ${cards.map((c) => `${c.requestId ?? c.kind} (${c.botName})`).join(", ")}` : "nothing is pending; a plain question is answered with send" }); }
-    else if (cards.length === 1) target = cards[0];
+    else if (cards.length === 1) {
+      target = cards[0];
+      // A request no open run owns is answered on purpose, never by elimination.
+      if (target.shared) throw new Fail(EXIT.PRECONDITION, `no open run owns request ${target.requestId ?? target.kind} (${target.botName})`, { hint: `pass --request ${target.requestId ?? "<id>"} to answer it anyway` });
+    }
     else if (cards.length === 0) throw new Fail(EXIT.PRECONDITION, "nothing is pending", { hint: 'a plain-text question is answered with send "…"' });
     else throw new Fail(EXIT.PRECONDITION, `${cards.length} requests are pending; pass --request`, { hint: cards.map((c) => `${c.requestId ?? c.kind}: ${c.botName} ${c.text}`).join(" | ") });
     if (target.kind !== "card") throw new Fail(EXIT.NEEDS_USER, `${target.botName} has a ${target.kind} request the driver cannot answer`, { hint: target.kind === "connector" ? "connect the app in OpenMausBot's UI (connector cards use /api/bots/:id/connector-cards)" : "provide the credential in OpenMausBot's UI (secret cards use /api/bots/:id/secret-cards)" });
@@ -421,7 +425,7 @@ verb("watch", {
       await deliverToLead(client, { leadId: team.lead.id, run: task, otherRuns: openRuns(doc).filter((x) => x.runId !== task.runId), text: "status?", sendId: `nudge-${task.runId}` });
       live.nudgedAt = new Date().toISOString(); commitState(cfg.paths, doc);
     }, { waitMs: Math.min(1000, opts.timeoutMs) }) : null;
-    const r = await watchRun({ client, team, task, dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null, maxSeconds, deadline, until, pollMs: num(flags.poll, 30) * 1000, stallMs: num(flags["stall-minutes"], 40) * 60_000, quietMs: num(flags["quiet-seconds"], 30) * 1000, dropMs: num(flags["drop-seconds"], 120) * 1000, nudge, log });
+    const r = await watchRun({ client, team, task, runs: openRuns(cfg.state), dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null, maxSeconds, deadline, until, pollMs: num(flags.poll, 30) * 1000, stallMs: num(flags["stall-minutes"], 40) * 60_000, quietMs: num(flags["quiet-seconds"], 30) * 1000, dropMs: num(flags["drop-seconds"], 120) * 1000, nudge, log });
     let checkpointed = false;
     if (!cfg.dryRun) {
       try {
@@ -431,6 +435,7 @@ verb("watch", {
           if (!live || live.status === "closed") return;
           if (JSON.stringify(doc.server) !== JSON.stringify(cfg.state.server) || doc.team?.lead?.id !== team.lead.id) throw new Fail(EXIT.PRECONDITION, "the server binding changed before the watch checkpoint", { hint: "re-read the state" });
           live.lastEval = mergeCheckpoint(live.lastEval, r.watermarks);
+          live.cards = r.cards;
           if (r.nudged && !live.nudgedAt) live.nudgedAt = new Date().toISOString();
           commitState(cfg.paths, doc); checkpointed = true;
         }, { waitMs: 1000 });

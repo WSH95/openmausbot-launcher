@@ -9,6 +9,80 @@ export const ECHO_RE = /^@.+? replied to the delegated task/s; // server/index.t
 export const DELEGATION_RE = /^Delegation to @(.+?) (completed without a text reply|failed|waiting|dropped|canceled|denied)/; // index.ts:3392-3401, delegations.ts:495
 export const DEFAULTS = { quietMs: 30_000, dropMs: 2 * 60_000, stallMs: 40 * 60_000 };
 
+// The chips a lead's own thread carries about its delegations. They name BOTS,
+// never ids and never a source thread, so a run's open delegations can only be
+// counted from its own lead thread, by name, between its dispatch and now.
+const QUEUED_RE = /^Delegated to @(.+?)(?::\s|$)/; // delegations.ts:302
+const ASK_CONVERTED_RE = /^@(.+?) is still working — ask converted to a delegation$/; // index.ts:7915
+const SETTLED_RE = /^Delegation to @(.+?) (?:completed without a text reply|failed —|canceled|denied by user)/; // index.ts:3396-3399, delegations.ts:506, 535
+const RETRY_RE = /^Delegation to @(.+?) waiting — /; // delegations.ts:491 — a retry; the delegation is still open
+const START_FAILED_RE = /^error: delegation to @(.+?) could not start — /; // index.ts:3499
+const FAILED_UNNAMED_RE = /^error: delegation failed — /; // delegations.ts:381
+const DROPPED_RE = /^\d+ queued delegations? dropped — the turn did not finish$/; // delegations.ts:441
+const REPLIED_RE = /^@(.+?) replied to the delegated task/s; // index.ts:3387
+
+/**
+ * How many delegations this run still waits on, counted from its lead thread's
+ * chips since `sinceAt`. Ambiguity never settles anything: a settlement whose
+ * target was never seen queued — a renamed bot, a chip older than the window —
+ * leaves the count where it is and sets `unknown`, so a run with an open count
+ * keeps reading as inflight rather than as finished.
+ */
+export function openDelegations(leadTail, sinceAt = null) {
+  const counts = new Map();
+  let unknown = false;
+  const open = (name) => counts.set(name, (counts.get(name) ?? 0) + 1);
+  const settle = (name) => {
+    const n = counts.get(name) ?? 0;
+    if (n > 0) counts.set(name, n - 1); else unknown = true;
+  };
+  for (const m of leadTail ?? []) {
+    if (sinceAt != null && typeof m.at === "number" && m.at < sinceAt) continue;
+    if (m.kind === "activity" && typeof m.tool?.name === "string") {
+      const chip = m.tool.name.trim();
+      let x;
+      if ((x = QUEUED_RE.exec(chip)) || (x = ASK_CONVERTED_RE.exec(chip))) open(x[1]);
+      else if ((x = SETTLED_RE.exec(chip)) || (x = START_FAILED_RE.exec(chip))) settle(x[1]);
+      else if (DROPPED_RE.test(chip)) counts.clear(); // the queue itself is gone
+      else if (FAILED_UNNAMED_RE.test(chip)) unknown = true;
+      else if (RETRY_RE.test(chip)) continue;
+    } else if (m.role === "bot" && m.kind === "text" && m.from) {
+      const x = REPLIED_RE.exec(m.text ?? "");
+      if (x) settle(x[1]);
+    }
+  }
+  const byName = Object.fromEntries([...counts].filter(([, n]) => n > 0));
+  return { byName, total: Object.values(byName).reduce((a, b) => a + b, 0), unknown };
+}
+
+/**
+ * Which lead thread is running the turn, when the runtime log says so. A bot is
+ * busy as a whole (store.ts:407-409); the log is the only place that names the
+ * thread, and a turn may be pinned to a thread that is not the active one
+ * (index.ts:3225-3233). Null unless exactly one candidate has an unfinished
+ * turn, because a guess here would hand one run another run's work.
+ */
+export async function executingThread(dataDir, threadIds, { deadline = performance.now() + 5_000, signal } = {}) {
+  if (!dataDir) return null;
+  const open = [];
+  for (const threadId of threadIds) {
+    if (!threadId || outOfBudget(deadline, signal)) return null;
+    let text;
+    try { text = await withinDeadline((opts) => fs.readFile(path.join(dataDir, "events", `${threadId}.ndjson`), { encoding: "utf8", signal: opts.signal }), deadline, signal); }
+    catch { continue; }
+    const live = new Set();
+    for (const line of text.split("\n")) {
+      if (!line.trim()) continue;
+      let e; try { e = JSON.parse(line); } catch { continue; }
+      if (!e.turnId) continue;
+      if (e.type === "turn.started") live.add(e.turnId);
+      else if (e.type === "turn.completed") live.delete(e.turnId);
+    }
+    if (live.size) open.push(threadId);
+  }
+  return open.length === 1 ? open[0] : null;
+}
+
 export const markerLine = (tag) => `DONE ${tag}`;
 export const markerRe = (tag) => new RegExp(`^${markerLine(tag).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "m");
 
@@ -117,6 +191,9 @@ async function readTail(client, threadId, { sentAt, deadline, signal }) {
   }
 }
 
+/** How a pending request is remembered: its request id, else the message it came on. */
+export const cardKeyOf = (p) => p.requestId ?? p.messageId ?? `${p.kind}:${p.botId}`;
+
 /** Real option cards have no kind: skill/routine requests precede tool approval.
  * The full JSON metadata is actionable; only brief() shortens human text. */
 export function pendingMessage(m, { threadId, botId, botName }) {
@@ -131,9 +208,18 @@ export function pendingMessage(m, { threadId, botId, botName }) {
   };
 }
 
-/** Gather REST truth; failed or deadline-cutoff reads produce incomplete truth. */
+/**
+ * Gather REST truth once and cut it into one view per run (design,
+ * "Attribution"). Every view has the shape a single run always had — the
+ * caller that passes `task` gets that view back directly — with the lead
+ * thread, outcomes, busy bots, delegations and cards that belong to that run.
+ * Failed or deadline-cutoff reads produce incomplete truth for every view.
+ */
 export async function snapshot(client, state, { dataDir = null, now = Date.now(), deadline = performance.now() + 15_000, signal } = {}) {
-  const team = state.team; const task = state.task; const leadId = team.lead.id;
+  const team = state.team; const leadId = team.lead.id;
+  const single = state.task ?? null;
+  const runs = [...(state.runs ?? (single ? [single] : []))].filter(Boolean);
+  if (single && !runs.some((r) => r.runId === single.runId)) runs.unshift(single);
   const incomplete = [];
   const get = async (label, fn) => { try { return await fn(); } catch (e) { incomplete.push(`${label}: ${e.message}`); return null; } };
   const [fleet, teamMap] = await Promise.all([
@@ -158,45 +244,114 @@ export async function snapshot(client, state, { dataDir = null, now = Date.now()
   const lead = bots.find((b) => b.id === leadId) ?? null;
   if (!lead) incomplete.push("lead is missing from the fleet");
   const tm = { queued: (teamMap?.queued ?? []).filter((q) => ids.has(q.sourceBotId) && ids.has(q.targetBotId)), running: (teamMap?.running ?? []).filter((r) => ids.has(r.sourceBotId) && ids.has(r.targetBotId)) };
-  const leadThreadId = task?.leadThreadId ?? lead?.threadId ?? null;
-  const runThreads = new Map();
-  for (const [botId, threadId] of Object.entries(task?.threads ?? {})) if (threadId) runThreads.set(threadId, botId);
-  for (const bot of bots) {
-    if ((!task || !task.threads?.[bot.id]) && bot.threadId) runThreads.set(bot.threadId, bot.id);
+  // Every thread worth reading: each run's own, and each bot's current one for
+  // the bots no run pins. Ownership is decided per view, from one set of reads.
+  const threadOwners = new Map();
+  for (const run of runs) for (const [botId, threadId] of Object.entries(run.threads ?? {})) if (threadId) threadOwners.set(threadId, botId);
+  for (const bot of bots) if (bot.threadId && !threadOwners.has(bot.threadId)) threadOwners.set(bot.threadId, bot.id);
+  for (const run of runs) {
+    if (run.leadThreadId) threadOwners.set(run.leadThreadId, leadId);
+    else incomplete.push("lead thread is missing");
   }
-  if (leadThreadId) runThreads.set(leadThreadId, leadId);
-  else incomplete.push("lead thread is missing");
-  const pending = []; let msgs = []; let failedTails = 0;
-  await Promise.all([...runThreads].map(async ([threadId, botId]) => {
-    const tail = await get(`thread ${threadId}`, () => readTail(client, threadId, { sentAt: task?.sentAt, deadline, signal }));
+  if (!runs.length) {
+    if (lead?.threadId) threadOwners.set(lead.threadId, leadId);
+    else incomplete.push("lead thread is missing");
+  }
+  const stamps = runs.map((r) => r.sentAt).filter((v) => typeof v === "number");
+  const sentAt = stamps.length ? Math.min(...stamps) : null;
+  const pendingAll = []; const tails = new Map(); let failedTails = 0;
+  await Promise.all([...threadOwners].map(async ([threadId, botId]) => {
+    const tail = await get(`thread ${threadId}`, () => readTail(client, threadId, { sentAt, deadline, signal }));
     if (!tail) { failedTails++; return; }
+    tails.set(threadId, tail);
     const botName = bots.find((b) => b.id === botId)?.name ?? null;
-    for (const m of tail) if (messageNeedsInput(m)) pending.push(pendingMessage(m, { threadId, botId, botName }));
-    if (threadId === leadThreadId) msgs = tail;
+    for (const m of tail) if (messageNeedsInput(m)) pendingAll.push(pendingMessage(m, { threadId, botId, botName }));
   }));
-  for (const b of bots) if (b.activity === "waiting-on-you" && !pending.some((p) => p.botId === b.id)) pending.push({ threadId: b.threadId, botId: b.id, botName: b.name, kind: "waiting", requestId: null, cardKind: null, text: `${b.name} is waiting on you` });
-  const leadTexts = msgs.filter((m) => isLeadText(m, leadId));
-  const lastLead = leadTexts.at(-1); const latestUser = msgs.findLast((m) => m.role === "user");
-  const leadText = lastLead ? { id: lastLead.id, at: lastLead.at, text: lastLead.text } : null;
-  const lastUser = latestUser ? { id: latestUser.id, at: latestUser.at, text: latestUser.text } : null;
-  const observedOutcomes = [];
-  for (const m of msgs) {
-    if (isEcho(m, leadId)) observedOutcomes.push({ id: m.id, at: m.at, kind: "echo", name: m.from?.name ?? null, text: m.text, ok: true });
-    else if (m.kind === "activity" && typeof m.tool?.name === "string") { const d = DELEGATION_RE.exec(m.tool.name); if (d) observedOutcomes.push({ id: m.id, at: m.at, kind: "delegation", name: d[1], variant: d[2], text: m.text ?? null, tool: m.tool, ok: m.tool.ok === true }); }
-  }
+  for (const b of bots) if (b.activity === "waiting-on-you" && !pendingAll.some((p) => p.botId === b.id)) pendingAll.push({ threadId: b.threadId, botId: b.id, botName: b.name, kind: "waiting", requestId: null, cardKind: null, text: `${b.name} is waiting on you` });
   const receipts = await get("receipts", () => readReceipts(dataDir, { deadline, signal }));
-  let receiptsForRun = null;
-  if (receipts && leadThreadId) {
-    receiptsForRun = receipts.filter((r) => r.sourceThreadId === leadThreadId && (task?.sentAt == null || r.finishedAt >= task.sentAt));
-    for (const r of receiptsForRun) observedOutcomes.push({ ...r, id: `receipt:${r.id}`, at: r.finishedAt, kind: "receipt", name: r.toBotName ?? null, status: r.status ?? null, ok: r.status === "completed" });
-  }
-  const outcomes = mergeOutcomes(task?.lastEval?.outcomes, observedOutcomes);
-  const markerSeen = task?.tag ? leadTexts.filter((m) => markerRe(task.tag).test(m.text)).map((m) => ({ id: m.id, at: m.at })).at(-1) ?? null : null;
+  // Optional evidence: a missing or unreadable runtime log is not incomplete
+  // truth, it only means the busy lead cannot be placed on one run's thread.
+  let executing = null;
+  if (runs.length > 1) { try { executing = await executingThread(dataDir, runs.map((r) => r.leadThreadId), { deadline, signal }); } catch { executing = null; } }
+  const dels = new Map(runs.map((r) => [r.runId, openDelegations(tails.get(r.leadThreadId) ?? [], r.sentAt ?? null)]));
+
+  /** Might this run be waiting on this bot? Ours when a chip or the dispatch says
+   * so; another run's when only its chips or its claim say so; otherwise every
+   * open run has to keep waiting — ambiguity never hands one run exclusive
+   * ownership, and never lets the others call themselves finished. */
+  const attributable = (bot, run) => {
+    if (!bot) return false;
+    if (!run || runs.length < 2) return true;
+    if (bot.id === leadId) return executing === null || executing === run.leadThreadId;
+    if ((dels.get(run.runId)?.byName[bot.name] ?? 0) > 0 || run.implementer?.id === bot.id) return true;
+    const others = runs.filter((r) => r.runId !== run.runId);
+    const elsewhere = others.some((r) => (dels.get(r.runId)?.byName[bot.name] ?? 0) > 0 || r.implementer?.id === bot.id);
+    return !elsewhere;
+  };
+  /** Who owns a pending request: whoever saw it first, else the run whose lead
+   * thread it is on or whose delegate raised it. None or several is shared. */
+  const ownersOf = (p) => {
+    const key = cardKeyOf(p);
+    const remembered = runs.filter((r) => r.cards?.[key]);
+    if (remembered.length) return remembered;
+    return runs.filter((r) => p.threadId === r.leadThreadId || (dels.get(r.runId)?.byName[p.botName] ?? 0) > 0 || r.implementer?.id === p.botId);
+  };
+
+  const view = (run) => {
+    const leadThreadId = run?.leadThreadId ?? lead?.threadId ?? null;
+    const msgs = (leadThreadId ? tails.get(leadThreadId) : null) ?? [];
+    const leadTexts = msgs.filter((m) => isLeadText(m, leadId));
+    const lastLead = leadTexts.at(-1); const latestUser = msgs.findLast((m) => m.role === "user");
+    const observedOutcomes = [];
+    for (const m of msgs) {
+      if (isEcho(m, leadId)) observedOutcomes.push({ id: m.id, at: m.at, kind: "echo", name: m.from?.name ?? null, text: m.text, ok: true });
+      else if (m.kind === "activity" && typeof m.tool?.name === "string") { const d = DELEGATION_RE.exec(m.tool.name); if (d) observedOutcomes.push({ id: m.id, at: m.at, kind: "delegation", name: d[1], variant: d[2], text: m.text ?? null, tool: m.tool, ok: m.tool.ok === true }); }
+    }
+    let receiptsForRun = null;
+    if (receipts && leadThreadId) {
+      receiptsForRun = receipts.filter((r) => r.sourceThreadId === leadThreadId && (run?.sentAt == null || r.finishedAt >= run.sentAt));
+      for (const r of receiptsForRun) observedOutcomes.push({ ...r, id: `receipt:${r.id}`, at: r.finishedAt, kind: "receipt", name: r.toBotName ?? null, status: r.status ?? null, ok: r.status === "completed" });
+    }
+    const del = dels.get(run?.runId) ?? openDelegations(msgs, run?.sentAt ?? null);
+    const scoped = bots.map((b) => ({ ...b, busy: b.busy && attributable(b, run) }));
+    const pending = []; const claims = [];
+    for (const p of pendingAll) {
+      const owners = run ? ownersOf(p) : [null];
+      if (!run) { pending.push(p); continue; }
+      if (owners.length !== 1) { pending.push({ ...p, shared: true }); continue; }
+      if (owners[0].runId !== run.runId) continue;
+      pending.push({ ...p, shared: false, run: run.runId });
+      if (!run.cards?.[cardKeyOf(p)]) claims.push(cardKeyOf(p));
+    }
+    const runThreads = run
+      ? [...new Set([...Object.values(run.threads ?? {}), leadThreadId].filter(Boolean))].map((threadId) => ({ threadId, botId: threadOwners.get(threadId) ?? null }))
+      : [...threadOwners].map(([threadId, botId]) => ({ threadId, botId }));
+    return {
+      at: now, complete: incomplete.length === 0, incomplete,
+      bots: scoped, lead: scoped.find((b) => b.id === leadId) ?? null,
+      teamMap: { queued: tm.queued.filter((q) => attributable(bots.find((b) => b.id === q.targetBotId), run)), running: tm.running.filter((r) => attributable(bots.find((b) => b.id === r.targetBotId), run)) },
+      leadThreadId, runThreads, leadTail: msgs,
+      leadText: lastLead ? { id: lastLead.id, at: lastLead.at, text: lastLead.text } : null,
+      lastUser: latestUser ? { id: latestUser.id, at: latestUser.at, text: latestUser.text } : null,
+      outcomes: mergeOutcomes(run?.lastEval?.outcomes, observedOutcomes),
+      pending, claims, openDelegations: del,
+      markerSeen: run?.tag ? leadTexts.filter((m) => markerRe(run.tag).test(m.text)).map((m) => ({ id: m.id, at: m.at })).at(-1) ?? null : null,
+      dispatchFailed: dispatchFailedAfterLatestUser(msgs),
+      receipts: { supported: receipts !== null, forRun: receiptsForRun?.length ?? null }, truncatedTails: failedTails,
+    };
+  };
+
   if (performance.now() >= deadline || signal?.aborted) incomplete.push("observation deadline reached");
+  // A caller that names one run gets that run's view, whether or not it also
+  // handed over the other open runs for the ownership decisions above.
+  if (single) return view(single);
+  // No run at all is the team's own view: the lead's current thread, every bot.
+  if (!state.runs || !runs.length) return view(null);
   return {
-    at: now, complete: incomplete.length === 0, incomplete,
-    bots, lead, teamMap: tm, leadThreadId, runThreads: [...runThreads].map(([threadId, botId]) => ({ threadId, botId })), leadTail: msgs, leadText, lastUser, outcomes, pending, markerSeen,
-    dispatchFailed: dispatchFailedAfterLatestUser(msgs), receipts: { supported: receipts !== null, forRun: receiptsForRun?.length ?? null }, truncatedTails: failedTails,
+    at: now, complete: incomplete.length === 0, incomplete, bots, lead, teamMap: tm, executing,
+    runThreads: [...threadOwners].map(([threadId, botId]) => ({ threadId, botId })), truncatedTails: failedTails,
+    receipts: { supported: receipts !== null, forRun: null },
+    views: Object.fromEntries(runs.map((r) => [r.runId, view(r)])),
   };
 }
 
@@ -216,14 +371,16 @@ const ordered = (list) => [...(list ?? [])].map(canonical).sort((a, b) => stable
 
 /** Persist all evidence needed to conservatively carry a terminal verdict. */
 export function evidenceOf(snap) {
-  return canonical({ version: 1, complete: snap.complete, leadThreadId: snap.leadThreadId, lead: snap.lead, leadText: snap.leadText, lastUser: snap.lastUser, markerSeen: snap.markerSeen,
+  return canonical({ version: 2, complete: snap.complete, leadThreadId: snap.leadThreadId, lead: snap.lead, leadText: snap.leadText, lastUser: snap.lastUser, markerSeen: snap.markerSeen, openDelegations: snap.openDelegations ?? null,
     outcomes: ordered(mergeOutcomes(snap.outcomes)), pending: ordered(snap.pending), bots: ordered(snap.bots), teamMap: { queued: ordered(snap.teamMap.queued), running: ordered(snap.teamMap.running) }, dispatchFailed: snap.dispatchFailed });
 }
 
 export function carriedVerdict(snap, task) {
   const last = task?.lastEval;
   if (!last?.evidence || !["done", "attention", "stalled", "failed"].includes(last.state)) return null;
-  if (!snap.complete || !snap.lead || snap.pending.length || snap.bots.some((b) => b.busy || BUSY.has(b.activity)) || snap.teamMap.queued.length || snap.teamMap.running.length) return null;
+  // The busy flags are already this run's (another run's working bot reads as
+  // idle here), so trust them rather than the whole-fleet activity string.
+  if (!snap.complete || !snap.lead || snap.pending.length || snap.bots.some((b) => b.busy) || snap.teamMap.queued.length || snap.teamMap.running.length || (snap.openDelegations?.total ?? 0) > 0) return null;
   if (stable(last.evidence) !== stable(evidenceOf(snap))) return null;
   if (["done", "attention"].includes(last.state) && evaluate(snap, task, { quiet: { since: 0 }, quietMs: 0 }).state !== last.state) return null;
   return last.state;
@@ -236,7 +393,8 @@ export function carriedVerdict(snap, task) {
 export function evaluate(snap, task, { now = Date.now(), quiet = { since: null }, lastChangeAt = null, quietMs = DEFAULTS.quietMs, dropMs = DEFAULTS.dropMs, stallMs = DEFAULTS.stallMs } = {}) {
   const reasons = [];
   const busy = snap.bots.filter((b) => b.busy);
-  const inflight = busy.length > 0 || snap.teamMap.queued.length > 0 || snap.teamMap.running.length > 0;
+  const openDel = snap.openDelegations?.total ?? 0;
+  const inflight = busy.length > 0 || snap.teamMap.queued.length > 0 || snap.teamMap.running.length > 0 || openDel > 0;
   const quietFor = !inflight && quiet.since !== null ? now - quiet.since : 0;
   const isQuiet = !inflight && quietFor >= quietMs;
   const base = { inflight, busy: busy.map((b) => b.name), quietFor, quiet: isQuiet };
@@ -246,7 +404,10 @@ export function evaluate(snap, task, { now = Date.now(), quiet = { since: null }
   if (!isQuiet) {
     if (snap.lead?.activity === "no-signal") return { state: "stalled", reasons: ["the lead sends no signal"], hint: 'interrupt, then send "status?"', ...base };
     if (lastChangeAt !== null && now - lastChangeAt > stallMs) return { state: "stalled", reasons: [`no change for ${Math.round((now - lastChangeAt) / 60000)} min`], hint: 'send "status?"', ...base };
-    return { state: "running", reasons: inflight ? [busy.length ? `working: ${busy.map((b) => b.name).join(", ")}` : `delegations queued ${snap.teamMap.queued.length}, running ${snap.teamMap.running.length}`] : [`idle for ${Math.round(quietFor / 1000)} s, not yet settled`], ...base };
+    const working = busy.length ? `working: ${busy.map((b) => b.name).join(", ")}`
+      : snap.teamMap.queued.length || snap.teamMap.running.length ? `delegations queued ${snap.teamMap.queued.length}, running ${snap.teamMap.running.length}`
+      : `${openDel} delegation(s) open: ${Object.entries(snap.openDelegations?.byName ?? {}).map(([n, c]) => (c > 1 ? `${n} x${c}` : n)).join(", ")}`;
+    return { state: "running", reasons: inflight ? [working] : [`idle for ${Math.round(quietFor / 1000)} s, not yet settled`], ...base };
   }
   if (snap.dispatchFailed) return { state: "failed", reasons: ["the lead's turn failed to dispatch (error activity, no reply)"], ...base };
   const out = snap.outcomes.filter((o) => !leadAfter(snap, o)).at(-1) ?? null;
