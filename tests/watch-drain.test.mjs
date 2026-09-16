@@ -437,3 +437,154 @@ test("a receipt change during a multi-run read invalidates a verdict without an 
   assert.equal(result.ev.state, "running");
   assert.equal(result.snap.outcomes[0]?.id, "receipt:new");
 });
+
+
+test("a terminal return rechecks ownership after the final checkpoint promise resolves", async () => {
+  const f = fixture();
+  let written = false; let current = true; let scheduled = false;
+  const result = await f.watch({
+    checkpoint: async () => { written = true; return true; },
+    getRuns: () => {
+      if (written && !scheduled) {
+        scheduled = true;
+        queueMicrotask(() => { current = false; });
+      }
+      return current ? [a, b] : [];
+    },
+  });
+  assert.equal(written, true, "the write itself preceded the ownership change");
+  assert.equal(result.ev.state, "running");
+  assert.equal(result.ev.unknown, true);
+  assert.notEqual(result.outcome, "terminal");
+});
+
+test("an optional checkpoint deadline returns the verified verdict without a late write", async () => {
+  const f = fixture();
+  let written = false; let late;
+  const result = await f.watch({ maxSeconds: 3, checkpoint: (_result, opts) => {
+    late = new Promise((resolve) => setTimeout(() => {
+      try { opts.assertCurrent(); written = true; } catch {}
+      resolve();
+    }, 1100));
+    return new Promise((resolve) => opts.signal.addEventListener("abort", () => resolve(false), { once: true }));
+  } });
+  assert.equal(result.ev.state, "done");
+  assert.equal(result.checkpointed, false);
+  await late;
+  assert.equal(written, false, "the timed-out checkpoint cannot write after watch returns");
+});
+
+test("a scope change at the deadline cannot checkpoint an unconfirmed snapshot", async (t) => {
+  const f = fixture();
+  let now = 0; let writes = 0;
+  t.mock.method(performance, "now", () => now);
+  f.data.threads.lb = [chip("queued", 1100, "Delegated to @Worker")];
+  f.afterRead = (route, n) => {
+    if (route === "/api/bots?messages=0" && n === 2) f.data.threads.lb = [];
+    if (route.includes("/threads/lb/") && n === 2) now = 99.5;
+  };
+  const result = await f.watch({ runs: [a, { ...b, implementer: null }], deadline: 100, quietMs: Infinity, pollMs: 0,
+    checkpoint: async (_result, opts) => { opts.assertCurrent(); writes++; return true; } });
+  assert.equal(result.outcome, "timeout");
+  assert.equal(result.ev.unknown, true);
+  assert.equal(result.snap.complete, false);
+  assert.equal(writes, 0);
+});
+
+test("delivery preserves the HTTP per-request cap within a longer watch deadline", async () => {
+  const budgets = [];
+  const client = {
+    timeoutMs: 25,
+    async post(_route, _body, opts) { budgets.push(opts.timeoutMs); return { threadId: "la" }; },
+  };
+  await deliverToLead(client, { leadId: "lead", run: a, text: "status?", sendId: "n", deadline: performance.now() + 1000 });
+  assert.ok(budgets.length > 0);
+  assert.ok(budgets.every((ms) => ms > 0 && ms <= 25));
+});
+
+test("idle lead and proven foreign lead work have the same evidence for this run", async (t) => {
+  const f = fixture(); let foreign = false;
+  const promises = await import("node:fs/promises");
+  t.mock.method(promises.default, "readFile", async (file) => {
+    if (String(file).endsWith("delegation-receipts.json")) return "[]";
+    if (String(file).endsWith("lb.ndjson") && foreign) return JSON.stringify({ type: "turn.started", turnId: "b" });
+    return JSON.stringify({ type: "turn.completed", turnId: "prior" });
+  });
+  const first = await snapshot(f.client, { team, task: a, runs: [a, b] }, { dataDir: "/unused" });
+  foreign = true;
+  f.data.bots[0].busy = true; f.data.bots[0].activity = "working"; f.data.bots[0].threadId = "lb";
+  const next = await snapshot(f.client, { team, task: a, runs: [a, b] }, { dataDir: "/unused" });
+  assert.deepEqual(evidenceOf(next), evidenceOf(first));
+});
+
+test("an unresolved delegate name alone cannot claim an unrelated card exclusively", async () => {
+  const f = fixture();
+  f.data.threads.la.push(chip("rename", 2500, "Delegated to @Old Worker"));
+  f.data.threads.w = [structuredClone(card)];
+  const snap = await snapshot(f.client, { team, task: a, runs: [a, { ...b, implementer: null }] });
+  assert.deepEqual(snap.pending.map((p) => [p.requestId, p.shared]), [["rq", true]]);
+});
+
+test("another run's specialist runtime frames cannot starve this run's verdict", async () => {
+  const f = fixture();
+  f.afterRead = async (route, n) => {
+    if (route.includes("/threads/w/")) await f.push({ kind: "runtime", event: { type: "turn.started", threadId: "w", turnId: `foreign-${n}` } });
+  };
+  const result = await f.watch();
+  assert.equal(result.ev.state, "done");
+  assert.equal(result.outcome, "terminal");
+});
+
+test("an unrecorded hidden bot does not invalidate a run whose snapshot excludes it", async () => {
+  const f = fixture();
+  f.afterRead = async (route) => {
+    if (route.includes("/threads/w/")) await f.push({ kind: "bot", bot: { id: "archived", name: "Archived", section: "s", hidden: true, threadId: "archived-thread" } });
+  };
+  const result = await f.watch();
+  assert.equal(result.ev.state, "done");
+});
+
+test("a buffered stream flood cannot consume the checkpoint grace before observation ends", async () => {
+  const f = fixture();
+  const chunk = new TextEncoder().encode('data: {"kind":"ping"}\n\n'.repeat(500_000));
+  f.client.stream = async (_url, signal) => ({ status: 200, body: new ReadableStream({ start(c) {
+    c.enqueue(chunk);
+    signal.addEventListener("abort", () => { try { c.close(); } catch {} }, { once: true });
+  } }) });
+  const start = performance.now();
+  const result = await f.watch({ maxSeconds: 0.01, checkpoint: async () => true });
+  assert.equal(result.outcome, "timeout");
+  assert.ok(performance.now() - start < 250, "parsing buffered frames obeys the observation deadline");
+});
+
+test("a watch remembers another run's first-seen card owner across invocations", async () => {
+  const f = fixture();
+  f.data.threads.w = [structuredClone(card)];
+  f.data.threads.lb = [chip("queued", 1100, "Delegated to @Worker")];
+  const other = { ...b, implementer: null };
+  const first = await f.watch({ runs: [a, other] });
+  const saved = { ...a, lastEval: first.watermarks };
+  f.data.threads.lb.push(chip("settled", 3000, "Delegation to @Worker completed without a text reply"));
+  const next = await snapshot(f.client, { team, task: saved, runs: [saved, other] });
+  assert.deepEqual(next.pending, [], "the unanswered card still belongs to B");
+});
+
+test("an invalidated snapshot showing inflight work breaks the quiet interval", async () => {
+  const f = fixture();
+  f.data.bots[1].busy = true;
+  f.data.bots[1].activity = "working";
+  f.data.threads.lb = [chip("queued", 1100, "Delegated to @Worker")];
+  let busySeenAt = null;
+  f.afterRead = async (route, n) => {
+    if (n === 2 && route === "/api/bots?messages=0") f.data.threads.lb.push(chip("settled", 3000, "Delegation to @Worker completed without a text reply"));
+    if (n === 2 && route.includes("/threads/lb/")) {
+      busySeenAt = performance.now();
+      f.data.threads.lb.push(chip("again", 3100, "Delegated to @Worker"));
+      await f.push({ kind: "message", threadId: "lb" });
+    }
+  };
+  const result = await f.watch({ runs: [a, { ...b, implementer: null }], quietMs: 100, pollMs: 20 });
+  assert.equal(result.ev.state, "done");
+  assert.ok(busySeenAt !== null);
+  assert.ok(performance.now() - busySeenAt >= 100, "quiet starts after even a discarded observation of our busy worker");
+});

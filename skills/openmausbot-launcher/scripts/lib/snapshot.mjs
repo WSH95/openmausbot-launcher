@@ -3,6 +3,7 @@
 // scripts/mcp-server.ts:652-672; the busy set from server/store.ts:407-409.
 import fs from "node:fs/promises";
 import path from "node:path";
+import { HttpError } from "./http.mjs";
 
 export const BUSY = new Set(["working", "waiting-on-you", "no-signal"]);
 const HEALTH = new Set(["dead", "no-signal"]); // fleet-wide, not one run's work
@@ -19,7 +20,7 @@ const SETTLED_RE = /^Delegation to @(.+?) (?:completed without a text reply|fail
 const RETRY_RE = /^Delegation to @(.+?) waiting — /; // delegations.ts:491 — a retry; the delegation is still open
 const START_FAILED_RE = /^error: delegation to @(.+?) could not start — /; // index.ts:3499
 const FAILED_UNNAMED_RE = /^error: delegation failed — /; // delegations.ts:381
-const DROPPED_RE = /^(\d+) queued delegations? dropped — the turn did not finish$/; // delegations.ts:441
+const DROPPED_RE = /^\d+ queued delegations? dropped — the turn did not finish$/; // delegations.ts:441
 const REPLIED_RE = /^@(.+?) replied to the delegated task/s; // index.ts:3387
 
 /**
@@ -30,12 +31,59 @@ const REPLIED_RE = /^@(.+?) replied to the delegated task/s; // index.ts:3387
  * keeps reading as inflight rather than as finished.
  */
 export function openDelegations(leadTail, sinceAt = null) {
-  const counts = new Map();
-  let unknown = false;
-  const open = (name) => counts.set(name, (counts.get(name) ?? 0) + 1);
-  const settle = (name) => {
-    const n = counts.get(name) ?? 0;
-    if (n > 0) counts.set(name, n - 1); else unknown = true;
+  // A drop names a count, not its targets. Match each removal to a queue
+  // preceding it; a named reply may revise which earlier item was dropped.
+  // A scalar drop debt could otherwise consume a later batch's queue entry.
+  const queues = []; const removals = []; const matches = [];
+  let unknown = false; let overflow = null;
+  const eligible = (q, r) => q < r.before && (r.name === null || queues[q] === r.name);
+  const assign = (r, seen = new Set()) => {
+    for (let q = 0; q < queues.length; q++) {
+      if (seen.has(q) || !eligible(q, r)) continue;
+      seen.add(q);
+      if (!matches[q] || assign(matches[q], seen)) { matches[q] = r; return true; }
+    }
+    return false;
+  };
+  const possible = () => {
+    // Moving an unmatched queue through an alternating path finds every
+    // queue that could survive some valid assignment of the anonymous drops.
+    const live = new Set(queues.map((_, q) => q).filter((q) => !matches[q]));
+    const pending = [...live];
+    for (let i = 0; i < pending.length; i++) {
+      const free = pending[i];
+      for (let q = 0; q < queues.length; q++) {
+        if (live.has(q) || !matches[q] || !eligible(free, matches[q])) continue;
+        live.add(q); pending.push(q);
+      }
+    }
+    const counts = new Map();
+    for (const q of live) counts.set(queues[q], (counts.get(queues[q]) ?? 0) + 1);
+    return Object.fromEntries(counts);
+  };
+  const reserve = () => {
+    if (!overflow && queues.length + removals.length >= 512) {
+      // Bound the ambiguity search. In a pathological unbroken batch, keep
+      // conservative ownership and an open count rather than invent closure.
+      overflow = { counts: new Map(Object.entries(possible())), total: queues.length - removals.length };
+      unknown = true;
+    }
+    return !overflow;
+  };
+  const open = (name) => {
+    if (reserve()) queues.push(name);
+    else { overflow.counts.set(name, (overflow.counts.get(name) ?? 0) + 1); overflow.total++; }
+  };
+  const remove = (name, count = 1) => {
+    if (overflow) return;
+    if (!Number.isSafeInteger(count) || count < 1 || count > queues.length - removals.length) { unknown = true; return; }
+    for (let i = 0; i < count; i++) {
+      if (!reserve()) return;
+      const removal = { name, before: queues.length };
+      if (assign(removal)) removals.push(removal); else { unknown = true; return; }
+    }
+    if (queues.length === removals.length) { queues.length = 0; removals.length = 0; matches.length = 0; }
+    else if (name === null) unknown = true;
   };
   for (const m of leadTail ?? []) {
     if (sinceAt != null && typeof m.at === "number" && m.at < sinceAt) continue;
@@ -43,22 +91,18 @@ export function openDelegations(leadTail, sinceAt = null) {
       const chip = m.tool.name.trim();
       let x;
       if ((x = QUEUED_RE.exec(chip)) || (x = ASK_CONVERTED_RE.exec(chip))) open(x[1]);
-      else if ((x = SETTLED_RE.exec(chip)) || (x = START_FAILED_RE.exec(chip))) settle(x[1]);
-      else if ((x = DROPPED_RE.exec(chip))) {
-        // Only pending handoffs are dropped (delegations.ts:418-441). The
-        // anonymous count cannot identify a subset of our outstanding work.
-        if (Number(x[1]) === [...counts.values()].reduce((a, b) => a + b, 0)) counts.clear();
-        else unknown = true;
-      }
+      else if ((x = SETTLED_RE.exec(chip)) || (x = START_FAILED_RE.exec(chip))) remove(x[1]);
+      // S: server/delegations.ts:408-442 drops only pending queue entries;
+      // already-started work is acknowledged separately and can remain open.
+      else if (DROPPED_RE.test(chip)) remove(null, Number.parseInt(chip, 10));
       else if (FAILED_UNNAMED_RE.test(chip)) unknown = true;
       else if (RETRY_RE.test(chip)) continue;
     } else if (m.role === "bot" && m.kind === "text" && m.from) {
       const x = REPLIED_RE.exec(m.text ?? "");
-      if (x) settle(x[1]);
+      if (x) remove(x[1]);
     }
   }
-  const byName = Object.fromEntries([...counts].filter(([, n]) => n > 0));
-  return { byName, total: Object.values(byName).reduce((a, b) => a + b, 0), unknown };
+  return { byName: overflow ? Object.fromEntries(overflow.counts) : possible(), total: overflow?.total ?? queues.length - removals.length, unknown };
 }
 
 /**
@@ -81,11 +125,10 @@ export function delegationWindows(leadTail, sinceAt = null) {
       if ((x = QUEUED_RE.exec(chip))) name = x[1];
       else if ((x = ASK_CONVERTED_RE.exec(chip))) { name = x[1]; kind = "converted"; }
       else if ((x = SETTLED_RE.exec(chip)) || (x = START_FAILED_RE.exec(chip))) { name = x[1]; settles = true; }
-      else if ((x = DROPPED_RE.exec(chip))) {
+      else if (DROPPED_RE.test(chip)) {
         // The queueing turn was interrupted: nothing queued is still this
         // run's, so no later turn on a shared thread may be attributed to it.
-        const windows = Object.values(out).flat().filter((w) => w.to === null);
-        if (Number(x[1]) === windows.length) for (const w of windows) w.to = m.at;
+        for (const list of Object.values(out)) for (const w of list) if (w.to === null) w.to = m.at;
         continue;
       }
     } else if (m.role === "bot" && m.kind === "text" && m.from) {
@@ -114,13 +157,13 @@ export async function executingThread(dataDir, threadIds, { deadline = performan
     if (!threadId || outOfBudget(deadline, signal)) return null;
     let text;
     try { text = await withinDeadline((opts) => fs.readFile(path.join(dataDir, "events", `${threadId}.ndjson`), { encoding: "utf8", signal: opts.signal }), deadline, signal); }
-    catch (e) { if (e.code === "ENOENT") continue; return null; }
+    catch { return null; }
     const live = new Set();
     for (const line of text.split("\n")) {
       if (!line.trim()) continue;
       let e; try { e = JSON.parse(line); } catch { return null; }
-      // A lost canonical event defeats the claim of one unfinished turn.
-      // S: server/harness/bus.ts:14-15.
+      // S: server/harness/bus.ts:14-15,42-75: missing durable events cannot
+      // prove that another thread has no unfinished turn.
       if (e.type === "runtime.error" && /Canonical event history is incomplete/.test(e.message ?? "")) return null;
       if (!e.turnId) continue;
       if (e.type === "turn.started") live.add(e.turnId);
@@ -248,7 +291,7 @@ export function pendingMessage(m, { threadId, botId, botName }) {
   const card = m.card;
   const cardKind = card ? card.skillRequest ? "skill" : card.routineRequest ? "routine" : card.tool ? "approval" : "question" : null;
   return {
-    threadId, botId, botName, kind: card ? "card" : m.connector ? "connector" : "secret",
+    threadId, botId, botName, at: m.at, kind: card ? "card" : m.connector ? "connector" : "secret",
     requestId: card?.requestId ?? null, cardKind, messageId: m.id,
     text: m.text ?? card?.subtitle ?? card?.title ?? "",
     ...(card ? { card, title: card.title, subtitle: card.subtitle, options: card.options, tool: card.tool, held: card.held, approvalScope: card.approvalScope, allowKey: card.allowKey, skillRequest: card.skillRequest, routineRequest: card.routineRequest } : {}),
@@ -295,9 +338,24 @@ export async function snapshot(client, state, { dataDir = null, runtimeTrusted =
   // Every thread worth reading: each run's own, and each bot's current one for
   // the bots no run pins. Ownership is decided per view, from one set of reads.
   const threadOwners = new Map();
+  const requiredThreads = new Set([...runs.flatMap((r) => [...Object.values(r.threads ?? {}), r.leadThreadId]), ...bots.map((b) => b.threadId)].filter(Boolean));
   for (const run of runs) for (const [botId, threadId] of Object.entries(run.threads ?? {})) if (threadId) threadOwners.set(threadId, botId);
-  for (const run of runs) for (const card of Object.values(run.cards ?? {})) {
-    if (card?.threadId) threadOwners.set(card.threadId, card.botId);
+  // Closing a run does not settle the requests it observed. Its history is
+  // still provenance, although it no longer contributes work claims.
+  const ownershipRuns = [...runs, ...(state.history ?? [])];
+  const rememberedCards = ownershipRuns.flatMap((r) => [...Object.values(r.cards ?? {}), ...Object.values(r.lastEval?.cardOwners ?? {})]);
+  const rememberedThreads = new Set();
+  // A helper leaving this section does not settle a request already observed
+  // on its thread. Card provenance outlives current fleet membership.
+  for (const card of rememberedCards) if (card?.threadId && card.botId) {
+    threadOwners.set(card.threadId, card.botId); rememberedThreads.add(card.threadId);
+  }
+  // Legacy boolean owners contain no thread identity. Read the team's task
+  // lists as well before concluding that one of those cards has settled.
+  if (rememberedCards.some((c) => c === true)) for (const bot of fleet?.bots ?? []) {
+    if (ids.has(bot.id)) for (const task of bot.tasks ?? []) if (task.threadId) {
+      threadOwners.set(task.threadId, bot.id); rememberedThreads.add(task.threadId);
+    }
   }
   for (const bot of bots) if (bot.threadId && !threadOwners.has(bot.threadId)) threadOwners.set(bot.threadId, bot.id);
   for (const run of runs) {
@@ -312,7 +370,16 @@ export async function snapshot(client, state, { dataDir = null, runtimeTrusted =
   const sentAt = stamps.length ? Math.min(...stamps) : null;
   const pendingAll = []; const tails = new Map(); const seenCards = new Set(); let failedTails = 0;
   await Promise.all([...threadOwners].map(async ([threadId, botId]) => {
-    const tail = await get(`thread ${threadId}`, () => readTail(client, threadId, { sentAt, deadline, signal }));
+    const tail = await get(`thread ${threadId}`, async () => {
+      try { return await readTail(client, threadId, { sentAt: rememberedThreads.has(threadId) ? null : sentAt, deadline, signal }); }
+      catch (e) {
+        // Deleting an old task deletes its requests too. Only that positive
+        // absence retires historical provenance; current run reads must work.
+        // S: server/index.ts:8641-8643,11149-11166; store.ts:1656-1667.
+        if (!requiredThreads.has(threadId) && e instanceof HttpError && e.status === 404 && e.body?.error === "no such conversation") return [];
+        throw e;
+      }
+    });
     if (!tail) { failedTails++; return; }
     tails.set(threadId, tail);
     const botName = bots.find((b) => b.id === botId)?.name ?? null;
@@ -331,16 +398,18 @@ export async function snapshot(client, state, { dataDir = null, runtimeTrusted =
   let executing = null;
   if (runs.length > 1 && runtimeTrusted && !runs.some((r) => r.lastEval?.runtimeUntrusted)) { try { executing = await executingThread(dataDir, runs.map((r) => r.leadThreadId), { deadline, signal }); } catch { executing = null; } }
   const dels = new Map(runs.map((r) => [r.runId, openDelegations(tails.get(r.leadThreadId) ?? [], r.sentAt ?? null)]));
-  const unresolved = (run) => Object.keys(dels.get(run.runId)?.byName ?? {}).some((name) => !bots.some((b) => b.name === name));
+  const unresolvedTarget = (run) => Object.keys(dels.get(run.runId)?.byName ?? {}).some((name) => !bots.some((b) => b.name === name));
 
   // A bot this run cannot claim contributes no work state to its evidence: its
   // turns starting and finishing are the other run's business. Only the
   // fleet-wide health states stay, because a dead or silent bot is everyone's.
   const scopedState = (bot, run) => {
-    if (!attributable(bot, run)) return { ...bot, busy: false, activity: HEALTH.has(bot.activity) ? bot.activity : null, threadId: null };
+    const ours = attributable(bot, run);
+    if (run && bot.id === leadId) return { ...bot, threadId: run.leadThreadId, busy: ours && bot.busy, activity: ours || HEALTH.has(bot.activity) ? bot.activity : "idle" };
+    if (!ours) return { ...bot, busy: false, activity: HEALTH.has(bot.activity) ? bot.activity : null, threadId: null };
     // The lead's active task can be another run's even while our turn is
     // pinned here. Switching that active task is not progress on this run.
-    return run && bot.id === leadId ? { ...bot, threadId: run.leadThreadId } : bot;
+    return bot;
   };
 
   /** Might this run be waiting on this bot? Ours when a chip or the dispatch says
@@ -351,8 +420,7 @@ export async function snapshot(client, state, { dataDir = null, runtimeTrusted =
     if (!bot) return false;
     if (!run || runs.length < 2) return true;
     if (bot.id === leadId) return executing === null || executing === run.leadThreadId;
-    if (unresolved(run)) return true;
-    if ((dels.get(run.runId)?.byName[bot.name] ?? 0) > 0 || run.implementer?.id === bot.id) return true;
+    if (unresolvedTarget(run) || (dels.get(run.runId)?.byName[bot.name] ?? 0) > 0 || run.implementer?.id === bot.id) return true;
     const others = runs.filter((r) => r.runId !== run.runId);
     const elsewhere = others.some((r) => (dels.get(r.runId)?.byName[bot.name] ?? 0) > 0 || r.implementer?.id === bot.id);
     return !elsewhere;
@@ -361,15 +429,28 @@ export async function snapshot(client, state, { dataDir = null, runtimeTrusted =
    * thread it is on or whose delegate raised it. None or several is shared. */
   const ownersOf = (p) => {
     const key = cardKeyOf(p);
-    const remembered = runs.filter((r) => r.cards?.[key]);
-    if (remembered.length) return remembered;
-    return runs.filter((r) => p.threadId === r.leadThreadId || (p.botId !== leadId && unresolved(r)) || (dels.get(r.runId)?.byName[p.botName] ?? 0) > 0 || r.implementer?.id === p.botId);
+    const seenOwners = new Set(ownershipRuns.flatMap((r) => r.lastEval?.cardOwners?.[key]?.owners ?? []));
+    for (const r of ownershipRuns) if (r.cards?.[key]) seenOwners.add(r.runId);
+    if (seenOwners.size) return [...seenOwners].map((runId) => ({ runId }));
+    // Reading an older owner's thread may reveal requests nobody observed.
+    // A later dispatch cannot be their origin, even if it now holds the bot.
+    const candidates = runs.filter((r) => r.sentAt == null || p.at == null || p.at >= r.sentAt);
+    const direct = candidates.filter((r) => p.threadId === r.leadThreadId || (dels.get(r.runId)?.byName[p.botName] ?? 0) > 0 || r.implementer?.id === p.botId);
+    const possible = candidates.filter((r) => p.botId !== leadId && unresolvedTarget(r) && !direct.includes(r));
+    const owners = [...direct, ...possible];
+    // An unresolved name supplies possible owners, never an exclusive claim.
+    owners.uncertain = possible.length > 0;
+    return owners;
   };
   const pendingOwners = new Map(pendingAll.map((p) => [cardKeyOf(p), ownersOf(p)]));
   const cardsByRun = Object.fromEntries(runs.map((r) => [r.runId, {}]));
+  const cardOwners = {};
   for (const p of pendingAll) {
     const key = cardKeyOf(p); const owners = pendingOwners.get(key);
-    if (owners.length === 1) cardsByRun[owners[0].runId][key] = { threadId: p.threadId, botId: p.botId };
+    if (owners.length !== 1 || owners.uncertain) continue;
+    const location = { threadId: p.threadId, botId: p.botId };
+    if (cardsByRun[owners[0].runId]) cardsByRun[owners[0].runId][key] = location;
+    cardOwners[key] = { ...location, owners: [owners[0].runId] };
   }
 
   const view = (run) => {
@@ -393,7 +474,7 @@ export async function snapshot(client, state, { dataDir = null, runtimeTrusted =
     for (const p of pendingAll) {
       const owners = run ? pendingOwners.get(cardKeyOf(p)) : [null];
       if (!run) { pending.push(p); continue; }
-      if (owners.length !== 1) { pending.push({ ...p, shared: true }); continue; }
+      if (owners.length !== 1 || owners.uncertain || !cardsByRun[owners[0].runId]) { pending.push({ ...p, shared: true }); continue; }
       if (owners[0].runId !== run.runId) continue;
       pending.push({ ...p, shared: false, run: run.runId });
       if (!run.cards?.[cardKeyOf(p)]) claims.push(cardKeyOf(p));
@@ -415,7 +496,7 @@ export async function snapshot(client, state, { dataDir = null, runtimeTrusted =
       // this run's progress.
       observedBots: bots, observedThreads: [...threadOwners.keys()],
       attributedThreads: [...new Set([leadThreadId, ...[...threadOwners].filter(([, botId]) => botId !== leadId && attributable(bots.find((b) => b.id === botId), run)).map(([id]) => id), ...pending.map((p) => p.threadId)].filter(Boolean))],
-      cardsByRun,
+      cardsByRun, cardOwners,
       leadText: lastLead ? { id: lastLead.id, at: lastLead.at, text: lastLead.text } : null,
       lastUser: latestUser ? { id: latestUser.id, at: latestUser.at, text: latestUser.text } : null,
       outcomes: mergeOutcomes(run?.lastEval?.outcomes, observedOutcomes),

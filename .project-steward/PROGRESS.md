@@ -3,6 +3,20 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-16 — watch rescue follow-up after the first drain repair
+The independent audit of `0492520` reproduced additional final-await,
+checkpoint cancellation, quiet-reset, card-lifecycle, historical-read,
+stream-budget and delegation-drop gaps. Failing-first regressions preceded
+the fixes; the first focused run had 21 failures and its repaired successor
+passed 60/60, followed by additional direct regressions. The final source
+preserves the bounded drain and all original assertions, including both
+actual two-run watches against the HTTP fake. Design and the final path
+matrix are in `docs/design.md` and
+`docs/review/2026-09-16-watch-drain-followups.md`; full verification is in
+`VERIFY.md`. Three independently written regression files remain unstaged
+by this invocation; their four tests are included in workspace counts.
+No new bot turns or push. Phase 7 still owes real two-run validation.
+
 ### 2026-09-16 — v2 pass, phase 5: several runs per team (code, no bot turns)
 The state document is version 2 and holds `runs`: each run owns its worktree
 and branch from dispatch, claims an implementer the launcher bound, is

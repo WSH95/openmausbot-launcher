@@ -39,7 +39,7 @@ verb("report", {
       const client = createClient(cfg);
       env = await requireSameEnvironment(cfg, client);
       context = { ...runContext(cfg), ok: true, source: "active run" };
-      snap = await snapshot(client, { team, task, runs: open }, { dataDir: cfg.dataDir });
+      snap = await snapshot(client, { team, task, runs: open, history: cfg.state?.history }, { dataDir: cfg.dataDir });
       ev = evaluate(snap, task, { quiet: { since: null }, lastChangeAt: task.lastEval?.lastChangeAt ?? task.sentAt ?? null });
       const prior = carriedVerdict(snap, task);
       if (ev.state === "running" && prior) ev = { ...ev, state: prior, carried: true };

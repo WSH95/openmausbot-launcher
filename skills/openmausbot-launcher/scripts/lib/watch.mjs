@@ -13,7 +13,7 @@ const pause = (ms, signal) => new Promise((resolve) => {
 });
 
 /** Parse an SSE body into {id, data} frames; calls onFrame for each; resolves when the stream ends. */
-export async function readEventStream(res, { onFrame, signal, idleMs = 45_000, deadline = Infinity }) {
+export async function readEventStream(res, { onFrame, onDeadline = () => {}, signal, idleMs = 45_000, deadline = Infinity }) {
   const reader = res.body.getReader();
   const dec = new TextDecoder();
   let buf = "";
@@ -22,14 +22,27 @@ export async function readEventStream(res, { onFrame, signal, idleMs = 45_000, d
   armIdle();
   const onAbort = () => reader.cancel(new Error("aborted")).catch(() => {});
   signal?.addEventListener("abort", onAbort, { once: true });
+  const inBudget = () => performance.now() < (typeof deadline === "function" ? deadline() : deadline);
+  const onlyHeartbeats = () => {
+    if (!buf.trim()) return true;
+    // Inspect a small complete tail without resuming an unbounded replay.
+    if (buf.length > 4096 || !buf.endsWith("\n\n")) return false;
+    return buf.split("\n\n").every((raw) => {
+      let data = null;
+      for (const line of raw.split("\n")) if (line.startsWith("data: ")) {
+        try { data = JSON.parse(line.slice(6)); } catch { return false; }
+      }
+      return !data || data.kind === "ping";
+    });
+  };
   try {
-    while (!signal?.aborted && performance.now() < deadline) {
+    while (!signal?.aborted && inBudget()) {
       const { value, done } = await reader.read();
       if (done) break;
       armIdle();
       buf += dec.decode(value, { stream: true });
       let i;
-      while (!signal?.aborted && performance.now() < deadline && (i = buf.indexOf("\n\n")) >= 0) {
+      while (!signal?.aborted && inBudget() && (i = buf.indexOf("\n\n")) >= 0) {
         const raw = buf.slice(0, i); buf = buf.slice(i + 2);
         const frame = { id: null, data: null };
         for (const line of raw.split("\n")) {
@@ -39,6 +52,9 @@ export async function readEventStream(res, { onFrame, signal, idleMs = 45_000, d
         if (frame.data) onFrame(frame);
       }
     }
+    // A deadline can leave complete frames buffered but unclassified. Such a
+    // stream cannot authorize a checkpoint of the last accepted snapshot.
+    if (!signal?.aborted && !inBudget() && !onlyHeartbeats()) onDeadline();
   } finally { clearTimeout(idle); signal?.removeEventListener("abort", onAbort); void reader.cancel().catch(() => {}); }
 }
 
@@ -107,26 +123,31 @@ export class StaleObservation extends Error {
   constructor(message = "watch observation was invalidated") { super(message); }
 }
 
-// Only inputs that determine attribution, not other watches' watermarks.
-const runInputs = (runs) => JSON.stringify([...runs].sort((a, b) => a.runId.localeCompare(b.runId)).map((r) => ({
+// Run attribution and this run's durable progress; unrelated watermarks do
+// not invalidate an observation.
+const runInputs = (runs, history = [], watched = null) => JSON.stringify({ runs: [...runs].sort((a, b) => a.runId.localeCompare(b.runId)).map((r) => ({
   runId: r.runId, status: r.status, sentAt: r.sentAt, tag: r.tag, leadThreadId: r.leadThreadId, implementer: r.implementer,
   threads: Object.entries(r.threads ?? {}).sort(), cards: Object.entries(r.cards ?? {}).sort(),
-  runtimeUntrusted: Boolean(r.lastEval?.runtimeUntrusted),
-})));
+  runtimeUntrusted: Boolean(r.lastEval?.runtimeUntrusted), cardOwners: r.lastEval?.cardOwners,
+  outcomes: r.runId === watched ? mergeOutcomes(r.lastEval?.outcomes) : undefined,
+  lastChangeAt: r.runId === watched ? r.lastEval?.lastChangeAt : undefined,
+})), history: history.map((r) => ({ runId: r.runId, cards: r.cards, cardOwners: r.lastEval?.cardOwners })) });
 
 /** A read may authorize a decision only when its relevant generation stayed
  * unchanged. Scope changes require a confirming read. Three unsuccessful reads
  * return running/unknown; exhausting a drain never authorizes a stale verdict. */
-export async function watchRun({ client, team, task, runs = [], getRuns = null, dataDir = null, maxSeconds = 100, until = "settled", pollMs = 30_000, quietMs = DEFAULTS.quietMs, dropMs = DEFAULTS.dropMs, stallMs = DEFAULTS.stallMs, idleMs = 45_000, coalesceMs = 2_000, nudge = null, checkpoint = null, log = () => {}, deadline = performance.now() + maxSeconds * 1000 }) {
+export async function watchRun({ client, team, task, runs = [], getRuns = null, history = [], getHistory = null, dataDir = null, maxSeconds = 100, until = "settled", pollMs = 30_000, quietMs = DEFAULTS.quietMs, dropMs = DEFAULTS.dropMs, stallMs = DEFAULTS.stallMs, idleMs = 45_000, coalesceMs = 2_000, nudge = null, checkpoint = null, log = () => {}, deadline = performance.now() + maxSeconds * 1000 }) {
   const start = performance.now();
   const teamIds = new Set([...team.bots.map((b) => b.id), team.lead.id]);
+  const rosterIds = new Set(teamIds);
   let allRuns = runs.some((r) => r.runId === task.runId) ? runs : [task, ...runs];
-  let inputKey = runInputs(allRuns);
+  let inputKey = runInputs(allRuns, history, task.runId);
   const threadIds = new Set(allRuns.flatMap((r) => [...Object.values(r.threads ?? {}), r.leadThreadId]).filter(Boolean));
   let foreignLeadThreads = new Set(allRuns.filter((r) => r.runId !== task.runId).map((r) => r.leadThreadId));
   let scoped = allRuns.length > 1;
   let scope = null; let scopeKey = null;
   let cardsByRun = Object.fromEntries(allRuns.map((r) => [r.runId, { ...r.cards }]));
+  let cardOwners = { ...task.lastEval?.cardOwners };
   let cursor = task.lastEval?.cursor ?? null;
   let receivedCursor = cursor;
   let quietSince = null;
@@ -145,6 +166,7 @@ export async function watchRun({ client, team, task, runs = [], getRuns = null, 
   let waiter = null;
   const wake = () => waiter?.();
   const controller = new AbortController();
+  let streamDeadline = deadline;
   const expired = () => outOfBudget(deadline, controller.signal);
   const deadlineTimer = setTimeout(wake, Math.max(0, deadline - performance.now()));
   const invalidate = (kind) => {
@@ -157,7 +179,7 @@ export async function watchRun({ client, team, task, runs = [], getRuns = null, 
     if (!scoped || !scope) return "own"; // no ownership proof on a cold read
     if (ownFrame(frame, scope)) return "own";
     const d = frame.data;
-    if (d.kind === "runtime") return d.event.threadId === task.leadThreadId ? "own" : "ownership";
+    if (d.kind === "runtime") return scope.threadIds.has(d.event.threadId) ? "own" : foreignLeadThreads.has(d.event.threadId) || runtimeLogGap(d) ? "ownership" : "other";
     if (foreignLeadThreads.has(d.threadId ?? d.notification?.threadId)) return "ownership";
     if (d.kind === "bot.deleted") return "ownership";
     if (d.kind === "bot") {
@@ -180,13 +202,15 @@ export async function watchRun({ client, team, task, runs = [], getRuns = null, 
         if (res.status !== 200) throw new Error(`event stream ${res.status}`);
         const reading = readEventStream(res, {
           // Stay subscribed during the final bounded checkpoint lock wait.
-          signal: controller.signal, idleMs,
+          signal: controller.signal, idleMs, deadline: () => streamDeadline,
+          onDeadline: () => invalidate("ownership"),
           onFrame: (frame) => {
             if (controller.signal.aborted) return;
             streamFailures = 0;
             if (frame.data?.kind === "ping") return;
             if (frame.id) receivedCursor = frame.id;
             const d = frame.data;
+            if (d.kind === "bot" && d.bot?.hidden === true && !rosterIds.has(d.bot.id) && !scope?.bots.has(d.bot.id)) return;
             if (!relevantFrame(frame, { teamIds, threadIds, section: team.section }) &&
                 !(scope === null && ["message", "message.patch", "thread"].includes(d.kind))) return;
             const kind = classify(frame);
@@ -221,7 +245,7 @@ export async function watchRun({ client, team, task, runs = [], getRuns = null, 
   }
   let snap = null; let ev = null; let sig = null;
   let lastSnapAt = null; let redraws = 0; let immediate = false;
-  const sameInputs = () => !getRuns || inputKey === runInputs(getRuns());
+  const sameInputs = () => (!getRuns && !getHistory) || inputKey === runInputs(getRuns ? getRuns() : allRuns, getHistory ? getHistory() : history, task.runId);
   const current = () => snap?.complete && verifiedGeneration === relevant && sameInputs();
   const assertCurrent = () => {
     if (!current()) throw new StaleObservation();
@@ -231,7 +255,7 @@ export async function watchRun({ client, team, task, runs = [], getRuns = null, 
     outcome, ev, snap, sig, changes, cursor, nudged, timedOut: outcome === "timeout", elapsedSec: Math.round((performance.now() - start) / 1000), checkpointed: false,
     cards: { ...cardsByRun[task.runId] },
     changedSinceReport: !current() || !sameSig(reported, sig), pollingOnly, receiptsWatched: receiptsWatcher !== null, lastChangeAt,
-    watermarks: current() ? { state: ev.state, cursor, lastLeadMessageId: snap.leadText?.id ?? null, lastChangeAt, quietSince: null, outcomes: mergeOutcomes(snap.outcomes), evidence: evidenceOf(snap), lastReported: sig, runtimeUntrusted: !runtimeTrusted }
+    watermarks: current() ? { state: ev.state, cursor, lastLeadMessageId: snap.leadText?.id ?? null, lastChangeAt, quietSince: null, outcomes: mergeOutcomes(snap.outcomes), cardOwners: snap.cardOwners, evidence: evidenceOf(snap), lastReported: sig, runtimeUntrusted: !runtimeTrusted }
       : { state: "running", cursor, lastChangeAt, quietSince: null, outcomes: mergeOutcomes(outcomes) },
   });
   const unverified = (outcome, reason) => {
@@ -251,11 +275,20 @@ export async function watchRun({ client, team, task, runs = [], getRuns = null, 
         if (!current()) throw new StaleObservation();
         if (outOfBudget(checkpointDeadline, controller.signal) || (outcome !== "timeout" && expired())) throw new Error("observation deadline reached");
       };
-      r.checkpointed = await withinDeadline((opts) => checkpoint(r, { ...opts, assertCurrent: guard }), checkpointDeadline, controller.signal);
-      // The checkpoint may have persisted this watch's own card memory. No
-      // other ownership change is exempt from the final guard.
-      if (r.checkpointed && getRuns) inputKey = runInputs(allRuns.map((run) => run.runId === task.runId ? { ...run, cards: r.cards, lastEval: { ...run.lastEval, runtimeUntrusted: !runtimeTrusted } } : run));
-      guard();
+      streamDeadline = checkpointDeadline;
+      try {
+        try { r.checkpointed = await withinDeadline((opts) => checkpoint(r, { ...opts, assertCurrent: () => {
+          if (opts.signal.aborted) throw new Error("observation deadline reached");
+          guard();
+        } }), checkpointDeadline, controller.signal); }
+        catch (e) {
+          if (e.message !== "observation deadline reached") throw e;
+          r.checkpointed = false;
+        }
+        // Only this checkpoint's own watermarks are exempt from invalidation.
+        if (r.checkpointed && getRuns) inputKey = runInputs(allRuns.map((run) => run.runId === task.runId ? { ...run, cards: r.cards, lastEval: mergeCheckpoint(run.lastEval, r.watermarks) } : run), history, task.runId);
+        if (!current()) throw new StaleObservation();
+      } finally { streamDeadline = deadline; }
     }
     return r;
   };
@@ -270,15 +303,19 @@ export async function watchRun({ client, team, task, runs = [], getRuns = null, 
       }
       immediate = false;
       if (expired()) break;
-      if (getRuns) {
-        const liveRuns = getRuns();
+      if (getRuns || getHistory) {
+        const liveRuns = getRuns ? getRuns() : allRuns;
+        const liveHistory = getHistory ? getHistory() : history;
         if (!liveRuns.some((r) => r.runId === task.runId)) {
-          if (!snap) snap = await snapshot(client, { team, task, runs: allRuns }, { dataDir, deadline, signal: controller.signal });
+          if (!snap) snap = await snapshot(client, { team, task, runs: allRuns, history }, { dataDir, deadline, signal: controller.signal });
           return unverified("unverified", "the watched run is no longer open; re-read the project state");
         }
-        const nextInputs = runInputs(liveRuns);
+        const nextInputs = runInputs(liveRuns, liveHistory, task.runId);
         if (nextInputs !== inputKey) { scope = null; scopeKey = null; quietSince = null; }
-        allRuns = liveRuns; inputKey = nextInputs; scoped = allRuns.length > 1;
+        allRuns = liveRuns; history = liveHistory; inputKey = nextInputs; scoped = allRuns.length > 1;
+        const liveEval = allRuns.find((r) => r.runId === task.runId)?.lastEval;
+        outcomes = mergeOutcomes(outcomes, liveEval?.outcomes);
+        if (Number.isFinite(liveEval?.lastChangeAt)) lastChangeAt = Math.max(lastChangeAt, liveEval.lastChangeAt);
         runtimeTrusted &&= !allRuns.some((r) => r.lastEval?.runtimeUntrusted);
         foreignLeadThreads = new Set(allRuns.filter((r) => r.runId !== task.runId).map((r) => r.leadThreadId));
         for (const run of allRuns) {
@@ -288,9 +325,15 @@ export async function watchRun({ client, team, task, runs = [], getRuns = null, 
       }
       const targetAll = invalidations; const targetRelevant = relevant; const targetCursor = receivedCursor;
       verifiedGeneration = -1;
-      const readRuns = allRuns.map((r) => ({ ...r, cards: cardsByRun[r.runId], ...(r.runId === task.runId ? { lastEval: { ...task.lastEval, outcomes } } : {}) }));
-      snap = await snapshot(client, { team, task: readRuns.find((r) => r.runId === task.runId), runs: readRuns }, { dataDir, runtimeTrusted, deadline, signal: controller.signal });
+      const readRuns = allRuns.map((r) => ({ ...r, cards: cardsByRun[r.runId], ...(r.runId === task.runId ? { lastEval: { ...r.lastEval, outcomes, cardOwners: { ...cardOwners, ...r.lastEval?.cardOwners } } } : {}) }));
+      snap = await snapshot(client, { team, task: readRuns.find((r) => r.runId === task.runId), runs: readRuns, history }, { dataDir, runtimeTrusted, deadline, signal: controller.signal });
+      outcomes = mergeOutcomes(outcomes, snap.outcomes); snap.outcomes = outcomes;
       lastSnapAt = performance.now();
+      const evidenceChanged = lastSig && !sameEvidence(lastSig, { evidence: evidenceOf(snap) });
+      const busyNow = snap.bots.some((b) => b.busy) || snap.teamMap.queued.length || snap.teamMap.running.length || snap.openDelegations.total;
+      // An invalidated observation cannot establish quiet, but busy or changed
+      // evidence still disproves the quiet interval preceding that read.
+      if (!snap.complete || busyNow || evidenceChanged) quietSince = null;
       for (const bot of snap.observedBots) teamIds.add(bot.id);
       for (const id of snap.observedThreads) threadIds.add(id);
       const nextScope = { botIds: new Set(snap.attributedBots), threadIds: new Set(snap.attributedThreads), bots: new Map(snap.observedBots.map((b) => [b.id, b])) };
@@ -312,10 +355,12 @@ export async function watchRun({ client, team, task, runs = [], getRuns = null, 
         appliedInvalidations = targetAll;
         if (targetCursor !== null) cursor = targetCursor;
         outcomes = mergeOutcomes(outcomes, snap.outcomes); snap.outcomes = outcomes;
+        // A foreign owner can close before this watch checkpoints. Preserve
+        // accepted provenance independently of the refreshed open-run list.
+        cardOwners = snap.cardOwners;
         for (const run of allRuns) cardsByRun[run.runId] = mergeCards(cardsByRun[run.runId], snap.cardsByRun[run.runId], true);
       }
-      const evidenceChanged = lastSig && !sameEvidence(lastSig, { evidence: evidenceOf(snap) });
-      const busyNow = snap.bots.some((b) => b.busy) || snap.teamMap.queued.length || snap.teamMap.running.length || snap.openDelegations.total;
+
       if (!snap.complete || busyNow) quietSince = null;
       else if (quietSince === null || evidenceChanged) quietSince = lastSnapAt;
       if (evidenceChanged) lastChangeAt = now;
@@ -340,7 +385,12 @@ export async function watchRun({ client, team, task, runs = [], getRuns = null, 
       if (expired()) break;
       const outcome = TERMINAL.has(ev.state) ? "terminal" : current() && until === "change" && !sameSig(reported, sig) ? "change" : null;
       if (outcome) {
-        try { assertCurrent(); return await finish(outcome); }
+        try {
+          assertCurrent();
+          const result = await finish(outcome);
+          assertCurrent(); // The final awaited return also lets SSE run.
+          return result;
+        }
         catch (e) {
           if (expired()) break;
           if (!(e instanceof StaleObservation)) throw e;
@@ -361,10 +411,14 @@ export async function watchRun({ client, team, task, runs = [], getRuns = null, 
         timer = setTimeout(done, waitMs); waiter = done;
       });
     }
-    if (!snap) snap = await snapshot(client, { team, task, runs: allRuns }, { dataDir, deadline, signal: controller.signal });
+    if (!snap) snap = await snapshot(client, { team, task, runs: allRuns, history }, { dataDir, deadline, signal: controller.signal });
     if (!current() || !ev || TERMINAL.has(ev.state)) return unverified("timeout", "observation deadline reached before verification");
     sig = signatureOf(snap, ev);
-    try { return await finish("timeout"); }
+    try {
+      const result = await finish("timeout");
+      if (!current()) throw new StaleObservation();
+      return result;
+    }
     catch (e) {
       if (!(e instanceof StaleObservation) && !/observation deadline/.test(e.message)) throw e;
       return unverified("timeout", "observation deadline reached before checkpoint verification");

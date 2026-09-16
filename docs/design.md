@@ -259,7 +259,10 @@ verified local data directory. Unresolved requests are kept across pages. A
 failed or partial fetch marks the snapshot `incomplete`: no terminal state
 is ever derived from an incomplete snapshot. Team membership = the imported
 ids plus bots created since in the same section; team-map edges count only
-when both ends are team bots.
+when both ends are team bots. Hidden bots outside the recorded roster are
+excluded; a missing recorded bot makes the snapshot incomplete. Shared reads
+reach the earliest open dispatch, but each run's own lead evidence begins at
+its own dispatch boundary.
 
 Lead-authored text on the lead's thread: `role:"bot"`, `kind:"text"`, and no
 `from` (direct turn text carries none, `index.ts:2731-2736`; only room
@@ -285,10 +288,15 @@ delegation` (`index.ts:7915`) open one; the reply echo and the settlement
 chips (`index.ts:3396-3400`, `delegations.ts:506,535`, and
 `error: delegation to @X could not start`) close one; the busy retry
 (`delegations.ts:491`) closes nothing; the queue-drop chip
-(`delegations.ts:418-441`) drops only pending handoffs. When its count matches
-the outstanding delegations, their counts and windows close; an anonymous
-partial drop cannot identify which targets settled, so counts stay open and
-`unknown` is set. A settlement whose target was never
+(`delegations.ts:408-442`) drops only pending handoffs. Match named settlements
+and anonymous drops to preceding queue entries in transcript order. A drop
+can never consume a later queue. Keep every target that could remain open
+under a valid matching; `total` counts the remaining entries, while `byName`
+contains conservative upper counts and `unknown` records ambiguity. Clear
+settled batches. At 512 queue/removal nodes, preserve possible owners and an
+open count instead of continuing the ambiguity search or inventing closure.
+Reporting closes all open attribution windows at a drop: ambiguous later
+turns remain shared. A settlement whose target was never
 seen queued — a renamed bot, a chip older than the window — leaves the count
 where it is and sets `unknown`: ambiguity never settles anything.
 
@@ -302,19 +310,31 @@ this one's; only the fleet-wide health states (`dead`, `no-signal`) stay
 visible to every run. The lead is the same rule with one
 extra source: a busy lead counts for every open run unless the runtime log
 (`events/<thread>.ndjson`) shows exactly one run's lead thread with a
-`turn.started` and no `turn.completed`. Unreadable, malformed or explicitly
+`turn.started` and no `turn.completed`. Missing, unreadable, malformed or explicitly
 incomplete logs cannot prove exclusivity. A live canonical-log failure also
 disables that proof; a confirmed watch checkpoint preserves this uncertainty.
 An open delegation whose name no longer matches a fleet bot keeps that run
 waiting and leaves specialist requests shared where ownership is ambiguous.
+That uncertain name alone never establishes exclusive card ownership. An
+idle lead and a proven foreign lead turn have the same work evidence for this
+run, identified by its own lead thread.
 
 A pending request keeps the run that saw it first. Watch remembers owners for
 all observed runs across its hydrations and checkpoints only the selected
-run's `cards`, including each request's `threadId` and `botId`. That thread
-remains an input after the bot switches tasks. Legacy boolean owners still
-work when the request or its settlement is visible; an unlocated legacy
-request makes the observation incomplete. A request no run can claim is
-listed under every open run as `shared` and needs `--request`.
+run's `cards` and `lastEval.cardOwners`, including each request's `threadId`,
+`botId` and owner ids. Closed runs' history remains ownership evidence until
+the request settles; closed owners' requests are shared, never reassigned.
+Remembered threads are read beyond the remaining runs' dispatch boundaries,
+including after a bot switches tasks or leaves the team's section. Current
+fleet membership cannot prove that a remembered request settled.
+An unremembered request predating a run
+cannot be assigned to that run. Legacy boolean owners also require the bot's
+task threads; an unlocated legacy request makes the observation incomplete.
+The exact `404 no such conversation` response retires a remembered-only
+thread, because deleting a task deletes its transcript (`index.ts:8641-8643`,
+`store.ts:1656-1667`). Current/recorded run thread failures and other historical
+read failures remain incomplete. A request no open run can claim is listed
+under every open run as `shared` and needs `--request`.
 
 Timestamp ties use current hydrated message order only. Receipt ties or
 unavailable order remain unknown; an old sequence index cannot prove a new
@@ -372,25 +392,33 @@ Notifications are wake-ups only (a bot's notifications can be off,
 3. Classify each frame at arrival against the most recently hydrated scope.
    On a cold read, ownership is unproven and classification is conservative.
    Own frames reset quiet and invalidate the view. Ownership inputs invalidate
-   it without resetting quiet: other runs' lead threads, runtime turn or log
-   failure frames, fleet health and identity changes, deletions, and receipt
+   it without resetting quiet: other runs' lead threads, lead runtime turn or
+   log failure frames, fleet health and identity changes, deletions, and receipt
    writes. Ordinary work frames for a bot owned only by another run wake
    hydration but do neither. Recorded, current, discovered and remembered-card
-   threads are covered. `bot.deleted` identifies its bot with `botId`
+   threads are covered. Foreign specialist runtime traffic and excluded hidden
+   bots cannot starve a verdict. `bot.deleted` identifies its bot with `botId`
    (`index.ts:1915`); runtime events use `event.threadId` (`index.ts:2724`).
 4. A complete snapshot may authorize a verdict, `--until change`, nudge or
    checkpoint only if no relevant frame arrived during its own read. A moved
    attribution or observed-thread scope needs another confirming read, covering
    frames that were classified under the previous scope. The open runs'
-   ownership inputs are read again before hydration and checked before any
-   decision or effect, since local run closure has no SSE frame.
+   ownership inputs, historical card provenance, and the watched run's durable
+   outcomes and progress timestamp are read again before hydration and checked
+   before any decision or effect, since local state changes have no SSE frame.
+   A newer saved progress timestamp advances the stall clock; another run's
+   checkpoint watermarks do not invalidate this view. Each read starts
+   unverified. Even a discarded read breaks quiet when it observes busy,
+   incomplete or changed evidence.
 
    Three consecutive invalidated reads or attempts to act return `running`
    with `outcome: unverified`, `unknown: true`, `complete: false`, exit 4 and
    `checkpointed: false`. This result is never silenced by
    `--quiet-if-unchanged`. Hitting the bound never licenses a terminal verdict,
    change verdict, nudge or evidence checkpoint. Only confirmed reads advance
-   signatures, remembered owners, outcomes and the covered cursor.
+   signatures, remembered owners and the covered cursor. Observed outcome
+   records are retained across discarded reads so upstream pruning cannot
+   erase them; those records do not authorize a verdict by themselves.
 
    Ordinary live wakes are coalesced for up to 2 s, capped at half the remaining
    budget so a read can still run. Confirmation reads run immediately. Quiet
@@ -408,28 +436,37 @@ Notifications are wake-ups only (a bot's notifications can be off,
    or at the deadline with `timeout` (exit 4).
 6. A verified non-dry return attempts a checkpoint with at most a one-second
    lock wait, while the stream and receipt watcher remain subscribed. A
-   freshness guard runs under the lock before writing and again before return.
+   freshness guard runs under the lock before writing, after the checkpoint
+   promise, and after the final awaited return, before stream teardown. Its
+   cancellation signal prevents a timed-out callback from writing even when
+   the timer fires before the outer clock considers the deadline spent.
    If invalidated, watch rehydrates within the observation budget, or returns
    unknown without writing when the budget is spent. A timeout can checkpoint
    its last complete running view only while that view remains current.
    It merges `runs[runId].lastEval {state, cursor,
-   lastLeadMessageId, lastChangeAt, outcomes, evidence, lastReported}` over
+   lastLeadMessageId, lastChangeAt, outcomes, cardOwners, evidence, lastReported}` over
    the existing record, keeping the newer `lastChangeAt` when a `send`
    advanced it during the watch, and writes `runs[runId].cards` (the pending
    requests this run owns) — replacing them only when the observation was
    complete, since an incomplete one may just have failed to read the thread
    the card is on — only for that run and only for the same binding.
    Only the selected run's record is written. Lock timeout or a replaced run
-   returns `checkpointed:false`; other state errors propagate. `watch` never
+   returns `checkpointed:false`; an optional checkpoint deadline does too.
+   Other state errors propagate. `watch` never
    changes a run's `status`.
 
 One expiry test is shared by the budget guard and the observation loop
 (`outOfBudget`): a millisecond timeout is a whole number, so less than a
 millisecond left is already spent, and a request the guard would refuse is
 one the loop calls expired. One monotonic deadline bounds identity, SSE
-setup, coalescing, pagination, polling, reconnects and optional nudges.
+setup, buffered-frame parsing, coalescing, pagination, polling, reconnects and optional nudges.
+Delivery propagates an expired active-task read even when its child timer
+fires before the outer deadline check; it cannot turn that timeout into
+ownership evidence or continue with a switch or retry.
 Continuous events cannot extend observation. Only the final checkpoint can
 use its additional one-second lock budget, with the stream still subscribed.
+If parsing reaches its deadline with unread frames, the view is invalidated
+and cannot authorize a checkpoint.
 Every own frame resets quiet, including unchanged REST signatures.
 Quiet has its own wake deadline instead of waiting for the
 next poll. The received cursor advances on frames; the covered cursor

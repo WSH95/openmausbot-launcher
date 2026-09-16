@@ -339,6 +339,7 @@ test("a card no run can claim is shared, and a busy lead blocks every run until 
   await f.control({ op: "activity", botId: st.team.lead.id, activity: "working" });
   views = (await snapshotRuns(client, { team: st.team, runs }, { dataDir: f.dataDir })).views;
   for (const runId of [a.json.runId, b.json.runId]) assert.deepEqual(views[runId].bots.filter((x) => x.busy).map((x) => x.name), ["Sudo"], runId);
+  await f.control({ op: "event", threadId: a.json.leadThreadId, event: { turnId: "a1", type: "turn.completed", createdAt: new Date().toISOString() } });
   await f.control({ op: "event", threadId: b.json.leadThreadId, event: { turnId: "t1", type: "turn.started", createdAt: new Date().toISOString() } });
   views = (await snapshotRuns(client, { team: st.team, runs }, { dataDir: f.dataDir })).views;
   assert.deepEqual(views[a.json.runId].bots.filter((x) => x.busy), [], "the runtime log says the turn is B's");

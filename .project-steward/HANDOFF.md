@@ -1,9 +1,102 @@
 ---
-updated_at: 2026-09-08
-updated_by: claude
+updated_at: 2026-09-16
+updated_by: codex
 session_status: closed
+branch: main
 ---
 # Handoff
+
+## Now
+
+Phase 5's watch-contract rescue is repaired on `main` after `0492520` and
+`9b9fbe8`. The final audit is
+`docs/review/2026-09-16-watch-drain-followups.md`; it supersedes the first
+rescue audit's claim that every path was closed. A snapshot can authorize a
+verdict or effect only after its relevant generation, attribution scope and
+live run inputs are confirmed. Exhausting three attempts returns visible
+running/unknown. Follow-up repairs preserve card owners through closure,
+thread/membership changes and historical reads, retain durable outcomes and
+progress, bound stream parsing, and check freshness after the final await.
+No new real bot run or push was performed. Real two-run validation remains
+Phase 7; the Beads task was not closed by this checkpoint.
+
+## In flight
+
+An independent writer added `tests/watch-membership.test.mjs`,
+`tests/watch-local-progress.test.mjs` and `tests/watch-deadline.test.mjs`
+during this invocation. Their corresponding production changes were
+reviewed and preserved. These three files contain four regressions; they
+are included in the observed 340-test workspace suite but are left
+unstaged because this invocation did not edit them. The explicit-path
+repair commit contains the other 336 tests. Check `git status` before
+integrating any further work; another process has been editing this checkout.
+Verification commands and their final results are in `VERIFY.md`.
+
+After those passing runs and the repair commit, the independent writer
+also added `tests/send-ownership.test.mjs` and edited
+`tests/delegation-drops.test.mjs` and `tests/watch-followups.test.mjs`.
+Those later changes are outside the recorded 340-test verification and
+are left unstaged. The repair commit's source and tests remain the
+checkpoint to review; do not mistake a changing workspace for that tree.
+
+## Next steps
+
+1. Review the final audit and `git status`. Let the independent writer
+   finish its remaining test edits and specialist-send ownership work;
+   preserve those files and verify that work separately.
+2. Continue the v2 plan from `PLAN.md`. Phase 7 still owes a real two-run
+   OpenMausBot 0.1.56 exercise; this repair spent no bot turns and does not
+   claim that evidence. Record any authorized real run in `docs/evidence.md`.
+3. Reconcile the existing task `oml-no8` only in a session where Beads access
+   is authorized. This task's user explicitly prohibited `bd`, `.beads/`
+   changes and pushes; no automatic task-backend update belongs here.
+
+## Blockers
+
+There is no observed remaining implementation failure in the repair tests.
+Concurrent edits prevented claiming ownership of the three separate test
+files. The two-second quiet-output integration test exhausted its REST
+budget in one full run; the failure and unchanged rerun are recorded in
+`VERIFY.md`. Load sensitivity is an inference, not a proved cause.
+
+## Key files
+
+- `docs/design.md`: evaluation, attribution, drain and deadline rules.
+- `docs/review/2026-09-16-watch-drain-followups.md`: base/final path matrix,
+  regression evidence and limitations; the first audit maps the earlier
+  fifteen findings and third-round checks.
+- `skills/openmausbot-launcher/scripts/lib/watch.mjs`: observer lifetime,
+  generation guard, live local inputs and bounded drain.
+- `skills/openmausbot-launcher/scripts/lib/snapshot.mjs`: run attribution,
+  retained card provenance and chronological delegation-drop matching.
+- `tests/watch-drain.test.mjs`, `tests/watch-followups.test.mjs`,
+  `tests/card-lifecycle.test.mjs`, `tests/delegation-drops.test.mjs`: focused
+  regressions, an actual driver/fake-server card lifecycle, and an exhaustive
+  7,776-history matching oracle.
+
+## Tried and rejected
+
+A fixed redraw count followed by a verdict still returned stale evidence.
+Checking only inside an async checkpoint missed the final promise boundary.
+An unconditional parser-deadline invalidation made unchanged quiet watches
+print uncertainty with no unread evidence; bounded empty/heartbeat tails
+now remain benign. A scalar anonymous-drop debt consumed later queue
+batches; chronological matching retains every possible outstanding owner.
+
+## Warnings
+
+Keep all original assertions and both two-run HTTP-fake watches. Missing
+runtime logs cannot prove that another lead thread is idle. Ambiguous
+histories beyond 512 queue/removal nodes retain unknown/open work; do not
+turn that fallback into completion. An HTTP mutation already sent cannot
+be recalled when later evidence changes. Use only Node built-ins; never
+modify OpenMausBot. Do not push without explicit permission. Do not run
+Beads or stage `.beads/` for this rescue.
+
+## Historical M1 handoff (2026-09-08)
+
+The following archived state belongs to the earlier M1 session. Its runtime
+and Git observations are not fresh observations from this repair.
 
 ## Now
 

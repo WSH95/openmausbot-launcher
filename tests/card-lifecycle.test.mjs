@@ -1,0 +1,36 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import path from "node:path";
+import { startFake, makeRepo, runOmb, ROOT } from "./helpers.mjs";
+import { statePaths, loadState } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
+
+test("closing the only card observer preserves explicit answering on a later run", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const env = { OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir };
+  const { dir } = makeRepo();
+  const run = (args) => runOmb([...args, "--project", dir], { env });
+  assert.equal((await run(["import", path.join(ROOT, "tests/fixtures/dev-team.package.json"), "--url", f.url])).code, 0);
+  assert.equal((await run(["bind", "--default", "claude/claude-sonnet-5"])).code, 0);
+  const first = await run(["task", "--todo", "T10"]);
+  assert.equal(first.code, 0, first.stdout);
+  const team = loadState(statePaths(dir)).team;
+  const worker = team.bots.find((b) => b.name === "Nova");
+  await f.control({ op: "delegated", threadId: first.json.leadThreadId, name: worker.name });
+  await f.control({ op: "card", threadId: first.json.threads[worker.id], requestId: "closed-owner-card", kind: "question", text: "Which option?" });
+  const observed = await run(["watch", "--run", first.json.runId, "--max-seconds", "3"]);
+  assert.equal(observed.json.state, "needs-user", observed.stdout);
+  assert.equal(observed.json.pending[0].shared, false);
+  const later = await run(["task", "--todo", "T11", "--implementer", "Nova", "--share-implementer"]);
+  assert.equal(later.code, 0, later.stdout);
+  assert.equal((await run(["task", "--abandon", "--run", first.json.runId])).code, 0);
+  await f.control({ op: "delegated", threadId: later.json.leadThreadId, name: worker.name });
+  const watched = await run(["watch", "--run", later.json.runId, "--max-seconds", "3"]);
+  assert.equal(watched.json.state, "needs-user", watched.stdout);
+  assert.deepEqual(watched.json.pending.map((p) => [p.requestId, p.shared]), [["closed-owner-card", true]]);
+  const implicit = await run(["answer", "--run", later.json.runId, "--message", "first"]);
+  assert.equal(implicit.code, 3, implicit.stdout);
+  assert.match(implicit.json.hint, /--request closed-owner-card/);
+  const explicit = await run(["answer", "--run", later.json.runId, "--request", "closed-owner-card", "--message", "first"]);
+  assert.equal(explicit.code, 0, explicit.stdout);
+  assert.equal(explicit.json.outcome, "answered");
+});

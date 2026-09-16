@@ -265,6 +265,7 @@ test("the lead's frames for the other run's turns do not restart this run's quie
   const b = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
   assert.equal(b.code, 0, b.stdout);
   // the runtime log says the turn the lead is running belongs to T11
+  await f.control({ op: "event", threadId: a.leadThreadId, event: { turnId: "a1", type: "turn.completed", createdAt: new Date().toISOString() } });
   await f.control({ op: "event", threadId: b.json.leadThreadId, event: { turnId: "b1", type: "turn.started", createdAt: new Date().toISOString() } });
   await f.control({ op: "leadSay", threadId: a.leadThreadId, text: `Closing report: merged as 1234567.\n\nDONE ${a.tag}` });
   let flip = false;

@@ -25,7 +25,7 @@ verb("status", {
     const client = createClient(cfg);
     await requireSameEnvironment(cfg, client);
     const runs = openRuns(cfg.state);
-    const snap = await snapshot(client, { team, runs }, { dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null });
+    const snap = await snapshot(client, { team, runs, history: cfg.state?.history }, { dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null });
     const tail = Number(flags.tail ?? 0);
     const conversationOf = (view) => ({ lead: view.leadText, lastUser: view.lastUser, ...(tail > 0 ? { tail: view.leadTail.slice(-tail).map((m) => ({ id: m.id, at: m.at, role: m.role, kind: m.kind, from: m.from?.name ?? null, text: summarizeLong(m) })) } : {}) });
     if (!runs.length) {
@@ -300,7 +300,13 @@ export async function deliverToLead(client, { leadId, run, otherRuns = [], text,
   catch (e) {
     if (!movedAway(e)) throw precondition(e);
     let active = null;
-    try { active = (await request((opts) => client.get("/api/bots?messages=0", opts))).bots?.find((b) => b.id === leadId)?.threadId ?? null; } catch { guard(); }
+    try { active = (await request((opts) => client.get("/api/bots?messages=0", opts))).bots?.find((b) => b.id === leadId)?.threadId ?? null; }
+    catch (readError) {
+      guard();
+      // The request's timer may fire before the outer clock rounds to expiry.
+      // Its cancellation remains authoritative even during that interval.
+      if (readError.message === "observation deadline reached") throw readError;
+    }
     const owner = otherRuns.find((r) => r.leadThreadId && r.leadThreadId === active);
     if (!owner) {
       throw new Fail(EXIT.PRECONDITION, `${e.body.error} (target thread ${run.leadThreadId})`, { status: 409, hint: `the lead's active task is ${active ?? "unknown"}; nothing was retargeted: pass --thread ${active ?? "<id>"} to send there on purpose` });
@@ -388,7 +394,7 @@ verb("answer", {
       const out = await VERBS.get("send").handler({ flags: { ...flags }, positionals: [bare], verb: "send" });
       return { result: { viaSend: true, ...out.result }, brief: out.brief };
     }
-    const snap = await snapshot(client, { team, task, runs: openRuns(cfg.state) }, { dataDir: null });
+    const snap = await snapshot(client, { team, task, runs: openRuns(cfg.state), history: cfg.state?.history }, { dataDir: null });
     const cards = snap.pending.filter((p) => p.kind !== "waiting");
     let target;
     if (flags.request) { target = cards.find((p) => p.requestId === flags.request) ?? null; if (!target) throw new Fail(EXIT.PRECONDITION, `no pending request ${flags.request}`, { hint: cards.length ? `pending: ${cards.map((c) => `${c.requestId ?? c.kind} (${c.botName})`).join(", ")}` : "nothing is pending; a plain question is answered with send" }); }
@@ -438,7 +444,7 @@ verb("interrupt", {
     const alsoRecorded = openRuns(cfg.state).filter((r) => r.runId !== task.runId && r.threads?.[bot.id] === threadId);
     if (bot.id !== team.lead.id && alsoRecorded.length) {
       const all = openRuns(cfg.state);
-      const snap = await snapshot(client, { team, runs: all }, { dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null });
+      const snap = await snapshot(client, { team, runs: all, history: cfg.state?.history }, { dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null });
       const delegating = (r) => (snap.views[r.runId]?.openDelegations?.byName[bot.name] ?? 0) > 0;
       const claimants = all.filter((r) => delegating(r) || r.implementer?.id === bot.id);
       if (claimants.length !== 1 || claimants[0].runId !== task.runId) {
@@ -510,12 +516,14 @@ verb("watch", {
         }, { waitMs: Math.min(1000, opts.timeoutMs) });
       } catch (e) { if (!(e instanceof LockTimeout)) throw e; return false; }
     } : null;
-    const getRuns = () => {
+    const getState = () => {
       const doc = loadState(cfg.paths);
-      if (JSON.stringify(doc?.server) !== JSON.stringify(cfg.state.server) || doc?.team?.lead?.id !== team.lead.id) throw new Fail(EXIT.PRECONDITION, "the server binding changed during the watch", { hint: "re-read the state" });
-      return openRuns(doc);
+      if (JSON.stringify(doc?.server) !== JSON.stringify(cfg.state.server) || JSON.stringify(doc?.team) !== JSON.stringify(team)) throw new Fail(EXIT.PRECONDITION, "the server binding changed during the watch", { hint: "re-read the state" });
+      return doc;
     };
-    const r = await watchRun({ client, team, task, runs: openRuns(cfg.state), getRuns, dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null, maxSeconds, deadline, until, pollMs: num(flags.poll, 30) * 1000, stallMs: num(flags["stall-minutes"], 40) * 60_000, quietMs: num(flags["quiet-seconds"], 30) * 1000, dropMs: num(flags["drop-seconds"], 120) * 1000, nudge, checkpoint, log });
+    const getRuns = () => openRuns(getState());
+    const getHistory = () => getState()?.history ?? [];
+    const r = await watchRun({ client, team, task, runs: openRuns(cfg.state), getRuns, history: cfg.state?.history, getHistory, dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null, maxSeconds, deadline, until, pollMs: num(flags.poll, 30) * 1000, stallMs: num(flags["stall-minutes"], 40) * 60_000, quietMs: num(flags["quiet-seconds"], 30) * 1000, dropMs: num(flags["drop-seconds"], 120) * 1000, nudge, checkpoint, log });
     const checkpointed = r.checkpointed;
     const state = r.timedOut && !TERMINAL_STATES.has(r.ev.state) ? "timeout" : r.ev.state;
     const code = state === "timeout" ? EXIT.TIMEOUT : r.outcome === "change" || r.outcome === "question" ? (TERMINAL_STATES.has(r.ev.state) ? EXIT_FOR[r.ev.state] : EXIT.OK) : EXIT_FOR[r.ev.state] ?? EXIT.OK;

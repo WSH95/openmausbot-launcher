@@ -8,6 +8,40 @@ Run the relevant checks before marking work as verified in `HANDOFF.md`.
 | Tests | `npm test` | all pass |
 | Lint | `none` | clean |
 
+## Watch rescue follow-up (2026-09-16)
+
+Final source on `main` after `0492520`/`9b9fbe8`:
+
+- `npm test`: **340 passed, 0 failed, 0 skipped**, 75.045 s.
+- `mkdir -p .superpowers/tmp && TMPDIR=$PWD/.superpowers/tmp npm test`:
+  **340 passed, 0 failed, 0 skipped**, 95.743 s.
+- `git diff --check`: clean.
+
+The archived `3111bbc` baseline passed 269 tests. The first root draft
+failed 21 regression cases there. The first follow-up run against the
+merged repair had 39 passes and 21 failures; its fixes and later direct
+boundary regressions pass. The latest focused run passed 67 tests,
+including the full driver/fake-server card lifecycle and an independent
+7,776-history delegation matching oracle. All earlier fifteen findings'
+regressions and both actual two-run watches remain in the full suite.
+The audit gives their mapping:
+`docs/review/2026-09-16-watch-drain-followups.md`.
+
+Workspace counts include four tests in three independently written,
+untracked files: `watch-membership.test.mjs`, `watch-local-progress.test.mjs`
+and `watch-deadline.test.mjs`. They were preserved and exercised but not
+staged by this invocation. The repair commit contains 336 tests: 34 from
+`0492520` plus 33 in this follow-up, on the 269-test original baseline.
+
+An intervening TMPDIR run passed 339/340. The existing two-second
+quiet-output test printed unknown because REST hydration exhausted its
+budget; the unchanged rerun above passed. Load sensitivity is an inference.
+No assertion or two-run watch was removed or weakened. Logs are in ignored
+`.superpowers/tmp/rescue-main-{plain-final,tmpdir-final,tmpdir-load-failure}-845029.log`.
+The production diff hash was identical across final passing commands:
+`c75ab6de75ac24366ac252773ae284f506a1236b6d1cb84fe8fc3f66d04ca7e4`.
+No new real OpenMausBot turns or push; Phase 7 remains unverified.
+
 ## v2 pass, phase 5 (2026-09-16)
 
 Worktree clean at `0492520` on `main` (the Codex rescue commit, fast-forwarded
