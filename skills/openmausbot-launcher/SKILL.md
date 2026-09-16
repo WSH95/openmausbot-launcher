@@ -173,6 +173,11 @@ line. Relay the lead's own words; do not paraphrase decisions.
   `duplicate: true` means the server matched an earlier identical send in
   this run and stored nothing new; `omb send --again "…"` repeats it on
   purpose.
+- `send --bot <specialist> --run <ref>` refuses a thread another open run
+  records unless a complete observation attributes that bot only to this
+  run. Missing or ambiguous ownership also refuses the dry-run preview.
+  Send to the run's lead, or name `--thread <id>` to address the shared
+  destination explicitly; an explicit thread is never switched for you.
 - An approval card (a bot wants to contact a peer): `omb answer --allow
   --request <id>` or `--deny`. A question card: `omb answer --message
   "…" --request <id>`. With one pending card `--request` may be omitted —

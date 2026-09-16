@@ -367,6 +367,20 @@ verb("send", {
     const task = flags.thread && !flags.run && openRuns(cfg.state).length > 1 ? null : runFor(cfg, flags);
     let threadId = flags.thread ?? (task?.threads?.[bot.id]) ?? null;
     if (!threadId) { const live = (await client.get("/api/bots?messages=0")).bots?.find((b) => b.id === bot.id); threadId = live?.threadId; }
+    const runs = openRuns(cfg.state);
+    const sharedWith = task && runs.filter((r) => r.runId !== task.runId && r.threads?.[bot.id] === threadId);
+    if (!flags.thread && bot.id !== team.lead.id && sharedWith?.length) {
+      // A later run records the specialist's existing task. The run selector
+      // alone cannot authorize steering/queueing on that shared thread.
+      // S: server/index.ts:10790-10797,10824-10860 (active task and busy send).
+      const snap = await snapshot(client, { team, runs, history: cfg.state?.history }, { dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null });
+      const owners = runs.filter((r) => snap.views[r.runId]?.attributedBots.includes(bot.id));
+      if (!snap.complete || owners.length !== 1 || owners[0].runId !== task.runId) {
+        throw new Fail(EXIT.PRECONDITION, !snap.complete ? `${bot.name}'s ownership observation is incomplete` : `${bot.name}'s task ${threadId} is shared with ${sharedWith.map(runLabel).join(", ")}`, {
+          hint: `send to the selected run's lead, or pass --thread ${threadId} to address this shared destination explicitly`,
+        });
+      }
+    }
     // --again salts the scope: a deliberate repeat gets a fresh sendId and is delivered, not deduped.
     const sendId = sendIdFor(`${task?.runId ?? "no-run"}${flags.again ? `:${Date.now()}` : ""}`, threadId, text);
     const toOwnThread = task && bot.id === team.lead.id && !flags.thread && threadId === task.leadThreadId;
