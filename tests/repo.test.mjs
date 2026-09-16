@@ -68,6 +68,8 @@ test("reconcile matches each worktree to the run that owns it and claims an orph
   assert.equal(r.code, 0, "claiming the same slug for the same run again changes nothing");
   assert.deepEqual(loadState(statePaths(dir)).runs.run1.claimedSlugs, ["stray"]);
   await updateState(statePaths(dir), (d) => { d.runs.run9 = { runId: "run9", status: "dispatched", slug: "t9", title: "T9", createdAt: "2026-09-16T03:00:00.000Z" }; return d; });
+  r = await runOmb(["reconcile", "--project", dir, "--claim", "stray", "--run", "t9", "--dry-run"], { env });
+  assert.equal(r.code, 3, r.stdout); assert.match(r.json.error, /stray already belongs to t1/, "a preview refuses what the real command refuses");
   r = await runOmb(["reconcile", "--project", dir, "--claim", "stray", "--run", "t9"], { env });
   assert.equal(r.code, 3, r.stdout); assert.match(r.json.error, /stray already belongs to t1/);
   r = await runOmb(["reconcile", "--project", dir, "--claim", "t1", "--run", "t9"], { env });

@@ -30,13 +30,19 @@ verb("reconcile", {
         throw new Fail(EXIT.PRECONDITION, `nothing named ${slug} to claim`, { hint: `no .worktrees/${slug} and no task/${slug} in this repository` });
       }
       const run = selectRun(cfg.state, flags.run);
+      // One owner per slug: two runs answering for one worktree is how ownership
+      // flips when the first of them closes. A preview refuses what the command
+      // refuses, so it is checked before the dry run returns and again under the
+      // lock, where the state is the one being written.
+      const conflict = (doc) => openRuns(doc).find((r) => r.runId !== run.runId && (r.slug === slug || (r.claimedSlugs ?? []).includes(slug)));
+      const refuse = (held) => new Fail(EXIT.PRECONDITION, `${slug} already belongs to ${runLabel(held)}`, { hint: "a slug has one owner: remove it with --remove, or claim it for that run" });
+      const held = conflict(cfg.state);
+      if (held) throw refuse(held);
       if (cfg.dryRun) { claimed.push({ slug, run: run.runId, dryRun: true }); continue; }
       await updateState(cfg.paths, (d) => {
         const live = assertOpenRun(d, run.runId);
-        // One owner per slug: two runs answering for one worktree is how
-        // ownership flips when the first of them closes.
-        const held = openRuns(d).find((r) => r.runId !== run.runId && (r.slug === slug || (r.claimedSlugs ?? []).includes(slug)));
-        if (held) throw new Fail(EXIT.PRECONDITION, `${slug} already belongs to ${runLabel(held)}`, { hint: "a slug has one owner: remove it with --remove, or claim it for that run" });
+        const moved = conflict(d);
+        if (moved) throw refuse(moved);
         if (live.slug !== slug && !(live.claimedSlugs ?? []).includes(slug)) live.claimedSlugs = [...(live.claimedSlugs ?? []), slug];
         return d;
       });
