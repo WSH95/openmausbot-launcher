@@ -417,6 +417,15 @@ test("answer works on one run's own cards and refuses a request no run can claim
   assert.equal(r.code, 0, r.stdout); assert.equal(r.json.outcome, "allowed-once");
 });
 
+test("a second run cannot share the first one's lead thread", async (t) => {
+  const { f, dir } = await setup(t);
+  assert.equal((await runOmb(["task", "--todo", "T10", "--no-fresh-threads", "--project", dir], { env })).code, 0, "the first run may use the threads that exist");
+  await f.control({ op: "bot", name: "Vex", title: "Implementer", section: "Dev team" });
+  const r = await runOmb(["task", "--todo", "T11", "--no-fresh-threads", "--project", dir], { env });
+  assert.equal(r.code, 2, r.stdout); assert.match(r.json.error, /--no-fresh-threads/);
+  assert.equal((await runOmb(["task", "--todo", "T11", "--project", dir], { env })).code, 0, "with its own lead thread it dispatches");
+});
+
 test("task --resume sends the brief to its own run's thread even when the lead moved to another run", async (t) => {
   const { f, dir, lead } = await setup(t);
   const a = await runOmb(["task", "--todo", "T10", "--project", dir], { env });

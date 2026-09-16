@@ -161,8 +161,11 @@ verb("task", {
     const leadLive = live.find((b) => b.id === team.lead.id);
     if (!leadLive) throw new Fail(EXIT.PRECONDITION, `the lead ${team.lead.name} is not on the server`);
     if (openBefore.length) {
-      // Another run is open, so its bots are expected to be working. Only the
-      // lead has to be free: this dispatch opens its task and sends the brief.
+      // Two runs on one lead thread would be one conversation with two briefs,
+      // two markers and no way to tell whose reply is whose.
+      if (!flags.resume && flags["no-fresh-threads"]) throw new Fail(EXIT.USAGE, "--no-fresh-threads cannot open a second run: each run needs the lead's own task thread", { hint: `${openBefore.map(runLabel).join(", ")} ${openBefore.length > 1 ? "are" : "is"} open` });
+      // The rest of its bots are expected to be working. Only the lead has to
+      // be free: this dispatch opens its task and sends the brief.
       if (leadLive.busy) throw new Fail(EXIT.PRECONDITION, `the lead ${leadLive.name} is working`, { hint: `wait for it to go idle; ${openBefore.map(runLabel).join(", ")} ${openBefore.length > 1 ? "are" : "is"} open` });
     } else {
       const busy = live.filter((b) => b.busy);

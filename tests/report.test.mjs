@@ -430,3 +430,20 @@ for (const first of ["t10", "t11"]) test(`two open runs are reported and closed 
   assert.equal((await runOmb(["reconcile", "--project", dir, "--remove", second], { env })).code, 0, "and once it is gone the repository is reconciled");
   assert.deepEqual(Object.keys(loadState(statePaths(dir)).runs), []);
 });
+
+test("an abandoned run can still be reported from the history", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const env = { OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir };
+  const { dir } = makeRepo();
+  assert.equal((await runOmb(["import", PKG, "--project", dir, "--url", f.url], { env })).code, 0);
+  assert.equal((await runOmb(["bind", "--project", dir, "--default", "claude/claude-sonnet-5"], { env })).code, 0);
+  const a = (await runOmb(["task", "--todo", "T10", "--project", dir], { env })).json;
+  assert.equal((await runOmb(["task", "--abandon", "--project", dir], { env })).code, 0);
+  const r = await runOmb(["report", "--run", a.runId.slice(0, 8), "--project", dir, "--no-tests"], { env });
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.equal(r.json.historical, true); assert.equal(r.json.slug, "t10"); assert.equal(r.json.result, "incomplete");
+  assert.equal(r.json.contextSource, "run context", "the run's own binding, not the current one");
+  assert.equal(r.json.threads.length, 5);
+  assert.equal(loadState(statePaths(dir)).history.at(-1).result, "abandoned", "re-reporting never rewrites the result");
+  assert.equal(loadState(statePaths(dir)).history.at(-1).reanalysis.length, 1);
+});
