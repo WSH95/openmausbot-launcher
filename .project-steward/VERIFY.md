@@ -8,6 +8,17 @@ Run the relevant checks before marking work as verified in `HANDOFF.md`.
 | Tests | `npm test` | all pass |
 | Lint | `none` | clean |
 
+## v2 pass, phases 0-3 (2026-09-16)
+
+Node v24.11.0, worktree clean at `25fada3`. `npm test`: **198 passed, 0
+failed, 0 skipped** (58 s) on both commits of the pass so far (`246ec66`
+docs note, `25fada3` host records); `git diff --check` clean; SKILL.md 230
+lines (cap 500). Real-run checks: `docs/validation/2026-09-16-hosts-v2.json`
+parses; the three OMB turns are in the fixture data dir's
+`events/86905161-06df-4cbd-9e6c-89eaadeae032.ndjson`; the fixture server was
+stopped with `down` (ports 8899/8900 closed); the package hash is unchanged
+(`48e4ac63…3255949`).
+
 ## M1 fix pass (2026-09-08)
 
 Node v24.11.0, worktree clean at `02e7945`. `npm test`: **198 passed, 0

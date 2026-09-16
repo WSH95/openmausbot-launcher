@@ -135,3 +135,27 @@ every module and the `verbs/` directory, and the upstream-issue pointer
 names the dev pack's `~/Documents/agent-team-devpack/docs/upstream/`, since
 this repository has no `docs/upstream/`. No policy text changed;
 `CLAUDE.md` was not touched.
+
+## 0009 — 2026-09-16 — Hosts run on the user's logins; a second Node for OpenClaw
+
+The user chose the v2 pass's host setup: OpenClaw and Hermes Agent
+authenticate with the user's Codex (ChatGPT) OAuth login, DeepSeek Harness
+with a DeepSeek API key the user placed in a 0600 file, and the Telegram
+check uses a bot the user created. OpenClaw needs Node 24.16 or newer, so
+Node 24.21.0 was installed side by side under `~/.local/lib/node-v24.21.0`
+and is used only by OpenClaw (wrapper `~/.local/bin/openclaw`); the driver's
+baseline stays Node 24.11.0 and the `node` symlink was not changed.
+Secrets never entered this repository or a command line: the Telegram token
+lives in `channels.telegram.tokenFile`, the DeepSeek key is read by a wrapper
+into the process environment, and the user typed passwords and pastes in a
+terminal window opened for that purpose.
+
+## 0010 — 2026-09-16 — Tailscale is the verified remote path
+
+For bead `oml-xnn` the user chose Tailscale over a LAN bearer exercise or
+OpenMausBot's cloud tunnel. Tailscale was installed with `sudo`, the user
+logged in and enabled MagicDNS and HTTPS certificates, and
+`openmausbot serve --tailscale` was started by hand with a sanitized
+environment and `--no-pair`; a request through the tunnel without a token is
+refused with the server's proxy text, so the tunnel gives no loopback trust.
+The `pair` verb (this pass) replaces the documented curl.

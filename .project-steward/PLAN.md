@@ -35,9 +35,19 @@ exercised in three tiers plus the full-team run T13 through the fixed driver
 (`docs/review/2026-09-08-m1-review.md`, "Resolution"; `VERIFY.md`, "M1 fix
 pass"). The devpack gate `atw-07l.27` is met.
 
+## v2 pass (2026-09-16, in progress)
+
+Seven beads in one pass, hosts first: OpenClaw, Hermes Agent and DeepSeek
+Harness verified (`oml-n2f`, `oml-5bw` closed); the `pair` verb and a
+Tailscale remote run (`oml-xnn`); more than one run per team (`oml-no8`);
+`answer` for skill, routine, secret and connector requests (`oml-170`); long
+SSE inside Codex's sandbox (`oml-u1j`); macOS lifecycle only if a Mac turns
+up (`oml-hou`). Defect found on the way: `oml-60s`. The plan and its Codex
+review live in the session plan file; progress in `PROGRESS.md`.
+
 ## Later
 
-OpenClaw, Hermes, and DSH installation and phone recipes remain unverified.
-The existing v2 beads cover pairing, macOS lifecycle, unsupported request
+OpenClaw, Hermes and DSH are verified as of 2026-09-16 (see the v2 pass).
+The remaining v2 beads cover pairing, macOS lifecycle, unsupported request
 types, and parallel runs. Any proposed package changes belong to that
 package's project and are not prerequisites for launcher validation.

@@ -3,6 +3,24 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-16 — v2 pass, phases 1-3: OpenClaw, Hermes Agent and DeepSeek Harness verified (3 bot turns)
+Installed OpenClaw 2026.9.4 (on a side-by-side Node 24.21.0), Hermes Agent
+(pyproject 0.21.3) and dsh 0.1.5-rc.1; OpenClaw and Hermes run on the user's
+Codex OAuth login, dsh on a DeepSeek key kept in a 0600 file. Each host found
+the skill and ran doctor, server doctor, status and one acknowledged send
+against real OpenMausBot 0.1.56 (one bot turn each). OpenClaw's Codex harness
+refuses `tools.exec.mode=allowlist` and raises one approval card per command
+(allow-once); the Telegram phone path and the `--announce` automation were
+verified (an empty output is not delivered); Hermes needs
+`skills.external_dirs` and its cron adapter runs through the Hermes gateway;
+dsh's shell has its own PID namespace, so live verbs need `--remote`. Both
+open questions answered; `oml-n2f` and `oml-5bw` closed; a new defect
+`oml-60s` (doctor --server cannot name a blocked socket) filed. Records:
+`docs/evidence.md` "v2 host verification",
+`docs/validation/2026-09-16-hosts-v2.json` (commit `25fada3`). Phase 0's
+"not bundled" note landed as `246ec66`. Tailscale is installed and logged in
+with HTTPS certificates for the Phase 4 remote run. No push.
+
 ### 2026-09-08 — M1 fix pass complete: 26 findings fixed, T13 full-team run, epic closed
 Fixed every finding of the M1 review (`oml-nqo`), test first and one commit
 each (`ddcafb5`..`6f0cd58`); suite 197 passed (154 before). Closed the
