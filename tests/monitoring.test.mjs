@@ -119,14 +119,14 @@ test('persisted outcomes survive receipt pruning and never trust slice-relative 
   assert.equal(Object.hasOwn(snap.outcomes[0], 'seq'), false);
 });
 
-function tickingStream(t, { everyMs = 5, stopAfterMs = 350, kind = 'message', threadId = 'lt' } = {}) {
+function tickingStream(t, { everyMs = 5, stopAfterMs = 350, kind = 'message', threadId = 'lt', botId = 'worker' } = {}) {
   const timers = new Set();
   t.after(() => { for (const timer of timers) clearInterval(timer); });
   return async (_url, signal) => ({ status: 200, body: new ReadableStream({
     start(c) {
       let count = 0; let closed = false;
       const close = () => { if (!closed) { closed = true; clearInterval(timer); clearTimeout(end); try { c.close(); } catch {} } };
-      const timer = setInterval(() => { if (!closed) c.enqueue(new TextEncoder().encode(`id: cursor:${++count}\ndata: ${JSON.stringify({ kind, threadId })}\n\n`)); }, everyMs);
+      const timer = setInterval(() => { if (!closed) c.enqueue(new TextEncoder().encode(`id: cursor:${++count}\ndata: ${JSON.stringify(kind === 'bot' ? { kind, bot: { id: botId } } : { kind, threadId })}\n\n`)); }, everyMs);
       const end = setTimeout(close, stopAfterMs);
       timers.add(timer); timers.add(end);
       signal.addEventListener('abort', close, { once: true });
@@ -225,4 +225,20 @@ test('watch cannot establish quiet before its initial SSE connection and replay'
   assert.equal(r.ev.state, 'done');
   assert.equal(r.cursor, 'stream:2');
   assert.ok(performance.now() - started >= 125);
+});
+
+const otherRun = { runId: 'r2', tag: 'oml:5678', sentAt: 1000, leadThreadId: 'lt2', threads: { lead: 'lt2', worker: 'wt' } };
+
+test('another run\'s bot frames never starve this run\'s verdict', async (t) => {
+  // Frames about a bot this run does not hold are still worth a fresh
+  // snapshot, but they must not reset quiet — and they arrive while the
+  // snapshot this run is taking is still in flight.
+  const client = scripted({
+    threads: { lt: [user, done], wt: [], lt2: [] },
+    stream: tickingStream(t, { everyMs: 5, stopAfterMs: 5000, kind: 'bot', threadId: 'wt' }),
+    beforeGet: () => new Promise((r) => setTimeout(r, 15)),
+  });
+  const result = await watchRun({ client, team, task, runs: [task, otherRun], maxSeconds: 2, quietMs: 60, coalesceMs: 0, pollMs: 20, stallMs: Infinity });
+  assert.equal(result.ev.state, 'done');
+  assert.equal(result.outcome, 'terminal');
 });

@@ -109,7 +109,8 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
   // restart the quiet window this run's verdict depends on. With one run open
   // every frame is that run's, as it always was.
   const scoped = runs.some((r) => r.runId !== task.runId);
-  let ownBotIds = new Set([team.lead.id, task.implementer?.id].filter(Boolean));
+  const ownBots = (executing) => new Set([...(executing == null || executing === task.leadThreadId ? [team.lead.id] : []), task.implementer?.id].filter(Boolean));
+  let ownBotIds = ownBots(null);
   let ownThreadIds = new Set([task.leadThreadId, ...(task.implementer?.id ? [task.threads?.[task.implementer.id]] : [])].filter(Boolean));
   const mine = (frame) => !scoped || ownFrame(frame, { botIds: ownBotIds, threadIds: ownThreadIds });
   let cursor = task.lastEval?.cursor ?? null;
@@ -121,7 +122,10 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
   const changes = [];
   let outcomes = mergeOutcomes(task.lastEval?.outcomes);
   let nudged = Boolean(task.nudgedAt);
-  let invalidations = 0; let appliedInvalidations = -1;
+  // Two counters, because a frame can be worth a fresh snapshot without being
+  // worth a restarted quiet window: `invalidations` drives hydration, and only
+  // this run's own frames advance `ownInvalidations`.
+  let invalidations = 0; let appliedInvalidations = -1; let ownInvalidations = 0;
   let streamFailures = 0; let pollingOnly = false;
   let waiter = null;
   const wake = () => waiter?.();
@@ -129,7 +133,7 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
   const deadlineTimer = setTimeout(() => { controller.abort(); wake(); }, Math.max(0, deadline - performance.now()));
   // The same question withinDeadline asks, so a budget it refuses is one this loop calls expired.
   const expired = () => outOfBudget(deadline, controller.signal);
-  const invalidate = (own = true) => { invalidations++; if (own) quietSince = null; wake(); };
+  const invalidate = (own = true) => { invalidations++; if (own) { ownInvalidations++; quietSince = null; } wake(); };
 
   let markStreamReady;
   const streamReady = new Promise((resolve) => { markStreamReady = resolve; });
@@ -184,6 +188,7 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
       }
       if (expired()) break;
       const targetInvalidations = invalidations;
+      const targetOwn = ownInvalidations;
       const targetCursor = receivedCursor;
       snap = await snapshot(client, { team, task: { ...task, lastEval: { ...task.lastEval, outcomes } }, runs: runs.map((r) => (r.runId === task.runId ? { ...r, lastEval: { ...task.lastEval, outcomes } } : r)) }, { dataDir, deadline, signal: controller.signal });
       outcomes = mergeOutcomes(outcomes, snap.outcomes); snap.outcomes = outcomes;
@@ -191,19 +196,24 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
       const now = Date.now();
       for (const bot of snap.bots) teamIds.add(bot.id);
       for (const thread of snap.runThreads) threadIds.add(thread.threadId);
-      // Who this run holds right now: its lead thread, its implementer, and the
-      // bots it has an open delegation to (snapshot.mjs, openDelegations).
-      ownBotIds = new Set([team.lead.id, task.implementer?.id].filter(Boolean));
+      // Who this run holds right now: its implementer, the bots it has an open
+      // delegation to (snapshot.mjs, openDelegations), and the lead — unless
+      // the runtime log says the turn it is running belongs to another run, in
+      // which case the lead's own start and finish frames are that run's.
+      ownBotIds = ownBots(snap.executing ?? null);
       for (const bot of snap.bots) if ((snap.openDelegations?.byName[bot.name] ?? 0) > 0) ownBotIds.add(bot.id);
       ownThreadIds = new Set([task.leadThreadId, ...[...ownBotIds].filter((id) => id !== team.lead.id).map((id) => task.threads?.[id] ?? snap.bots.find((b) => b.id === id)?.threadId)].filter(Boolean));
       const busyNow = snap.bots.some((b) => b.busy) || snap.teamMap.queued.length > 0 || snap.teamMap.running.length > 0;
       const hasUnappliedFrames = targetInvalidations !== invalidations;
+      // Only an own frame that arrived while this snapshot was in flight makes
+      // its truth stale for this run; another run's traffic leaves it good.
+      const hasUnappliedOwn = targetOwn !== ownInvalidations;
       if (snap.complete && !expired()) {
         if (targetCursor !== null) cursor = targetCursor;
         appliedInvalidations = targetInvalidations;
       }
       const evidenceChanged = lastSig && !sameEvidence(lastSig, { evidence: evidenceOf(snap) });
-      if (!snap.complete || busyNow || hasUnappliedFrames) quietSince = null;
+      if (!snap.complete || busyNow || hasUnappliedOwn) quietSince = null;
       else if (quietSince === null || evidenceChanged) quietSince = lastSnapAt;
       if (evidenceChanged) lastChangeAt = now;
       const quiet = { since: quietSince === null ? null : now - (lastSnapAt - quietSince) };
@@ -215,7 +225,7 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
       }
       // Deadline has priority over draining another frame or acting on a verdict.
       if (expired()) break;
-      if (hasUnappliedFrames) continue;
+      if (hasUnappliedOwn) continue;
       if (nudge && ev.state === "stalled" && /unacknowledged/.test(ev.hint ?? "") && !nudged) {
         try {
           await withinDeadline((opts) => nudge(opts), deadline, controller.signal);
@@ -226,7 +236,7 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
         sig = signatureOf(snap, ev); lastSig = sig; lastChangeAt = Date.now();
       }
       if (expired()) break;
-      if (appliedInvalidations !== invalidations && snap.complete) continue;
+      if (hasUnappliedOwn && snap.complete) continue;
       if (TERMINAL.has(ev.state)) { outcome = "terminal"; break; }
       if (until === "change" && !sameSig(reported, sig)) { outcome = "change"; break; }
       if (until === "question" && ["needs-user", "attention"].includes(ev.state)) { outcome = "question"; break; }

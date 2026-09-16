@@ -365,10 +365,14 @@ Notifications are wake-ups only (a bot's notifications can be off,
    unapplied frames in the buffer.
 4. Live frames trigger coalesced re-snapshots (at most one per 2 s); REST is
    the truth. With another run open, only a frame on **this** run's threads or
-   about a bot it holds — its lead thread, its implementer, a delegate it is
-   waiting on — resets its quiet window; the rest still cause a fresh
-   snapshot, which notices anything that did change this run's evidence. With
-   one run open every frame is that run's, as before. the checkpoint cursor is the `id:` of the last frame actually
+   about a bot it holds — its implementer, a delegate it is waiting on, and
+   the lead unless the runtime log says the turn it is running is another
+   run's — resets its quiet window; the rest still cause a fresh snapshot,
+   which notices anything that did change this run's evidence. The two are
+   counted separately: a frame that is not this run's never makes the snapshot
+   it arrived during stale, so sustained traffic from the other run cannot
+   starve this one's verdict. With one run open every frame is that run's, as
+   before. the checkpoint cursor is the `id:` of the last frame actually
    applied, never `hello.cursor` (which is the head before replay,
    `index.ts:8582-8596`). A polling snapshot runs every `--poll` seconds;
    the receipts file is `fs.watch`ed best effort (`receiptsWatched: false` in the result, plus a `--verbose` line, when the directory cannot be watched). On a stream drop or idle

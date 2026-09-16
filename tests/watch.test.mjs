@@ -259,3 +259,20 @@ test("watch --run settles one run while the other keeps a second implementer bus
   assert.equal(saved.runs[a.runId].lastEval.state, "done");
   assert.equal(saved.runs[b.json.runId].lastEval.state, "running", "the other run's watermarks were left alone");
 });
+
+test("the lead's frames for the other run's turns do not restart this run's quiet window", async (t) => {
+  const { f, dir, lead, run: a } = await setup(t, { implementer: "Vex" });
+  const b = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
+  assert.equal(b.code, 0, b.stdout);
+  // the runtime log says the turn the lead is running belongs to T11
+  await f.control({ op: "event", threadId: b.json.leadThreadId, event: { turnId: "b1", type: "turn.started", createdAt: new Date().toISOString() } });
+  await f.control({ op: "leadSay", threadId: a.leadThreadId, text: `Closing report: merged as 1234567.\n\nDONE ${a.tag}` });
+  let flip = false;
+  const noise = setInterval(() => { flip = !flip; void f.control({ op: "activity", botId: lead.id, activity: flip ? "working" : "idle" }).catch(() => {}); }, 200);
+  t.after(() => clearInterval(noise));
+  const r = await runOmb(["watch", "--run", "t10", "--project", dir, "--max-seconds", "12", ...fast], { env });
+  clearInterval(noise);
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.equal(r.json.state, "done", "the lead's work on T11 never reset T10's quiet");
+  assert.ok(r.json.elapsedSec < 10, `settled in ${r.json.elapsedSec}s`);
+});
