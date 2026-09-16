@@ -3,6 +3,20 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-16 — v2 pass, phase 4: the `pair` verb and the Tailscale remote run (2 bot turns)
+Seventeen verbs now: `pair` exchanges a pairing code into the 0600 token file
+under a lock held across the exchange (Codex review finding), never prints the
+token, and replays a lost response by `attemptId`. The doctor now names a
+blocked socket (`oml-60s`). The real run over Tailscale (`serve --tailscale`,
+`wsh.taila20f43.ts.net`) minted owner and client sessions, ran the remote verb
+set with each, refused tokenless and client-scope requests with the server's
+words, and exposed a binding rule that tied a state file to one URL
+(`oml-9kp`, fixed: the environment id is the binding, the URL only in local
+mode); afterwards a locally opened run was watched and interrupted through the
+tunnel. Records: `docs/evidence.md` "v2 remote run",
+`docs/validation/2026-09-16-remote-tailscale.json`. Commits `c0f325a`..`5b50770`;
+`npm test` 221/221. Beads `oml-xnn`, `oml-60s`, `oml-9kp` closed. No push.
+
 ### 2026-09-16 — v2 pass, phases 1-3: OpenClaw, Hermes Agent and DeepSeek Harness verified (3 bot turns)
 Installed OpenClaw 2026.9.4 (on a side-by-side Node 24.21.0), Hermes Agent
 (pyproject 0.21.3) and dsh 0.1.5-rc.1; OpenClaw and Hermes run on the user's

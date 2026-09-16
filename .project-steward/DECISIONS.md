@@ -159,3 +159,14 @@ logged in and enabled MagicDNS and HTTPS certificates, and
 environment and `--no-pair`; a request through the tunnel without a token is
 refused with the server's proxy text, so the tunnel gives no loopback trust.
 The `pair` verb (this pass) replaces the documented curl.
+
+## 0011 — 2026-09-16 — The environment id is the server binding, not the URL
+
+The Tailscale run showed that one state file could not serve the operator on
+loopback and a remote observer on the tunnel address, because the binding
+check required the recorded URL to equal the URL in use. The team is now
+bound to the server's environment id; only local mode keeps the URL rule,
+where another loopback port is another server. A remote observer shares the
+machine-local state file and passes `--remote --url`; `import --adopt` is not
+used to change a bound state's URL. Recorded in `docs/design.md` (Modes) and
+`references/hosts.md` (Remote variant); commit `01901f9`, bead `oml-9kp`.

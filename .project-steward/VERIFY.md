@@ -8,6 +8,18 @@ Run the relevant checks before marking work as verified in `HANDOFF.md`.
 | Tests | `npm test` | all pass |
 | Lint | `none` | clean |
 
+## v2 pass, phase 4 (2026-09-16)
+
+Worktree clean at `5b50770`. `npm test`: **221 passed, 0 failed, 0 skipped**
+(198 before the phase; 23 new: doctor cause, fake pairing, `pair`, the
+environment-id binding, the hints, the lock reservation). `git diff --check`
+clean. Codex `gpt-5.6-sol` reviews: one P1 on the first four commits (lock
+taken after the exchange) and three P2 on the fix round (lock wait, port
+inference, `--allow-insecure-http` hint), all fixed test-first; a final
+scoped re-review of `3b6dce0` closed the loop. Real-run checks:
+`docs/validation/2026-09-16-remote-tailscale.json` parses; both sessions
+revoked; the tailscale serve config is empty; ports 8899/8900 closed.
+
 ## v2 pass, phases 0-3 (2026-09-16)
 
 Node v24.11.0, worktree clean at `25fada3`. `npm test`: **198 passed, 0
