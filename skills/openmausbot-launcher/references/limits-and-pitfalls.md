@@ -91,7 +91,10 @@ than none: the hook fires in a degenerate state (dev pack `HANDOFF.md`,
   approved escalation, or start the server elsewhere and let `up` report
   `attached`. The same sandbox can block outbound loopback connections; the
   driver then exits 1 `cannot reach http://127.0.0.1:<port>: EPERM` with the
-  escalation hint, never exit 3 "identity could not be verified". Loopback
+  escalation hint, never exit 3 "identity could not be verified". `doctor
+  --server` names the same cause in its `health` check and carries that hint,
+  so a blocked socket reads as the sandbox rather than as a dead server; only
+  `ECONNREFUSED` keeps `nothing answers at <url> (ECONNREFUSED)`. Loopback
   HTTP is blocked there too: `status` exits 1 with a network error naming the
   URL (M1 review, tier 2); an exit 1 from a sandboxed Codex is the sandbox,
   not the server.

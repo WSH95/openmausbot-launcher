@@ -67,11 +67,30 @@ export function refusal(url, p) {
   return p.error;
 }
 
-export async function health(client, opts = {}) {
+/** The health probe with its network failure kept, so a caller can tell a dead server from a blocked socket. */
+export async function healthProbe(client, opts = {}) {
   const p = await probe(client, "/api/health", opts);
-  if (p.ok) return p.body && p.body.app === "openmausbot" ? p.body : null;
-  if (p.network) return null;
+  if (p.ok) return { body: p.body && p.body.app === "openmausbot" ? p.body : null };
+  if (p.network) return { body: null, network: p.network };
   throw refusal(client.url, p);
+}
+
+/**
+ * The doctor's `health` line. A refused connection is a server that is not
+ * running ("nothing answers"); every other network cause — a sandbox denying
+ * the connect (EPERM/EACCES), a timeout — is a socket the launcher could not
+ * use, so it is told as `unreachable()` tells it, cause and hint included.
+ */
+export function healthCheck(url, p) {
+  if (p.body) return { ok: true, detail: `${url} answers, pid ${p.body.pid}` };
+  if (!p.network) return { ok: false, detail: `nothing answers at ${url}` };
+  const f = unreachable(url, p.network);
+  const code = /\b(E[A-Z]{3,})\b/.exec(f.message)?.[1] ?? null;
+  return { ok: false, detail: code === "ECONNREFUSED" ? `nothing answers at ${url} (ECONNREFUSED)` : f.message, ...(f.hint ? { hint: f.hint } : {}) };
+}
+
+export async function health(client, opts = {}) {
+  return (await healthProbe(client, opts)).body;
 }
 export async function environment(client, opts = {}) {
   const p = await probe(client, "/.well-known/openmausbot/environment", opts);

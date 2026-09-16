@@ -37,7 +37,7 @@ verb("doctor", {
   handler: async ({ flags }) => {
     const cfg = resolveConfig(flags);
     const checks = [];
-    const check = (id, ok, required, detail) => { checks.push({ id, ok, required, detail }); };
+    const check = (id, ok, required, detail, hint) => { checks.push({ id, ok, required, detail, ...(hint ? { hint } : {}) }); };
     const major = Number(process.versions.node.split(".")[0]);
     const needNode = 24;
     check("node", major >= needNode, true, `node ${process.versions.node}; ${cfg.mode} mode needs ${needNode}+`);
@@ -66,8 +66,10 @@ verb("doctor", {
     let engines = [];
     if (flags.server) {
       const client = createClient(cfg);
-      const h = await srv.health(client);
-      check("health", Boolean(h), true, h ? `${cfg.url} answers, pid ${h.pid}` : `nothing answers at ${cfg.url}`);
+      const probed = await srv.healthProbe(client);
+      const h = probed.body;
+      const line = srv.healthCheck(cfg.url, probed);
+      check("health", line.ok, true, line.detail, line.hint);
       if (h) {
         const session = await client.get("/api/auth/session");
         const admin = Array.isArray(session.scopes) && session.scopes.includes("admin");

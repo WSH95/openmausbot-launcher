@@ -5,7 +5,7 @@ import path from "node:path";
 import { startFake, freePort, freePortPair, tmpDir, makeRepo, runOmb, sleep, FAKE } from "./helpers.mjs";
 import net from "node:net";
 import { statePaths, loadState, updateState } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
-import { procInfo, verifyOwned, proveOwnership } from "../skills/openmausbot-launcher/scripts/lib/server.mjs";
+import { procInfo, verifyOwned, proveOwnership, healthCheck } from "../skills/openmausbot-launcher/scripts/lib/server.mjs";
 
 const linux = process.platform === "linux";
 const healthOk = async (url) => { try { return (await (await fetch(`${url}/api/health`)).json()).app === "openmausbot"; } catch { return false; } };
@@ -253,4 +253,26 @@ test("doctor --server refuses plain http off loopback unless --allow-insecure-ht
   assert.equal(refused.code, 3, refused.stdout); assert.match(refused.json.error, /is not loopback and not https/); assert.match(refused.json.hint, /--allow-insecure-http/);
   const allowed = await runOmb(["doctor", "--project", dir, "--url", "http://10.0.0.1:1", "--allow-insecure-http"], { env: { OMB_TOKEN: "" } });
   assert.equal(allowed.code, 0, allowed.stdout); assert.equal(allowed.json.mode, "remote"); assert.equal(allowed.json.url, "http://10.0.0.1:1", "the flag parses; without --server no request is made");
+});
+
+test("doctor --server reports a refused connection as a dead server, naming the cause", async () => {
+  const { dir } = makeRepo();
+  const closed = await freePort();
+  const r = await runOmb(["doctor", "--server", "--project", dir, "--url", `http://127.0.0.1:${closed}`], { env: { OMB_BIN: FAKE, OMB_TOKEN: "" } });
+  assert.equal(r.code, 3, r.stdout);
+  const health = r.json.checks.find((c) => c.id === "health");
+  assert.equal(health.ok, false);
+  assert.equal(health.detail, `nothing answers at http://127.0.0.1:${closed} (ECONNREFUSED)`);
+  assert.equal(health.hint, `nothing is listening at http://127.0.0.1:${closed}: run up, or check --url`);
+});
+
+test("the doctor health check names a blocked socket and keeps the sandbox hint", () => {
+  const net = (message) => Object.assign(new Error(message), { network: true });
+  const blocked = healthCheck("http://127.0.0.1:8905", { body: null, network: net("GET /api/health: EPERM") });
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.detail, "cannot reach http://127.0.0.1:8905: EPERM");
+  assert.equal(blocked.hint, "the shell's sandbox blocks outbound connections: run this command outside the sandbox (escalation), or use --remote against a reachable URL");
+  assert.equal(healthCheck("http://127.0.0.1:8905", { body: null, network: net("GET /api/health: EACCES") }).hint, blocked.hint);
+  const answered = healthCheck("http://127.0.0.1:8905", { body: { app: "openmausbot", pid: 42 } });
+  assert.deepEqual(answered, { ok: true, detail: "http://127.0.0.1:8905 answers, pid 42" });
 });
