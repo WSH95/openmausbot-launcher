@@ -330,6 +330,8 @@ fleet membership cannot prove that a remembered request settled.
 An unremembered request predating a run
 cannot be assigned to that run. Legacy boolean owners also require the bot's
 task threads; an unlocated legacy request makes the observation incomplete.
+This applies to closed owners in history too: closing a run is not proof
+that its unlocated request was answered.
 The exact `404 no such conversation` response retires a remembered-only
 thread, because deleting a task deletes its transcript (`index.ts:8641-8643`,
 `store.ts:1656-1667`). Current/recorded run thread failures and other historical

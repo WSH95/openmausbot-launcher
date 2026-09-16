@@ -1,10 +1,27 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { openDelegations } from "../skills/openmausbot-launcher/scripts/lib/snapshot.mjs";
+import { openDelegations, delegationWindows } from "../skills/openmausbot-launcher/scripts/lib/snapshot.mjs";
+import { allocateTurns } from "../skills/openmausbot-launcher/scripts/lib/report.mjs";
 const chip = (name) => ({ at: 1000, kind: "activity", tool: { name } });
 const queued = (name) => chip(`Delegated to @${name}`);
 const settled = (name) => chip(`Delegation to @${name} completed without a text reply`);
 const drop = (n) => chip(`${n} queued delegations dropped — the turn did not finish`);
+
+test("a partial anonymous drop closes report windows without settling surviving work", () => {
+  // S: server/delegations.ts:408-442: the count names only pending handoffs,
+  // while already-started delegations can still be awaiting a reply.
+  const tail = [queued("Worker"), queued("Other"), { ...drop(1), at: 2000 }];
+  const windows = delegationWindows(tail);
+  const later = [{ startedAt: new Date(3000).toISOString(), completedAt: new Date(4000).toISOString(), usage: { input: 50, output: 20 } }];
+  for (const name of ["Worker", "Other"]) {
+    assert.deepEqual(windows[name], [{ from: 1000, to: 2000, kind: "queued" }]);
+    assert.deepEqual(allocateTurns(later, windows[name]), { mine: [], shared: 1 }, "later turns and tokens stay shared");
+  }
+  const pending = openDelegations(tail);
+  assert.equal(pending.total, 1);
+  assert.deepEqual(pending.byName, { Worker: 1, Other: 1 });
+  assert.equal(pending.unknown, true);
+});
 
 test("anonymous drops cannot erase or preserve claims by consuming a later queue", () => {
   const open = openDelegations([queued("Worker"), queued("Other"), drop(1), queued("Next"), settled("Worker")]);

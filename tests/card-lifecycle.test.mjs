@@ -24,6 +24,8 @@ test("closing the only card observer preserves explicit answering on a later run
   assert.equal(later.code, 0, later.stdout);
   assert.equal((await run(["task", "--abandon", "--run", first.json.runId])).code, 0);
   await f.control({ op: "delegated", threadId: later.json.leadThreadId, name: worker.name });
+  const report = await run(["report", "--run", later.json.runId, "--no-tests", "--no-close"]);
+  assert.equal(report.json.state, "needs-user", report.stdout);
   const watched = await run(["watch", "--run", later.json.runId, "--max-seconds", "3"]);
   assert.equal(watched.json.state, "needs-user", watched.stdout);
   assert.deepEqual(watched.json.pending.map((p) => [p.requestId, p.shared]), [["closed-owner-card", true]]);

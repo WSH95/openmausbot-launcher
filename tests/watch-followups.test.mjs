@@ -1,12 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { setImmediate as turn } from "node:timers/promises";
 import { watchRun, readEventStream } from "../skills/openmausbot-launcher/scripts/lib/watch.mjs";
-import { snapshot, evidenceOf, carriedVerdict, openDelegations } from "../skills/openmausbot-launcher/scripts/lib/snapshot.mjs";
-import { deliverToLead } from "../skills/openmausbot-launcher/scripts/lib/verbs/run.mjs";
+import { snapshot } from "../skills/openmausbot-launcher/scripts/lib/snapshot.mjs";
 import { HttpError } from "../skills/openmausbot-launcher/scripts/lib/http.mjs";
 
 const team = { section: "s", lead: { id: "lead", name: "Lead" }, bots: [{ id: "lead", name: "Lead" }, { id: "worker", name: "Worker" }] };
@@ -109,6 +105,39 @@ test("a missing live run conversation remains incomplete even with historical ca
   assert.equal(snap.complete, false);
 });
 
+test("a legacy boolean card owner is recovered from the bot's inactive task list", async () => {
+  const f = fixture();
+  f.data.bots[1].tasks = [{ threadId: "old-worker" }, { threadId: "w" }];
+  f.data.threads["old-worker"] = [structuredClone(card)];
+  const run = { ...a, cards: { rq: true } };
+  const snap = await snapshot(f.client, { team, task: run, runs: [run, b] });
+  assert.equal(snap.complete, true);
+  assert.deepEqual(snap.pending.map((p) => [p.requestId, p.run, p.threadId]), [["rq", "a", "old-worker"]]);
+  assert.deepEqual(snap.cardsByRun.a.rq, { threadId: "old-worker", botId: "worker" });
+});
+
+test("an unlocated legacy card in closed history cannot establish complete truth", async () => {
+  const f = fixture();
+  const history = [{ ...b, status: "closed", cards: { rq: true } }];
+  const snap = await snapshot(f.client, { team, task: a, runs: [a], history });
+  assert.equal(snap.complete, false);
+  assert.ok(snap.incomplete.some((reason) => reason.includes("remembered request rq")));
+});
+
+test("an outcome read in a discarded snapshot survives subsequent pruning", async () => {
+  const f = fixture();
+  f.data.threads.la.push(echo);
+  f.afterRead = async (route, n) => {
+    if (n === 1 && route.includes("/threads/la/")) {
+      f.data.threads.la = [user, done];
+      await f.push({ kind: "message", threadId: "la" });
+    }
+  };
+  const result = await f.watch({ until: "change", dropMs: Infinity });
+  assert.equal(result.ev.state, "running");
+  assert.deepEqual(result.snap.outcomes.map((o) => o.id), [echo.id]);
+});
+
 test("checkpoint cancellation is authoritative before the outer clock reaches its deadline", async (t) => {
   const f = fixture();
   t.mock.method(performance, "now", () => 0);
@@ -165,10 +194,9 @@ for (const gap of [5]) test(`a consumed checkpoint frame is drained before final
     return true;
   } });
   await turn();
-  if (consumed) {
-    assert.equal(r.ev.state, "done", "a frame consumed before SSE teardown invalidated the returned needs-user");
-    assert.deepEqual(r.snap.pending, []);
-  }
+  assert.equal(consumed, true, "the settlement frame was consumed before SSE teardown");
+  assert.equal(r.ev.state, "done", "a frame consumed before SSE teardown invalidated the returned needs-user");
+  assert.deepEqual(r.snap.pending, []);
 });
 
 test("a missing sibling runtime log cannot prove exclusive ownership", async (t) => {

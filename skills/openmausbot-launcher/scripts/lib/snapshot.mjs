@@ -126,8 +126,9 @@ export function delegationWindows(leadTail, sinceAt = null) {
       else if ((x = ASK_CONVERTED_RE.exec(chip))) { name = x[1]; kind = "converted"; }
       else if ((x = SETTLED_RE.exec(chip)) || (x = START_FAILED_RE.exec(chip))) { name = x[1]; settles = true; }
       else if (DROPPED_RE.test(chip)) {
-        // The queueing turn was interrupted: nothing queued is still this
-        // run's, so no later turn on a shared thread may be attributed to it.
+        // The drop names no targets, so these windows cannot prove ownership
+        // of later shared-thread turns. openDelegations independently keeps
+        // the possible work still awaiting a reply.
         for (const list of Object.values(out)) for (const w of list) if (w.to === null) w.to = m.at;
         continue;
       }
@@ -388,7 +389,7 @@ export async function snapshot(client, state, { dataDir = null, runtimeTrusted =
       if (messageNeedsInput(m)) pendingAll.push(pendingMessage(m, { threadId, botId, botName }));
     }
   }));
-  for (const run of runs) for (const [key, card] of Object.entries(run.cards ?? {})) {
+  for (const run of ownershipRuns) for (const [key, card] of Object.entries(run.cards ?? {})) {
     if (card === true && !seenCards.has(key) && !bots.some((bot) => key === `waiting:${bot.id}`)) incomplete.push(`remembered request ${key} has no recorded thread and was not observed`);
   }
   for (const b of bots) if (b.activity === "waiting-on-you" && !pendingAll.some((p) => p.botId === b.id)) pendingAll.push({ threadId: b.threadId, botId: b.id, botName: b.name, kind: "waiting", requestId: null, cardKind: null, text: `${b.name} is waiting on you` });

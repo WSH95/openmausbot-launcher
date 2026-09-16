@@ -183,6 +183,10 @@ line. Relay the lead's own words; do not paraphrase decisions.
   "…" --request <id>`. With one pending card `--request` may be omitted —
   unless no open run owns it, which is the driver saying it cannot tell whose
   it is; name it with `--request` then.
+  A card keeps its first observed owner after that run closes or its bot
+  switches tasks or leaves the team. Closed owners' cards remain shared and
+  require `--request`. An old card with no recoverable thread keeps the
+  snapshot incomplete; closing its owner does not prove it was answered.
 - The server answers `unavailable` when a card died with the bot's turn;
   a textual answer then falls back to chat automatically, an allow or deny
   does not: tell the bot in chat what you decided.
