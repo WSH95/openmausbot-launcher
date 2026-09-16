@@ -2,12 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { verb, run, VERBS } from "../skills/openmausbot-launcher/scripts/lib/cli.mjs";
 import "../skills/openmausbot-launcher/scripts/lib/verbs/lifecycle.mjs";
+import "../skills/openmausbot-launcher/scripts/lib/verbs/pair.mjs";
 import "../skills/openmausbot-launcher/scripts/lib/verbs/repo.mjs";
 import "../skills/openmausbot-launcher/scripts/lib/verbs/team.mjs";
 import "../skills/openmausbot-launcher/scripts/lib/verbs/run.mjs";
 import "../skills/openmausbot-launcher/scripts/lib/verbs/state.mjs";
 
-const REGISTERED = "answer, bind, cleanup, doctor, down, facts, import, interrupt, reconcile, report, send, state, status, task, up, watch";
+const REGISTERED = "answer, bind, cleanup, doctor, down, facts, import, interrupt, pair, reconcile, report, send, state, status, task, up, watch";
 
 test("no verb, an unknown verb, and an unknown option are usage errors (exit 2) naming the sorted verbs", async () => {
   let r = await run([]);

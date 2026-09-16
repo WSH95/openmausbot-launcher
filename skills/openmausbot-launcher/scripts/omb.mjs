@@ -3,6 +3,7 @@
 // ./lib. Stdout is one JSON object, or one line with --brief.
 import { run } from "./lib/cli.mjs";
 import "./lib/verbs/lifecycle.mjs";
+import "./lib/verbs/pair.mjs";
 import "./lib/verbs/repo.mjs";
 import "./lib/verbs/team.mjs";
 import "./lib/verbs/run.mjs";

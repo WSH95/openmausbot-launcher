@@ -57,7 +57,7 @@ export async function createFake(opts = {}) {
     bots: [], groups: [], threads: new Map(), receipts: [], decisions: [],
     pendingDelegations: [], running: [], tokens: new Map(), // token -> scopes
     pairings: [], sessions: [], replays: [], failures: new Map(), // S: sessions.ts:136-142
-    delay: { count: 0, ms: 0 }, steer: false, lateSteerConflict: false,
+    delay: { count: 0, ms: 0 }, dropNext: 0, steer: false, lateSteerConflict: false,
     dropStreams: false, sequence: 0, instances: defaultInstances(),
   };
   const sse = new Set();
@@ -249,7 +249,13 @@ export async function createFake(opts = {}) {
   }
 
   // ── handlers ──
-  const json = (res, status, body) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(body)); };
+  // `dropNext` marks a response to be thrown away after its handler ran: the
+  // server acted and the client never heard, which is the case the pairing
+  // replay window exists for (S: sessions.ts:31-35).
+  const json = (res, status, body) => {
+    if (res.dropped) return void res.destroy();
+    res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(body));
+  };
   const readBody = (req) => new Promise((resolve, reject) => {
     let d = ""; req.on("data", (c) => { d += c; }); req.on("end", () => { if (!d) return resolve(null); try { resolve(JSON.parse(d)); } catch (e) { reject(Object.assign(new Error("invalid json"), { status: 400 })); } }); req.on("error", reject);
   });
@@ -259,6 +265,7 @@ export async function createFake(opts = {}) {
     const method = req.method ?? "GET";
     const p = url.pathname;
     if (state.delay.count > 0) { state.delay.count--; await new Promise((r) => setTimeout(r, state.delay.ms)); }
+    if (state.dropNext > 0 && !p.startsWith("/__fake")) { state.dropNext--; res.dropped = true; }
     const auth = authorize(req, method, p);
     if (auth.deny) return json(res, auth.deny[0], { error: auth.deny[1] });
     try {
@@ -574,6 +581,7 @@ export async function createFake(opts = {}) {
       case "running": state.running.push({ sourceBotId: op.sourceBotId, targetBotId: op.targetBotId, threadId: op.threadId ?? newId(), groupId: op.groupId }); return;
       case "clearDelegations": state.pendingDelegations = []; state.running = []; return;
       case "delay": state.delay = { count: op.count ?? 1, ms: op.ms ?? 1000 }; return;
+      case "dropNext": state.dropNext = op.count ?? 1; return;
       case "steer": state.steer = op.enabled !== false; state.lateSteerConflict = op.lateConflict === true; return;
       case "autoWork": state.autoWork = op.enabled !== false; return;
       case "dropStreams": state.dropStreams = op.enabled !== false; if (state.dropStreams) for (const c of [...sse]) { try { c.res.end(); } catch {} } return;
