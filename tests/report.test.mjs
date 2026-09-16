@@ -130,6 +130,21 @@ test("report: a full synthetic run passes --check-042, renders markdown, and clo
   assert.equal(loadState(statePaths(dir)).history.at(-1).result, "failed");
 });
 
+test("the record-time check reads this run's own task log entry, not whichever heading is first", () => {
+  const t0 = Date.UTC(2026, 8, 8, 1, 0, 0);
+  const stamp = "2026-09-08T01:30:00Z";
+  const native = [
+    { at: iso(t0 + 20_000), msg: { type: "assistant", message: { content: [{ type: "tool_use", id: "t", name: "Bash", input: { command: "date -u +%FT%TZ" } }] } } },
+    { at: iso(t0 + 21_000), msg: { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t", content: `${stamp}\n` }] } } },
+  ];
+  // the other run wrote its entry first; this run's is below it
+  const log = `# Progress\n\n### 2026-09-08T02:00:00Z — Sudo\nT11 merged.\n\n### ${stamp} — Sudo\nT10 merged.\n`;
+  const find = (checks) => checks.find((c) => c.id === "record-time-from-date-u");
+  assert.equal(find(check042({ native, taskLogText: log, sentAt: t0 })).ok, false, "the first heading belongs to the other run");
+  assert.equal(find(check042({ native, taskLogText: log, taskLogEntry: `### ${stamp} — Sudo`, sentAt: t0 })).ok, true);
+  assert.equal(find(check042({ native, taskLogText: log, taskLogEntry: null, sentAt: t0 })).ok, false);
+});
+
 test("bareCommand strips a trailing note; mergedShaFrom falls back to the record commit and a range", () => {
   assert.equal(bareCommand("python3 -m unittest discover -s tests -t . (run inside the task's worktree)"), "python3 -m unittest discover -s tests -t .");
   assert.equal(bareCommand("npm test"), "npm test");
@@ -399,6 +414,12 @@ for (const first of ["t10", "t11"]) test(`two open runs are reported and closed 
   const tidy = await runOmb(["reconcile", "--project", dir, "--remove", first], { env });
   assert.equal(tidy.code, 0, `the other run's worktree has an owner, so the repository is reconciled: ${tidy.stdout}`);
   assert.equal(tidy.json.worktrees.find((w) => w.slug === second).run, runs[second].runId);
+  const checked = await runOmb(["report", "--run", first, "--project", dir, "--check-042", "--no-close", "--no-tests"], { env });
+  assert.equal(checked.code, 0, checked.stdout + checked.stderr);
+  assert.equal(checked.json.closed, false);
+  const by = Object.fromEntries(checked.json.check042.map((c) => [c.id, c]));
+  assert.equal(by["task-branch-and-worktree-absent"].ok, true, `the other run's branch and worktree are not leftovers: ${by["task-branch-and-worktree-absent"].detail}`);
+  assert.equal(by["record-commit"].ok, true, by["record-commit"].detail);
   let r = await runOmb(["report", "--run", first, "--project", dir], { env });
   assert.equal(r.code, 0, r.stdout + r.stderr);
   assert.equal(r.json.state, "done"); assert.equal(r.json.carried, true, "the watch's verdict survived the other run's work");

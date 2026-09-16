@@ -99,11 +99,13 @@ verb("report", {
     let checks = null;
     if (flags["check-042"]) {
       const reviewer = team?.bots.find((b) => /plan review/i.test(b.title ?? ""));
-      checks = check042({ native, messages: messages ?? [], leadThreadId: task.leadThreadId, taskLogText, reviewer, sentAt: sinceMs });
+      checks = check042({ native, messages: messages ?? [], leadThreadId: task.leadThreadId, taskLogText, taskLogEntry: taskLog ? logEntry : undefined, reviewer, sentAt: sinceMs });
       checks.push({ id: "bead-closed", ok: bead.ok, detail: bead.detail });
       checks.push({ id: "record-commit", ok: taskLog ? Boolean(recordCommit) : null, detail: recordCommit ? `${recordCommit.sha.slice(0, 7)} ${recordCommit.subject} (${recordCommit.files.join(", ")})` : "no attributable docs(team) record commit since dispatch" });
       checks.push({ id: "merged-ancestor", ok: ancestor, detail: mergedSha ? `${mergedSha.slice(0, 7)} ${ancestor ? "is" : "is not"} an ancestor of ${reconcile.defaultBranch}` : "the closing report names no merged commit" });
-      checks.push({ id: "task-branch-and-worktree-absent", ok: reconcile.taskBranches.length === 0 && reconcile.worktrees.length === 1, detail: `${reconcile.taskBranches.length} task branch(es), ${reconcile.worktrees.length - 1} extra worktree(s)` });
+      // The other open runs' branches and worktrees are theirs; this asks that
+      // nothing is left with no owner, and with no run open that is everything.
+      checks.push({ id: "task-branch-and-worktree-absent", ok: reconcile.unownedBranches.length === 0 && reconcile.unownedWorktrees.length === 0, detail: `${reconcile.unownedBranches.length} task branch(es) and ${reconcile.unownedWorktrees.length} worktree(s) with no owner; ${reconcile.taskBranches.length} task branch(es) and ${reconcile.worktrees.length - 1} worktree(s) in all` });
       checks.push({ id: "root-clean", ok: reconcile.clean, detail: reconcile.clean ? "clean" : reconcile.problems.join("; ") });
       checks.push({ id: "tests-pass", ok: tests.ok, detail: tests.ran ? `exit ${tests.status} in ${tests.seconds} s` : tests.detail });
     }

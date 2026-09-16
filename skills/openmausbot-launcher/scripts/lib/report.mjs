@@ -128,7 +128,7 @@ const timestamp = (value) => typeof value === "number" ? value : Date.parse(valu
 
 /** The 0.4.2 pack checks. Each check is true, false, or null (unknown).
  * `messages` must be server-authored messages from the lead's run thread. */
-export function check042({ native, messages = [], leadThreadId, taskLogText, reviewer, sentAt = 0, toolNames }) {
+export function check042({ native, messages = [], leadThreadId, taskLogText, taskLogEntry = undefined, reviewer, sentAt = 0, toolNames }) {
   const checks = [];
   const put = (id, ok, detail) => checks.push({ id, ok, detail });
   const parsed = nativeCalls(native);
@@ -164,8 +164,10 @@ export function check042({ native, messages = [], leadThreadId, taskLogText, rev
   else if (!stamp) put("record-time-from-date-u", null, "the `date -u` call has no timestamp result in the log");
   else if (!taskLogText) put("record-time-from-date-u", null, "no task log to compare with");
   else {
-    const firstHeading = taskLogText.split("\n").find((l) => /^#{2,4} /.test(l)) ?? "";
-    put("record-time-from-date-u", firstHeading.includes(stamp), `date -u returned ${stamp}; the task log's first entry heading is "${firstHeading.trim()}"`);
+    // With two runs writing one log, the newest heading may be the other run's;
+    // compare against this run's own entry when the report found one.
+    const heading = taskLogEntry !== undefined ? taskLogEntry ?? "" : taskLogText.split("\n").find((l) => /^#{2,4} /.test(l)) ?? "";
+    put("record-time-from-date-u", heading.includes(stamp), `date -u returned ${stamp}; ${taskLogEntry !== undefined ? "this run's" : "the task log's first"} entry heading is "${heading.trim()}"`);
   }
   // ListAgents is a Claude Code built-in (0.1.56 claude.ts:777-781); a Codex lead has no
   // equivalent, so for Codex this check reduces to "the lead called mcp__agents__list_bots".
