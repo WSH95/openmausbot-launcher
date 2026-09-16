@@ -267,6 +267,10 @@ export async function createFake(opts = {}) {
     if (state.delay.count > 0) { state.delay.count--; await new Promise((r) => setTimeout(r, state.delay.ms)); }
     if (state.dropNext > 0 && !p.startsWith("/__fake")) { state.dropNext--; res.dropped = true; }
     const auth = authorize(req, method, p);
+    // Reachability probe, public: the phone races it across a server's
+    // addresses before it has a session. A stranger learns only the app name;
+    // the pid and the static flag stay behind the gate (S: index.ts:7351-7357).
+    if (auth.deny && method === "GET" && p === "/api/health") return json(res, 200, { app: "openmausbot" });
     if (auth.deny) return json(res, auth.deny[0], { error: auth.deny[1] });
     try {
       let m;
@@ -622,9 +626,13 @@ export async function createFake(opts = {}) {
 
   const server = http.createServer((req, res) => { handle(req, res).catch((e) => { try { json(res, e.status ?? 500, { error: e.message }); } catch {} }); });
   server.keepAliveTimeout = 5000;
-  await new Promise((resolve) => server.listen(opts.port ?? 0, "127.0.0.1", resolve));
+  // The address to listen on. A test that binds another loopback address
+  // (127.0.0.2) is a caller whose Host header is not loopback, which is how
+  // a request through a tunnel reaches the real server.
+  const host = opts.host ?? "127.0.0.1";
+  await new Promise((resolve) => server.listen(opts.port ?? 0, host, resolve));
   const port = server.address().port;
-  const url = `http://127.0.0.1:${port}`;
+  const url = `http://${host}:${port}`;
   return {
     url, port, dataDir, server, webhookPort: webhook ? opts.webhookPort : null,
     get environmentId() { return environmentId; },

@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { EXIT, Fail } from "./cli.mjs";
-import { resolveConfig } from "./config.mjs";
+import { resolveConfig, isLoopback } from "./config.mjs";
 import { withLock, loadState, initState, commitState } from "./state.mjs";
 import { probe, unreachable, refusal, hasProc, procInfo, verifyOwned } from "./server.mjs";
 import { createClient } from "./http.mjs";
@@ -58,7 +58,16 @@ export async function serverIdentity(cfg, client, opts = {}) {
   for (const p of [hP, envP]) if (!p.ok && !p.network) throw refusal(client.url, p);
   const env = envP.ok ? envP.body : null;
   const h = hP.ok && hP.body?.app === "openmausbot" ? hP.body : null;
-  if (!env?.environmentId || !Number.isInteger(h?.pid) || h.pid <= 0) throw new Fail(EXIT.PRECONDITION, "the server identity could not be verified", { hint: "check the URL and server, then import --adopt or re-import" });
+  if (!env?.environmentId || !Number.isInteger(h?.pid) || h.pid <= 0) {
+    // Through a tunnel an untrusted caller's `/api/health` answers 200 `{app}`
+    // with no pid (index.ts:7351-7357) while the environment route stays
+    // public (index.ts:7315), so a server that is perfectly fine looks
+    // unverifiable when the only thing missing is this device's token.
+    if (!isLoopback(client.url) && !cfg.token) {
+      throw new Fail(EXIT.PRECONDITION, `no token for ${client.url}: pair this device first`, { hint: `pair --code XXXX-XXXX-XXXX --url ${client.url}` });
+    }
+    throw new Fail(EXIT.PRECONDITION, "the server identity could not be verified", { hint: "check the URL and server, then import --adopt or re-import" });
+  }
   let start = null;
   if (cfg.mode === "local" && hasProc()) {
     const info = procInfo(h.pid);

@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { startFake, makeRepo, runOmb, tmpDir } from "./helpers.mjs";
+import { statePaths, updateState } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
 import { exchangeRefusal } from "../skills/openmausbot-launcher/scripts/lib/verbs/pair.mjs";
 import { HttpError } from "../skills/openmausbot-launcher/scripts/lib/http.mjs";
 
@@ -163,8 +164,10 @@ test("415, 401 and 429 carry the server's text; every other status stays an ordi
   assert.match(unsupported.hint, /rewrote the request's content type/);
   const stale = refusal(401, "pairing code is wrong or has expired; create a new one on the server");
   assert.equal(stale.code, 3);
-  assert.equal(stale.hint, "mint a new code on the server: openmausbot pair --port 8799 [--client]", "the CLI's default port, cli.ts:71-74");
+  assert.equal(stale.hint, "mint a new code on the server: openmausbot pair --port <the server's loopback port> [--client]",
+    "a bare https host says nothing about the loopback port the CLI mints on, so ask rather than guess 8799");
   assert.equal(refusal(401, "x", "https://maus.example.com:8899").hint, "mint a new code on the server: openmausbot pair --port 8899 [--client]");
+  assert.equal(refusal(401, "x", "http://127.0.0.1:8899").hint, "mint a new code on the server: openmausbot pair --port 8899 [--client]");
   const locked = refusal(429, "too many failed pairing attempts from your address; try again in 42s");
   assert.equal(locked.code, 3);
   assert.equal(locked.message, "too many failed pairing attempts from your address; try again in 42s");
@@ -228,4 +231,35 @@ test("pair without --code is a usage error, and an insecure remote URL is refuse
   assert.equal(insecure.code, 3, insecure.stdout);
   assert.match(insecure.json.error, /is not loopback and not https/);
   assert.equal(fs.existsSync(file), false);
+});
+
+test("a tokenless remote command names the missing token instead of an unverifiable server", async (t) => {
+  // The tunnel's view of the server: every request arrives with a non-loopback
+  // Host, so the server does not trust it. `/api/health` then answers 200
+  // `{app}` with no pid (S: index.ts:7351-7357) while the environment route
+  // stays public (`index.ts:7315`) — which reads exactly like a server whose
+  // identity cannot be verified, when the only thing missing is the token.
+  const f = await startFake({ host: "127.0.0.2" }); t.after(() => f.close());
+  const origin = `http://127.0.0.2:${f.port}`;
+  assert.deepEqual(await (await fetch(`${origin}/api/health`)).json(), { app: "openmausbot" });
+
+  const { dir } = makeRepo();
+  const file = freshFile();
+  const env = { OMB_TOKEN: "", OMB_TOKEN_FILE: file };
+  await updateState(statePaths(dir), (d) => {
+    d.server = { url: origin, owned: false, environmentId: f.environmentId, healthPid: process.pid, healthStart: null };
+    d.team = { section: "Dev team", environmentId: f.environmentId, lead: { id: "lead", name: "Sudo" }, bots: [], rooms: [] };
+    return d;
+  });
+  const args = ["status", "--remote", "--url", origin, "--allow-insecure-http", "--project", dir];
+  const tokenless = await runOmb(args, { env });
+  assert.equal(tokenless.code, 3, tokenless.stdout);
+  assert.equal(tokenless.json.error, `no token for ${origin}: pair this device first`);
+  assert.equal(tokenless.json.hint, `pair --code XXXX-XXXX-XXXX --url ${origin}`);
+
+  const { pairing } = await f.apply({ op: "pairing", label: "laptop", scopes: ["admin", "client"] });
+  const paired = await runOmb(["pair", "--code", pairing.code, "--url", origin, "--allow-insecure-http", "--project", dir], { env });
+  assert.equal(paired.code, 0, paired.stdout + paired.stderr);
+  const withToken = await runOmb(args, { env });
+  assert.equal(withToken.code, 0, withToken.stdout, "the same command works once the device is paired");
 });

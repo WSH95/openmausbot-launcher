@@ -10,8 +10,13 @@ import { verb, EXIT, Fail } from "../cli.mjs";
 import { resolveConfig, tokenFilePath, readTokenTable, storeToken } from "../config.mjs";
 import { createClient, HttpError } from "../http.mjs";
 
-/** The CLI mints codes on the port it serves; 8799 is its default (cli.ts:71-74). */
-const mintPort = (url) => new URL(url).port || "8799";
+/**
+ * The CLI mints codes on the port it serves (cli.ts:223-229). An explicit port
+ * in the URL is that port, reached through a tunnel or on the LAN; a bare
+ * `https://host` says nothing about the loopback port the CLI wants, so ask
+ * for it by name rather than guess its 8799 default (cli.ts:73-74).
+ */
+const mintPort = (url) => new URL(url).port || "<the server's loopback port>";
 
 /**
  * The three answers the pair route refuses with are the operator's problem,
