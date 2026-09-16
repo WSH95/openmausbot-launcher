@@ -233,6 +233,53 @@ verb("task", {
 
 const sendIdFor = (scope, threadId, text) => `send-${createHash("sha1").update(`${scope}|${threadId}|${text}`).digest("hex").slice(0, 16)}`;
 
+/**
+ * Send to a run's own lead thread (design, "Delivery"). A new message reaches
+ * only the bot's ACTIVE task (index.ts:10790-10797), so when the lead is
+ * sitting on another run's task this makes the run's task active again
+ * (index.ts:11120-11140) and posts once more. Order matters twice over: an
+ * identical sendId replays the canonical receipt BEFORE the active-task check
+ * (index.ts:10764-10777), so a retry needs no switch at all; and the switch is
+ * refused mid-turn, because a lead that is working owns its process.
+ * A thread no run owns is never switched away from, and one switch is all:
+ * a second refusal is reported, not answered with another switch.
+ */
+export async function deliverToLead(client, { leadId, run, otherRuns = [], text, sendId }) {
+  const t0 = Date.now();
+  const post = () => client.post(`/api/bots/${leadId}/messages`, { text, threadId: run.leadThreadId, sendId });
+  const movedAway = (e) => e instanceof HttpError && e.status === 409 && /switched tasks|no longer exists/.test(e.body?.error ?? "");
+  const shape = (receipt, switched) => (receipt.dryRun ? { dryRun: true, ...receipt } : {
+    threadId: receipt.threadId, messageId: receipt.message?.id ?? null, steered: receipt.steered === true,
+    queued: receipt.queued === true, queueId: receipt.queueId ?? null,
+    duplicate: typeof receipt.message?.at === "number" && receipt.message.at < t0, switched,
+  });
+  try { return shape(await post(), false); }
+  catch (e) {
+    if (!movedAway(e)) throw precondition(e);
+    let active = null;
+    try { active = (await client.get("/api/bots?messages=0")).bots?.find((b) => b.id === leadId)?.threadId ?? null; } catch {}
+    const owner = otherRuns.find((r) => r.leadThreadId && r.leadThreadId === active);
+    if (!owner) {
+      throw new Fail(EXIT.PRECONDITION, `${e.body.error} (target thread ${run.leadThreadId})`, { status: 409, hint: `the lead's active task is ${active ?? "unknown"}; nothing was retargeted: pass --thread ${active ?? "<id>"} to send there on purpose` });
+    }
+    try { await client.post(`/api/bots/${leadId}/tasks/${run.leadThreadId}`, {}); }
+    catch (se) {
+      if (se instanceof HttpError && se.status === 409 && /this bot is working/.test(se.body?.error ?? "")) {
+        throw new Fail(EXIT.PRECONDITION, `the lead is working on ${runLabel(owner)}; retry when it is idle`, { status: 409, hint: `watch --run ${owner.slug ?? owner.runId} until it settles, or interrupt it` });
+      }
+      throw precondition(se);
+    }
+    try { return shape(await post(), true); }
+    catch (e2) {
+      if (!movedAway(e2)) throw precondition(e2);
+      throw new Fail(EXIT.PRECONDITION, `${e2.body.error} (target thread ${run.leadThreadId})`, { status: 409, hint: `the lead switched away again right after this launcher switched it back; nothing was retargeted and nothing was retried — find the other writer, then send again` });
+    }
+  }
+}
+
+/** The run a run-scoped verb acts on: named, the only open one, or a question for the user. */
+const runFor = (cfg, flags) => (flags.run || openRuns(cfg.state).length ? selectRun(cfg.state, flags.run) : null);
+
 /** A matching sendId returns the canonical receipt with the ORIGINAL message, id and `at` included, and no replay marker (index.ts:10765-10777, send-idempotency.ts:21-40): a message stamped before this request began is a duplicate. That reads the server's clock; on loopback it is this clock, over a remote URL it assumes the clocks agree to within the gap between two sends. */
 async function deliver(client, cfg, { botId, threadId, text, sendId }) {
   const t0 = Date.now();
@@ -250,7 +297,7 @@ async function deliver(client, cfg, { botId, threadId, text, sendId }) {
 }
 
 verb("send", {
-  options: { bot: { type: "string" }, thread: { type: "string" }, again: { type: "boolean" } },
+  options: { bot: { type: "string" }, thread: { type: "string" }, again: { type: "boolean" }, run: { type: "string" } },
   allowPositionals: true,
   handler: stateCommand(async ({ flags, positionals, cfg, save }) => {
     const team = requireTeam(cfg);
@@ -260,19 +307,23 @@ verb("send", {
     await requireSameEnvironment(cfg, client);
     const bot = flags.bot ? findBot(team, flags.bot) : team.lead;
     if (!bot) throw new Fail(EXIT.USAGE, `no team bot named ${flags.bot}`);
-    const task = openRuns(cfg.state)[0] ?? null;
+    // An explicit --thread is the caller naming a destination, so it needs no run.
+    const task = flags.thread && !flags.run && openRuns(cfg.state).length > 1 ? null : runFor(cfg, flags);
     let threadId = flags.thread ?? (task?.threads?.[bot.id]) ?? null;
     if (!threadId) { const live = (await client.get("/api/bots?messages=0")).bots?.find((b) => b.id === bot.id); threadId = live?.threadId; }
     // --again salts the scope: a deliberate repeat gets a fresh sendId and is delivered, not deduped.
     const sendId = sendIdFor(`${task?.runId ?? "no-run"}${flags.again ? `:${Date.now()}` : ""}`, threadId, text);
-    const r = await deliver(client, cfg, { botId: bot.id, threadId, text, sendId });
+    const toOwnThread = task && bot.id === team.lead.id && !flags.thread && threadId === task.leadThreadId;
+    const r = toOwnThread
+      ? await deliverToLead(client, { leadId: bot.id, run: task, otherRuns: openRuns(cfg.state).filter((x) => x.runId !== task.runId), text, sendId })
+      : await deliver(client, cfg, { botId: bot.id, threadId, text, sendId });
     if (!r.dryRun && task) await save( (d) => { const live = d.runs?.[task.runId]; if (live) live.lastEval = { ...(live.lastEval ?? {}), lastChangeAt: Date.now() }; return d; });
     return { result: { bot: bot.name, ...r, sendId }, brief: `send · ${bot.name} · ${r.duplicate ? `duplicate of ${r.messageId}` : r.queued ? "queued" : r.steered ? "steered" : "delivered"}` };
   }),
 });
 
 verb("answer", {
-  options: { allow: { type: "boolean" }, deny: { type: "boolean" }, message: { type: "string" }, request: { type: "string" } },
+  options: { allow: { type: "boolean" }, deny: { type: "boolean" }, message: { type: "string" }, request: { type: "string" }, run: { type: "string" } },
   allowPositionals: true,
   handler: stateCommand(async ({ flags, positionals, cfg, save }) => {
     const team = requireTeam(cfg);
@@ -281,7 +332,7 @@ verb("answer", {
     const bare = positionals.join(" ").trim();
     const modes = [flags.allow && "allow", flags.deny && "deny", flags.message !== undefined && "answer"].filter(Boolean);
     if (modes.length > 1) throw new Fail(EXIT.USAGE, "pass one of --allow, --deny, --message");
-    const task = openRuns(cfg.state)[0] ?? null;
+    const task = runFor(cfg, flags);
     if (!modes.length) {
       if (!bare) throw new Fail(EXIT.USAGE, 'usage: answer --allow|--deny|--message "<text>" [--request ID]  |  answer "<text>"');
       const out = await VERBS.get("send").handler({ flags: { ...flags }, positionals: [bare], verb: "send" });
@@ -305,7 +356,7 @@ verb("answer", {
     let fellBackToSend = false; let sent = null;
     if (outcome === "unavailable") {
       if (behavior === "answer" && task && target.threadId === task.leadThreadId) {
-        sent = await deliver(client, cfg, { botId: team.lead.id, threadId: task.leadThreadId, text: flags.message, sendId: sendIdFor(task.runId, task.leadThreadId, flags.message) });
+        sent = await deliverToLead(client, { leadId: team.lead.id, run: task, otherRuns: openRuns(cfg.state).filter((x) => x.runId !== task.runId), text: flags.message, sendId: sendIdFor(task.runId, task.leadThreadId, flags.message) });
         fellBackToSend = true;
       } else {
         throw new Fail(EXIT.NEEDS_USER, `the card is no longer answerable (outcome unavailable); the ${behavior} did not happen`, { hint: "the request died with the bot's turn; tell the bot in chat what you decided with send, and it will ask again if it must" });
@@ -316,17 +367,25 @@ verb("answer", {
 });
 
 verb("interrupt", {
-  options: { bot: { type: "string" } },
+  options: { bot: { type: "string" }, run: { type: "string" } },
   handler: stateCommand(async ({ flags, cfg, save }) => {
     const team = requireTeam(cfg);
     const client = createClient(cfg);
     await requireSameEnvironment(cfg, client);
     const bot = flags.bot ? findBot(team, flags.bot) : team.lead;
     if (!bot) throw new Fail(EXIT.USAGE, `no team bot named ${flags.bot}`);
-    const task = openRuns(cfg.state)[0] ?? null;
+    const task = runFor(cfg, flags);
     const threadId = task?.threads?.[bot.id] ?? null;
     if (!threadId) throw new Fail(EXIT.PRECONDITION, `no run thread is recorded for ${bot.name}`, { hint: "interrupt only stops the run's own turn" });
-    try { await client.post(`/api/bots/${bot.id}/interrupt`, { threadId }); } catch (e) { throw precondition(e, "the bot is busy somewhere else (a room or a routine); it was not interrupted"); }
+    try { await client.post(`/api/bots/${bot.id}/interrupt`, { threadId }); }
+    catch (e) {
+      // A turn pinned to a thread that is not the bot's active task — a drained
+      // delegation wake — is out of the interrupt's reach (index.ts:11077-11084).
+      if (e instanceof HttpError && e.status === 409 && /before it could be interrupted/.test(e.body?.error ?? "")) {
+        throw new Fail(EXIT.PRECONDITION, `${e.body.error} (thread ${threadId})`, { status: 409, hint: `the turn is not on ${bot.name}'s active task and cannot be reached from here: wait for the lead to go idle, then task --abandon --run ${task.slug ?? task.runId}` });
+      }
+      throw precondition(e, "the bot is busy somewhere else (a room or a routine); it was not interrupted");
+    }
     return { result: { bot: bot.name, threadId, interrupted: true }, brief: `interrupt · ${bot.name}` };
   }, { lockWhen: () => false }),
 });
@@ -336,11 +395,11 @@ import { watchRun, mergeCheckpoint } from "../watch.mjs";
 import { brief as briefLine, EXIT_FOR, TERMINAL as TERMINAL_STATES } from "../snapshot.mjs";
 
 verb("watch", {
-  options: { "max-seconds": { type: "string" }, until: { type: "string" }, poll: { type: "string" }, "stall-minutes": { type: "string" }, "quiet-seconds": { type: "string" }, "drop-seconds": { type: "string" }, nudge: { type: "boolean" }, "quiet-if-unchanged": { type: "boolean" } },
+  options: { "max-seconds": { type: "string" }, until: { type: "string" }, poll: { type: "string" }, "stall-minutes": { type: "string" }, "quiet-seconds": { type: "string" }, "drop-seconds": { type: "string" }, nudge: { type: "boolean" }, "quiet-if-unchanged": { type: "boolean" }, run: { type: "string" } },
   handler: async ({ flags }) => {
     const cfg = resolveConfig(flags);
     const team = requireTeam(cfg);
-    const task = openRuns(cfg.state)[0] ?? null;
+    const task = runFor(cfg, flags);
     if (!task) throw new Fail(EXIT.PRECONDITION, "no open run to watch", { hint: "start one with task, or use status" });
     if (task.status !== "dispatched") throw new Fail(EXIT.PRECONDITION, `the run is ${task.status}`, { hint: "task --resume finishes the dispatch" });
     const until = flags.until ?? "settled";
@@ -359,7 +418,7 @@ verb("watch", {
       const doc = loadState(cfg.paths); const live = assertOpenRun(doc, task.runId);
       if (live.nudgedAt) return;
       await requireSameEnvironment({ ...cfg, state: doc }, client, opts);
-      await client.post(`/api/bots/${team.lead.id}/messages`, { text: "status?", threadId: task.leadThreadId, sendId: `nudge-${task.runId}` }, opts);
+      await deliverToLead(client, { leadId: team.lead.id, run: task, otherRuns: openRuns(doc).filter((x) => x.runId !== task.runId), text: "status?", sendId: `nudge-${task.runId}` });
       live.nudgedAt = new Date().toISOString(); commitState(cfg.paths, doc);
     }, { waitMs: Math.min(1000, opts.timeoutMs) }) : null;
     const r = await watchRun({ client, team, task, dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null, maxSeconds, deadline, until, pollMs: num(flags.poll, 30) * 1000, stallMs: num(flags["stall-minutes"], 40) * 60_000, quietMs: num(flags["quiet-seconds"], 30) * 1000, dropMs: num(flags["drop-seconds"], 120) * 1000, nudge, log });

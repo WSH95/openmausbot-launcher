@@ -274,3 +274,124 @@ test("interrupt takes no state lock: it succeeds while another launcher holds it
   assert.equal(r.json.interrupted, true);
   assert.equal((await fleet(f)).find((b) => b.id === lead.id).busy, false);
 });
+
+// ── the delivery helper, driven directly: the cases a live fake cannot stage ──
+import { deliverToLead } from "../skills/openmausbot-launcher/scripts/lib/verbs/run.mjs";
+import { HttpError } from "../skills/openmausbot-launcher/scripts/lib/http.mjs";
+
+const runA = { runId: "aaaaaaaa11111111", slug: "t10", leadThreadId: "A", status: "dispatched" };
+const runB = { runId: "bbbbbbbb22222222", slug: "t11", leadThreadId: "B", status: "dispatched" };
+const answer = (status, error) => new HttpError("POST", "/api/bots/lead/messages", status, { error });
+
+function leadClient(script) {
+  const calls = [];
+  return {
+    calls,
+    async get() { return { bots: [{ id: "lead", threadId: script.active }] }; },
+    async post(route, body) {
+      calls.push(route);
+      if (/\/tasks\//.test(route)) {
+        if (script.switchFails) throw answer(409, script.switchFails);
+        script.active = route.split("/").pop();
+        return { bot: { id: "lead", threadId: script.active } };
+      }
+      if (script.active !== body.threadId) throw answer(409, "the bot switched tasks before it could receive the message");
+      return { ok: true, threadId: body.threadId, message: { id: "m1", at: Date.now() } };
+    },
+  };
+}
+
+test("deliverToLead posts to the run's own thread, switching the lead back when it sits on another run's", async () => {
+  const c = leadClient({ active: "B" });
+  const r = await deliverToLead(c, { leadId: "lead", run: runA, otherRuns: [runB], text: "status?", sendId: "s1" });
+  assert.equal(r.switched, true); assert.equal(r.threadId, "A"); assert.equal(r.messageId, "m1");
+  assert.deepEqual(c.calls, ["/api/bots/lead/messages", "/api/bots/lead/tasks/A", "/api/bots/lead/messages"], "post, switch, post once more");
+  const quiet = leadClient({ active: "A" });
+  assert.equal((await deliverToLead(quiet, { leadId: "lead", run: runA, otherRuns: [runB], text: "status?", sendId: "s1" })).switched, false);
+  assert.deepEqual(quiet.calls, ["/api/bots/lead/messages"], "the lead is already there: no switch");
+});
+
+test("deliverToLead refuses when the lead is working, and reports a second switch without retrying it", async () => {
+  const busy = leadClient({ active: "B", switchFails: "this bot is working — stop it before switching tasks" });
+  await assert.rejects(deliverToLead(busy, { leadId: "lead", run: runA, otherRuns: [runB], text: "x", sendId: "s2" }),
+    (e) => e.code === 3 && /the lead is working on t11/.test(e.message) && /retry when it is idle/.test(e.message + e.hint));
+  // the switch lands, then somebody else moves the lead again before the post
+  const raced = leadClient({ active: "B" });
+  const post = raced.post.bind(raced);
+  let posts = 0;
+  raced.post = async (route, body) => { const out = post(route, body); if (/\/tasks\//.test(route)) { await out; raced.calls.pop(); raced.calls.push(route); } if (/messages$/.test(route) && ++posts === 2) { throw answer(409, "the bot switched tasks before it could receive the message"); } return out; };
+  await assert.rejects(deliverToLead(raced, { leadId: "lead", run: runA, otherRuns: [runB], text: "x", sendId: "s3" }),
+    (e) => e.code === 3 && /switched tasks/.test(e.message) && /switched away again/.test(e.hint));
+  assert.equal(raced.calls.filter((c) => c.endsWith("/messages")).length, 2, "two posts, never a third");
+});
+
+test("deliverToLead leaves a thread that is nobody's run alone", async () => {
+  const c = leadClient({ active: "elsewhere" });
+  await assert.rejects(deliverToLead(c, { leadId: "lead", run: runA, otherRuns: [runB], text: "x", sendId: "s4" }),
+    (e) => e.code === 3 && /switched tasks/.test(e.message) && /nothing was retargeted/.test(e.hint) && /--thread elsewhere/.test(e.hint));
+  assert.deepEqual(c.calls, ["/api/bots/lead/messages"], "a thread no run owns is never switched away from");
+});
+
+test("send, answer's fallback and --nudge all reach the run they name while the lead sits on another", async (t) => {
+  const { f, dir, lead, team, client } = await setup(t);
+  const nova = team.bots.find((b) => b.key === "nova");
+  const a = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  await f.control({ op: "bot", name: "Vex", title: "Implementer", section: "Dev team" });
+  const b = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
+  assert.equal(b.code, 0, b.stdout);
+  const active = async () => (await fleet(f)).find((x) => x.id === lead.id).threadId;
+  assert.equal(await active(), b.json.leadThreadId);
+  let r = await runOmb(["send", "status?", "--run", "t10", "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.switched, true); assert.equal(r.json.threadId, a.json.leadThreadId);
+  assert.equal(await active(), a.json.leadThreadId, "the switch is what made the message land");
+  assert.equal((await thread(f, a.json.leadThreadId)).at(-1).text, "status?");
+  // an identical sendId replays the canonical receipt before the active-task check
+  await client.post(`/api/bots/${lead.id}/tasks/${b.json.leadThreadId}`, {});
+  r = await runOmb(["send", "status?", "--run", "t10", "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.duplicate, true); assert.equal(r.json.switched, false);
+  assert.equal(await active(), b.json.leadThreadId, "a replayed receipt moves nothing");
+  // the unanswerable card falls back to chat on the run's own thread
+  await f.control({ op: "card", threadId: a.json.leadThreadId, requestId: "dead-q", kind: "question", dead: true, text: "Still there?" });
+  r = await runOmb(["answer", "--message", "use a table", "--request", "dead-q", "--run", "t10", "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.fellBackToSend, true); assert.equal(r.json.sent.switched, true);
+  assert.equal((await thread(f, a.json.leadThreadId)).at(-1).text, "use a table");
+  // and the nudge does too
+  await client.post(`/api/bots/${lead.id}/tasks/${b.json.leadThreadId}`, {});
+  await f.control({ op: "leadSay", threadId: a.json.leadThreadId, text: "Delegating." });
+  await sleep(20);
+  await f.control({ op: "echo", threadId: a.json.leadThreadId, fromBotId: nova.id, name: "Nova", text: "done but the lead sleeps" });
+  r = await runOmb(["watch", "--run", "t10", "--project", dir, "--max-seconds", "6", "--nudge", "--quiet-seconds", "1", "--drop-seconds", "1", "--poll", "1"], { env });
+  assert.equal(r.json.nudged, true, r.stdout);
+  assert.equal((await thread(f, a.json.leadThreadId)).filter((m) => m.text === "status?").length, 2, "the nudge landed on t10's thread");
+  assert.equal(await active(), a.json.leadThreadId);
+  // a busy lead cannot be switched away from its turn
+  await client.post(`/api/bots/${lead.id}/tasks/${b.json.leadThreadId}`, {});
+  await f.control({ op: "activity", botId: lead.id, activity: "working" });
+  r = await runOmb(["send", "another thing", "--run", "t10", "--project", dir], { env });
+  assert.equal(r.code, 3); assert.match(r.json.error, /the lead is working on t11/);
+});
+
+test("every run-scoped verb asks which run when two are open, and interrupt says what it could not reach", async (t) => {
+  const { f, dir, lead, client } = await setup(t);
+  const a = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  await f.control({ op: "bot", name: "Vex", title: "Implementer", section: "Dev team" });
+  const b = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
+  for (const args of [["send", "hi"], ["interrupt"], ["watch", "--max-seconds", "2"], ["report", "--no-tests"], ["task", "--abandon"], ["task", "--resume"]]) {
+    const r = await runOmb([...args, "--project", dir], { env });
+    assert.equal(r.code, 3, `${args[0]}: ${r.stdout}`);
+    assert.match(r.json.error, /2 runs are open; pass --run/, args[0]);
+    assert.match(r.json.hint, /t10 \(\w{8}, dispatched\), t11 \(\w{8}, dispatched\)/, args[0]);
+  }
+  const named = await runOmb(["send", "hi", "--thread", b.json.leadThreadId, "--project", dir], { env });
+  assert.equal(named.code, 0, `an explicit thread needs no run: ${named.stdout}`); assert.equal(named.json.switched, undefined, "a named thread is delivered, never switched to");
+  const stale = await runOmb(["send", "hi", "--thread", a.json.leadThreadId, "--project", dir], { env });
+  assert.equal(stale.code, 3); assert.match(stale.json.hint, /nothing was retargeted/, "a named thread that is not active is still never switched to");
+  const watched = await runOmb(["watch", "--run", "t11", "--project", dir, "--max-seconds", "2", "--quiet-seconds", "1", "--poll", "1"], { env });
+  assert.equal(watched.code, 4, "named, it watches t11 and times out on an unfinished run rather than refusing");
+  // the lead's turn is pinned to t10's thread while t11 is the active task
+  await f.control({ op: "pinnedTurn", botId: lead.id, threadId: a.json.leadThreadId });
+  const r = await runOmb(["interrupt", "--run", "t10", "--project", dir], { env });
+  assert.equal(r.code, 3, r.stdout); assert.match(r.json.error, /switched tasks before it could be interrupted/);
+  assert.match(r.json.hint, /wait for the lead to go idle, then task --abandon --run t10/);
+  assert.equal((await runOmb(["interrupt", "--run", "t11", "--project", dir], { env })).code, 0, "the active thread is reachable");
+});
