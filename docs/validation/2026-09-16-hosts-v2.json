@@ -1,0 +1,2483 @@
+{
+ "schemaVersion": 1,
+ "recordedAt": "2026-09-16T15:39:48Z",
+ "purpose": "v2 host verification (beads oml-n2f and oml-5bw): OpenClaw, Hermes Agent and DeepSeek Harness running the launcher against real OpenMausBot 0.1.56, with the OpenClaw Telegram phone path, the --announce empty-output question, and the Hermes cron adapter.",
+ "coverage": {
+  "messagePath": "operator-authored text -> host agent shell tool -> omb send -> OMB role:user -> Sudo reply read back by the same host",
+  "instructions": "Each host was told to use the installed openmausbot-launcher skill, run the exact commands and paste stdout verbatim. The operator authored every nonce and every acknowledgment text.",
+  "tested": [
+   "skill discovery on OpenClaw, Hermes Agent and DeepSeek Harness",
+   "doctor and doctor --server against the real server from each host",
+   "one successful user-role send per host and the matching Sudo reply read back",
+   "the OpenClaw Codex-harness escalation path, one approval card per command",
+   "the OpenClaw Telegram phone path end to end, from DM to answer",
+   "OpenClaw automations: an empty command output is not announced",
+   "the Hermes cron script adapter through the Hermes gateway",
+   "dsh remote mode as the way past its PID namespace",
+   "clean shutdown of the fixture server"
+  ],
+  "notTested": [
+   "a launcher task (run: null throughout)",
+   "watch on any of the three hosts",
+   "the other four bot models executing",
+   "bot-to-bot delegation",
+   "OpenClaw allow-always and a non-loopback gateway bind",
+   "the OpenClaw exec 10-second background yield",
+   "Hermes cron delivery to a chat channel",
+   "a dsh shell time limit"
+  ],
+  "newOmbBotTurns": 3,
+  "paidHostTurns": {
+   "openclaw": {
+    "count": 6,
+    "breakdown": [
+     "two pong probes (thread 01a0aac3-1d9a-7b12-9e7e-e3e04188e658)",
+     "one Telegram DM turn (thread 01a0aac4-6c6f-71d2-8d7c-3618b890e931)",
+     "three CLI turns (thread 01a0aac6-98bc-7ce0-b461-7e3fbb404e64)"
+    ],
+    "source": "thread_turns rows in ~/.openclaw/agents/main/agent/codex-home/thread_history_1.sqlite",
+    "note": "the session brief estimated about 5; attempts that failed at the tools.exec.mode=allowlist preflight never reached the model"
+   },
+   "hermes": {
+    "count": 3,
+    "breakdown": [
+     "pong",
+     "turn 1",
+     "turn 2"
+    ],
+    "source": "three sessions in ~/.hermes/state.db"
+   },
+   "dsh": {
+    "count": 4,
+    "breakdown": [
+     "pong",
+     "turn 1",
+     "PID namespace probe",
+     "turn 2"
+    ],
+    "source": "four session directories under ~/.dsh/sessions/--tmp--/"
+   }
+  },
+  "launcherTaskRunId": null,
+  "hostSessionsAlsoConsumeSubscriptions": true,
+  "outputProjection": "Each command output is taken from that host's own native record where the record kept it, otherwise from the block the agent pasted, and the source is named per command. Host reasoning, prompts and credentials are excluded."
+ },
+ "fixture": {
+  "project": "/tmp/oml-v2-hosts-i1Dlq7/project",
+  "branch": "main",
+  "commit": "28f7f90772c94b6cc30d5a59c421687d704db1c1",
+  "commitSubject": "init",
+  "dataDir": "/home/wsh/.cache/agent-team/omb-launcher-data-v2hosts-ZBIA7t-20260916T143458-6frTho",
+  "nodeVersion": "24.11.0",
+  "openmausbotVersion": "0.1.56",
+  "ombBin": "/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js",
+  "ombToken": "empty (loopback trust)",
+  "server": {
+   "url": "http://127.0.0.1:8899",
+   "ports": [
+    8899,
+    8900
+   ],
+   "owned": true,
+   "supervisorPid": 43172,
+   "healthPid": 43179,
+   "environmentId": "3165e5e8-3ad0-4d84-bb65-fb311b09556b",
+   "version": "0.1.56",
+   "askTimeoutMs": 600000,
+   "log": "/home/wsh/.cache/agent-team/omb-launcher-data-v2hosts-ZBIA7t-20260916T143458-6frTho/serve.log",
+   "startedAt": "2026-09-16T14:35:02.391Z",
+   "stoppedAt": "2026-09-16T15:26:12.443Z",
+   "doctorServerChecks": "10/10 from the operator shell and from Hermes, dsh (health, session, engines) and OpenClaw turn 3"
+  },
+  "setup": {
+   "commands": [
+    "up --fresh --port 8899",
+    "doctor --server",
+    "import <package>",
+    "bind with the five per-bot selections and --approval auto",
+    "facts"
+   ],
+   "commandSource": "session brief; the exact argv of the setup commands is not in a raw log",
+   "facts": {
+    "defaultBranch": "main",
+    "test": "none",
+    "setup": "none",
+    "merge": "auto",
+    "taskLog": "README.md",
+    "tracker": "none",
+    "planReview": "ask"
+   }
+  },
+  "package": {
+   "path": "/home/wsh/Documents/agent-team-devpack/packages/dev-team/dev-team.openmaus.json",
+   "name": "Agent Team dev team",
+   "release": "0.4.2",
+   "sha256Before": "48e4ac637c7afb6d9e82f0ecf035967411d9c75e61ac8e0603ee7b62a3255949",
+   "sha256After": "48e4ac637c7afb6d9e82f0ecf035967411d9c75e61ac8e0603ee7b62a3255949",
+   "unchanged": true,
+   "afterSource": "scratchpad/shutdown.txt, verify section"
+  },
+  "team": {
+   "section": "Agent Team dev team",
+   "environmentId": "3165e5e8-3ad0-4d84-bb65-fb311b09556b",
+   "importedAt": "2026-09-16T14:35:03.671Z",
+   "lead": {
+    "id": "73230cfd-3bba-4962-800e-57ba1d3d5004",
+    "name": "Sudo",
+    "key": "sudo",
+    "title": "Team Lead",
+    "model": "codex/gpt-5.6-luna/high",
+    "approvalMode": "auto"
+   },
+   "rooms": [
+    {
+     "id": "405219f7-ae80-49a4-854f-331c9a5ef0d0",
+     "name": "Dev Room",
+     "threadId": "fdb060c5-8d91-4977-a172-021c667a0f48"
+    }
+   ],
+   "bots": [
+    {
+     "id": "73230cfd-3bba-4962-800e-57ba1d3d5004",
+     "name": "Sudo",
+     "key": "sudo",
+     "title": "Team Lead",
+     "model": "codex/gpt-5.6-luna/high",
+     "approvalMode": "auto"
+    },
+    {
+     "id": "2ec3974e-aa44-4790-8bc3-a01d6dded30c",
+     "name": "Sage",
+     "key": "sage",
+     "title": "Planner",
+     "model": "claude/claude-sonnet-5/high",
+     "approvalMode": "auto"
+    },
+    {
+     "id": "31c7cbcb-cdd0-4f63-ae82-54fdcb1c1c62",
+     "name": "Vale",
+     "key": "vale",
+     "title": "Plan Reviewer",
+     "model": "codex/gpt-5.6-terra/high",
+     "approvalMode": "auto"
+    },
+    {
+     "id": "52aea65f-42e5-4927-a453-a9c0f72c9d0e",
+     "name": "Nova",
+     "key": "nova",
+     "title": "Implementer",
+     "model": "claude/claude-opus-5/high",
+     "approvalMode": "auto"
+    },
+    {
+     "id": "ab6bd30b-1c09-4d09-94d5-6031960c2ba0",
+     "name": "Quill",
+     "key": "quill",
+     "title": "Code Reviewer",
+     "model": "grok/grok-4.6/medium",
+     "approvalMode": "ask"
+    }
+   ],
+   "bindingNote": "the state file records approvalMode \"auto\" for Sudo, Sage, Vale and Nova and \"ask\" for Quill after the bind with --approval auto"
+  }
+ },
+ "hosts": {
+  "openclaw": {
+   "version": "2026.9.4 (3a9d69d)",
+   "versionSource": "openclaw --version as recorded in the session brief; /home/wsh/.local/lib/node-v24.21.0/lib/node_modules/openclaw/package.json reads 2026.9.4",
+   "nodeVersion": "24.21.0",
+   "nodeNote": "OpenClaw needs Node >= 24.16, installed side by side under ~/.local/lib/node-v24.21.0; the driver still ran on Node 24.11.0 in every host",
+   "install": {
+    "command": "npm install -g --prefix ~/.local/lib/node-v24.21.0 openclaw@latest",
+    "allowScripts": [
+     "openclaw",
+     "@google/genai",
+     "koffi",
+     "tree-sitter-bash",
+     "protobufjs"
+    ],
+    "wrapper": "~/.local/bin/openclaw prefixes PATH with the 24.21.0 bin directory",
+    "onboarding": "openclaw onboard --non-interactive --accept-risk --flow quickstart --auth-choice skip --mode local --gateway-bind loopback --install-daemon",
+    "gateway": {
+     "mode": "local",
+     "bind": "loopback",
+     "port": 18789,
+     "auth": "token",
+     "unit": "openclaw-gateway.service (systemd user unit, 24.21.0 node path)",
+     "source": "~/.openclaw/openclaw.json"
+    }
+   },
+   "auth": {
+    "command": "openclaw models auth login --provider openai --device-code --set-default",
+    "needsTty": true,
+    "note": "the device code was entered by the user in a browser",
+    "defaultModel": "openai/gpt-5.6-sol",
+    "agentHarnessId": "codex",
+    "harnessNote": "agent turns run through the bundled Codex app-server harness"
+   },
+   "discovery": {
+    "listCommand": "openclaw skills list",
+    "entry": "openmausbot-launcher, state \"ready\", source agents-skills-personal (~/.agents/skills symlink)",
+    "checkCommand": "openclaw skills check",
+    "checkResult": "Ready and visible to model",
+    "skillEnv": {
+     "configPath": "skills.entries.openmausbot-launcher.env",
+     "keys": [
+      "OMB_BIN",
+      "OMB_TOKEN"
+     ],
+     "applied": false,
+     "finding": "the entry is stored in ~/.openclaw/openclaw.json but is not applied to commands run through the Codex harness: doctor reported \"openmausbot not found\" until the command itself carried an explicit env prefix"
+    }
+   },
+   "policy": {
+    "toolsExecMode": "ask",
+    "toolsProfile": "coding",
+    "allowlistRefusal": "Codex app-server local execution is unavailable because effective tools.exec.mode=allowlist. Execution-host approvals are authoritative. For gateway turns, inspect them with `openclaw approvals get --gateway` and update that same target with `openclaw approvals set --gateway --stdin`; for local `agent exec`, omit `--gateway`. Intentionally align that host policy before retrying.",
+    "allowlistRefusalSource": "/tmp/openclaw/openclaw-2026-09-16.log lines 170-182 (2026-09-16T15:05:07.844Z, 15:05:48.852Z)",
+    "modesThatWork": [
+     "ask",
+     "auto"
+    ],
+    "modeKept": "ask",
+    "allowlistEntries": [
+     {
+      "agent": "main",
+      "pattern": "~/Documents/openmausbot-launcher/skills/openmausbot-launcher/scripts/omb.mjs",
+      "scope": "any args"
+     },
+     {
+      "agent": "main",
+      "pattern": "~/.agents/skills/openmausbot-launcher/scripts/omb.mjs",
+      "scope": "any args"
+     }
+    ],
+    "allowlistCommand": "openclaw approvals allowlist add --agent main <absolute path>/scripts/omb.mjs",
+    "allowlistSource": "/tmp/openclaw/openclaw-2026-09-16.log lines 65 and 233 (one entry at 14:33:52Z, two at 15:12:11Z)",
+    "allowlistLimitation": "the path patterns did not match the agent's own \"node <script> …\" invocation, so that command still raised an approval card",
+    "sandbox": "commands run inside the Codex harness sandbox, which blocks loopback: status exits 1 with \"cannot reach http://127.0.0.1:8899: EPERM\" and the sandbox hint, and doctor --server reports \"nothing answers at http://127.0.0.1:8899\" because the driver's health probe turns the network error into null",
+    "escalationPath": "the Codex harness raises an OpenClaw plugin approval titled \"Codex app-server command approval\"; resolve with openclaw approvals resolve <id> allow-once"
+   },
+   "telegram": {
+    "bot": "@OMBLauncherCheckBot (created with BotFather)",
+    "tokenStorage": {
+     "path": "~/.openclaw/telegram-bot.token",
+     "mode": "0600",
+     "config": "channels.telegram.tokenFile",
+     "note": "never on a command line"
+    },
+    "enabled": true,
+    "dmPolicy": "pairing",
+    "pairingCode": "TGLH7375",
+    "telegramUserId": "7724282441",
+    "approveCommand": "openclaw pairing approve telegram TGLH7375",
+    "ownerLine": "Command owner configured telegram:7724282441 (commands.ownerAllowFrom was empty)",
+    "cliSend": {
+     "command": "openclaw message send --channel telegram --target 7724282441 -m <text>",
+     "messageId": "4",
+     "source": "/tmp/openclaw/openclaw-2026-09-16.log line 163: telegram outbound send ok accountId=default chatId=7724282441 messageId=4 operation=sendMessage deliveryKind=text chunkCount=1"
+    },
+    "phoneProof": {
+     "dm": "what's happening with the team on <fixture>? use the openmausbot-launcher skill and give me the status --brief line",
+     "dmTextSource": "session brief; the DM text itself is not in a raw file",
+     "threadId": "01a0aac4-6c6f-71d2-8d7c-3618b890e931",
+     "codexTurnId": "01a0aac4-6cfb-7053-8b07-b6fb535f4d58",
+     "openclawRunId": "cc799b9f-94e5-4a50-a4d4-bf8c8ad74c39",
+     "turnStatus": "interrupted",
+     "gatewayTimeline": [
+      "15:09:52.611Z Inbound message telegram:7724282441 -> @OMBLauncherCheckBot (direct, 139 chars)",
+      "15:10:15.167Z res plugin.approval.request 50ms",
+      "15:10:18.439Z telegram outbound send ok chatId=7724282441 messageId=9 (the approval card)",
+      "15:11:04.766Z inbound telegram update 113473730 (the decision from the phone)",
+      "15:11:05.397Z res plugin.approval.waitDecision 50186ms",
+      "15:11:12.437Z telegram outbound send ok chatId=7724282441 messageId=10 (the answer)"
+     ],
+     "gatewayTimelineSource": "/tmp/openclaw/openclaw-2026-09-16.log lines 213-221",
+     "approvalId": "plugin:7c145865-a890-4ad7-96e2-2389490b98f0",
+     "approvalSummary": "Codex app-server command approval: Command: node /home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs status --p...\nProposed exec policy: node, /home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs (+1 more)",
+     "approvalCreatedAt": "2026-09-16T15:10:15.123Z",
+     "approvalExpiresAt": "2026-09-16T15:12:15.123Z",
+     "approvalResolvedFrom": "allow-once from Telegram; inferred: the card went out as message 9 and an inbound update from telegram user 7724282441 arrived 0.6 s before the decision returned. The card's own resolution record was not captured.",
+     "waitDecisionMs": 50186,
+     "waitDecisionSource": "/tmp/openclaw/openclaw-2026-09-16.log line 220 (plugin.approval.waitDecision 50186ms at 15:11:05.397Z)",
+     "reply": {
+      "tool": "message",
+      "message": "status · no run · team idle",
+      "result": {
+       "ok": true,
+       "messageId": "10",
+       "chatId": "7724282441",
+       "receipt": {},
+       "sourceReplyRoute": "current-source"
+      },
+      "itemId": "exec-6d747585-da91-4cfe-9236-48cc1b05d27b"
+     },
+     "firstAttempt": "an earlier DM failed with \"Something went wrong\" while tools.exec.mode=allowlist (the preflight refusal above)"
+    }
+   },
+   "turns": [
+    {
+     "label": "CLI turn 1: doctor, doctor --server, status --brief",
+     "runId": "2e1a8c31-f201-42bb-a27b-e0f4ab9413a8",
+     "status": "ok",
+     "summary": "completed",
+     "durationMs": 42076,
+     "startedAt": "2026-09-16T15:12:13Z",
+     "endedAt": "2026-09-16T15:12:57Z",
+     "sessionId": "571ddd65-a9c9-40de-b97b-18c0759c93ba",
+     "codexTurnId": "01a0aac6-997e-7cf1-9413-89a7d7cbef26",
+     "agentHarnessId": "codex",
+     "model": "gpt-5.6-sol",
+     "provider": "openai",
+     "note": "three driver commands inside the sandbox; the binary check failed because the skill env is not applied; no escalation was requested",
+     "rawFile": "scratchpad/openclaw-turn1.json"
+    },
+    {
+     "label": "CLI turn 2: the same three commands with an explicit env prefix",
+     "runId": "85d47860-0e98-46ce-9fdb-e0f651c80531",
+     "status": "ok",
+     "summary": "completed",
+     "durationMs": 311962,
+     "startedAt": "2026-09-16T15:15:31Z",
+     "endedAt": "2026-09-16T15:20:45Z",
+     "sessionId": "571ddd65-a9c9-40de-b97b-18c0759c93ba",
+     "codexTurnId": "01a0aac9-9b5e-7810-b4e9-ff1eeee78270",
+     "agentHarnessId": "codex",
+     "model": "gpt-5.6-sol",
+     "provider": "openai",
+     "note": "the env prefix fixed the binary check; two escalation requests expired unanswered because the operator's resolver filter did not match their truncated summaries, so the outputs stayed sandboxed",
+     "rawFile": "scratchpad/openclaw-turn2.json"
+    },
+    {
+     "label": "CLI turn 3: doctor --server, status --brief, send, status --tail 3",
+     "runId": "70443744-9399-421d-a220-a662ca6d6a50",
+     "status": "ok",
+     "summary": "completed",
+     "durationMs": 123180,
+     "startedAt": "2026-09-16T15:21:27Z",
+     "endedAt": "2026-09-16T15:23:32Z",
+     "sessionId": "571ddd65-a9c9-40de-b97b-18c0759c93ba",
+     "codexTurnId": "01a0aacf-0b2c-71c1-a60d-21874fd7dec2",
+     "agentHarnessId": "codex",
+     "model": "gpt-5.6-sol",
+     "provider": "openai",
+     "note": "every command was escalated and allowed once within seconds; the send reached Sudo and the reply was read back",
+     "rawFile": "scratchpad/openclaw-turn3.json"
+    }
+   ],
+   "commands": [
+    {
+     "label": "phone: status --brief inside the Codex sandbox",
+     "command": "node /home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs status --project /tmp/oml-v2-hosts-i1Dlq7/project --brief",
+     "startedAt": "2026-09-16T15:10:08.971Z",
+     "durationMs": 65,
+     "exitCode": 1,
+     "output": {
+      "ok": false,
+      "verb": "status",
+      "error": "cannot reach http://127.0.0.1:8899: EPERM",
+      "hint": "the shell's sandbox blocks outbound connections: run this command outside the sandbox (escalation), or use --remote against a reachable URL"
+     },
+     "source": {
+      "store": "~/.openclaw/agents/main/agent/codex-home/thread_history_1.sqlite",
+      "table": "thread_items",
+      "itemId": "exec-ec7498e9-9220-450c-8df0-b7042cb94fae",
+      "threadId": "01a0aac4-6c6f-71d2-8d7c-3618b890e931",
+      "turnId": "01a0aac4-6cfb-7053-8b07-b6fb535f4d58"
+     }
+    },
+    {
+     "label": "phone: the same command after one allow-once approval",
+     "command": "node /home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs status --project /tmp/oml-v2-hosts-i1Dlq7/project --brief",
+     "startedAt": "2026-09-16T15:11:05.624Z",
+     "durationMs": 115,
+     "exitCode": 0,
+     "output": "status · no run · team idle\n",
+     "source": {
+      "store": "~/.openclaw/agents/main/agent/codex-home/thread_history_1.sqlite",
+      "table": "thread_items",
+      "itemId": "exec-d2794a9f-7a1a-4642-b1a0-26bb1148e957",
+      "threadId": "01a0aac4-6c6f-71d2-8d7c-3618b890e931",
+      "turnId": "01a0aac4-6cfb-7053-8b07-b6fb535f4d58"
+     }
+    },
+    {
+     "label": "turn 1: doctor",
+     "command": "/home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs doctor --project /tmp/oml-v2-hosts-i1Dlq7/project",
+     "startedAt": "2026-09-16T15:12:32.360Z",
+     "durationMs": 30,
+     "exitCode": 3,
+     "output": {
+      "ok": false,
+      "verb": "doctor",
+      "mode": "local",
+      "url": "http://127.0.0.1:8899",
+      "project": "/tmp/oml-v2-hosts-i1Dlq7/project",
+      "dataDir": "/home/wsh/.cache/agent-team/omb-launcher-data-v2hosts-ZBIA7t-20260916T143458-6frTho",
+      "checks": [
+       {
+        "id": "node",
+        "ok": true,
+        "required": true,
+        "detail": "node 24.11.0; local mode needs 24+"
+       },
+       {
+        "id": "binary",
+        "ok": false,
+        "required": true,
+        "detail": "openmausbot not found: set OMB_BIN to cli.js of the openmausbot package or put openmausbot on PATH"
+       },
+       {
+        "id": "git",
+        "ok": true,
+        "required": true,
+        "detail": "git on PATH"
+       },
+       {
+        "id": "project",
+        "ok": true,
+        "required": true,
+        "detail": "git repository at /tmp/oml-v2-hosts-i1Dlq7/project"
+       },
+       {
+        "id": "data-dir",
+        "ok": true,
+        "required": false,
+        "detail": "/home/wsh/.cache/agent-team/omb-launcher-data-v2hosts-ZBIA7t-20260916T143458-6frTho is readable"
+       }
+      ],
+      "engines": [],
+      "state": {
+       "server": {
+        "url": "http://127.0.0.1:8899",
+        "owned": true,
+        "healthPid": 43179
+       },
+       "team": {
+        "section": "Agent Team dev team",
+        "lead": "Sudo",
+        "bots": 5
+       },
+       "task": null
+      },
+      "failed": [
+       "binary"
+      ]
+     },
+     "source": {
+      "store": "~/.openclaw/agents/main/agent/codex-home/thread_history_1.sqlite",
+      "table": "thread_items",
+      "itemId": "exec-94d3185a-2ffd-4102-bf9e-ce3ff72ed684",
+      "threadId": "01a0aac6-98bc-7ce0-b461-7e3fbb404e64",
+      "turnId": "01a0aac6-997e-7cf1-9413-89a7d7cbef26"
+     }
+    },
+    {
+     "label": "turn 1: doctor --server",
+     "command": "/home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs doctor --server --project /tmp/oml-v2-hosts-i1Dlq7/project",
+     "startedAt": "2026-09-16T15:12:36.314Z",
+     "durationMs": 117,
+     "exitCode": 3,
+     "output": {
+      "ok": false,
+      "verb": "doctor",
+      "mode": "local",
+      "url": "http://127.0.0.1:8899",
+      "project": "/tmp/oml-v2-hosts-i1Dlq7/project",
+      "dataDir": "/home/wsh/.cache/agent-team/omb-launcher-data-v2hosts-ZBIA7t-20260916T143458-6frTho",
+      "checks": [
+       {
+        "id": "node",
+        "ok": true,
+        "required": true,
+        "detail": "node 24.11.0; local mode needs 24+"
+       },
+       {
+        "id": "binary",
+        "ok": false,
+        "required": true,
+        "detail": "openmausbot not found: set OMB_BIN to cli.js of the openmausbot package or put openmausbot on PATH"
+       },
+       {
+        "id": "git",
+        "ok": true,
+        "required": true,
+        "detail": "git on PATH"
+       },
+       {
+        "id": "project",
+        "ok": true,
+        "required": true,
+        "detail": "git repository at /tmp/oml-v2-hosts-i1Dlq7/project"
+       },
+       {
+        "id": "data-dir",
+        "ok": true,
+        "required": false,
+        "detail": "/home/wsh/.cache/agent-team/omb-launcher-data-v2hosts-ZBIA7t-20260916T143458-6frTho is readable"
+       },
+       {
+        "id": "health",
+        "ok": false,
+        "required": true,
+        "detail": "nothing answers at http://127.0.0.1:8899"
+       }
+      ],
+      "engines": [],
+      "state": {
+       "server": {
+        "url": "http://127.0.0.1:8899",
+        "owned": true,
+        "healthPid": 43179
+       },
+       "team": {
+        "section": "Agent Team dev team",
+        "lead": "Sudo",
+        "bots": 5
+       },
+       "task": null
+      },
+      "failed": [
+       "binary",
+       "health"
+      ]
+     },
+     "source": {
+      "store": "~/.openclaw/agents/main/agent/codex-home/thread_history_1.sqlite",
+      "table": "thread_items",
+      "itemId": "exec-a0b85993-435f-45c9-8187-91284def4f67",
+      "threadId": "01a0aac6-98bc-7ce0-b461-7e3fbb404e64",
+      "turnId": "01a0aac6-997e-7cf1-9413-89a7d7cbef26"
+     }
+    },
+    {
+     "label": "turn 1: status --brief",
+     "command": "/home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs status --brief --project /tmp/oml-v2-hosts-i1Dlq7/project",
+     "startedAt": "2026-09-16T15:12:40.143Z",
+     "durationMs": 56,
+     "exitCode": 1,
+     "output": {
+      "ok": false,
+      "verb": "status",
+      "error": "cannot reach http://127.0.0.1:8899: EPERM",
+      "hint": "the shell's sandbox blocks outbound connections: run this command outside the sandbox (escalation), or use --remote against a reachable URL"
+     },
+     "source": {
+      "store": "~/.openclaw/agents/main/agent/codex-home/thread_history_1.sqlite",
+      "table": "thread_items",
+      "itemId": "exec-6ac6819a-2212-4d54-89ce-51efd4119a74",
+      "threadId": "01a0aac6-98bc-7ce0-b461-7e3fbb404e64",
+      "turnId": "01a0aac6-997e-7cf1-9413-89a7d7cbef26"
+     }
+    },
+    {
+     "label": "turn 2: doctor with an explicit env prefix",
+     "command": "env OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js OMB_TOKEN= /home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs doctor --project /tmp/oml-v2-hosts-i1Dlq7/project",
+     "startedAt": "2026-09-16T15:15:49.413Z",
+     "durationMs": 0,
+     "exitCode": 0,
+     "output": {
+      "ok": true,
+      "verb": "doctor",
+      "mode": "local",
+      "url": "http://127.0.0.1:8899",
+      "project": "/tmp/oml-v2-hosts-i1Dlq7/project",
+      "dataDir": "/home/wsh/.cache/agent-team/omb-launcher-data-v2hosts-ZBIA7t-20260916T143458-6frTho",
+      "checks": [
+       {
+        "id": "node",
+        "ok": true,
+        "required": true,
+        "detail": "node 24.11.0; local mode needs 24+"
+       },
+       {
+        "id": "binary",
+        "ok": true,
+        "required": true,
+        "detail": "/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js (openmausbot 0.1.56, from OMB_BIN)"
+       },
+       {
+        "id": "git",
+        "ok": true,
+        "required": true,
+        "detail": "git on PATH"
+       },
+       {
+        "id": "project",
+        "ok": true,
+        "required": true,
+        "detail": "git repository at /tmp/oml-v2-hosts-i1Dlq7/project"
+       },
+       {
+        "id": "data-dir",
+        "ok": true,
+        "required": false,
+        "detail": "/home/wsh/.cache/agent-team/omb-launcher-data-v2hosts-ZBIA7t-20260916T143458-6frTho is readable"
+       }
+      ],
+      "engines": [],
+      "state": {
+       "server": {
+        "url": "http://127.0.0.1:8899",
+        "owned": true,
+        "healthPid": 43179
+       },
+       "team": {
+        "section": "Agent Team dev team",
+        "lead": "Sudo",
+        "bots": 5
+       },
+       "task": null
+      },
+      "failed": []
+     },
+     "source": {
+      "store": "~/.openclaw/agents/main/agent/codex-home/thread_history_1.sqlite",
+      "table": "thread_items",
+      "itemId": "exec-154842da-3f4d-42ec-bd34-482767d51568",
+      "threadId": "01a0aac6-98bc-7ce0-b461-7e3fbb404e64",
+      "turnId": "01a0aac9-9b5e-7810-b4e9-ff1eeee78270"
+     }
+    },
+    {
+     "label": "turn 2: doctor --server",
+     "command": "env OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js OMB_TOKEN= /home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs doctor --server --project /tmp/oml-v2-hosts-i1Dlq7/project",
+     "startedAt": "2026-09-16T15:15:54.321Z",
+     "durationMs": 39,
+     "exitCode": 3,
+     "output": {
+      "ok": false,
+      "verb": "doctor",
+      "mode": "local",
+      "url": "http://127.0.0.1:8899",
+      "project": "/tmp/oml-v2-hosts-i1Dlq7/project",
+      "dataDir": "/home/wsh/.cache/agent-team/omb-launcher-data-v2hosts-ZBIA7t-20260916T143458-6frTho",
+      "checks": [
+       {
+        "id": "node",
+        "ok": true,
+        "required": true,
+        "detail": "node 24.11.0; local mode needs 24+"
+       },
+       {
+        "id": "binary",
+        "ok": true,
+        "required": true,
+        "detail": "/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js (openmausbot 0.1.56, from OMB_BIN)"
+       },
+       {
+        "id": "git",
+        "ok": true,
+        "required": true,
+        "detail": "git on PATH"
+       },
+       {
+        "id": "project",
+        "ok": true,
+        "required": true,
+        "detail": "git repository at /tmp/oml-v2-hosts-i1Dlq7/project"
+       },
+       {
+        "id": "data-dir",
+        "ok": true,
+        "required": false,
+        "detail": "/home/wsh/.cache/agent-team/omb-launcher-data-v2hosts-ZBIA7t-20260916T143458-6frTho is readable"
+       },
+       {
+        "id": "health",
+        "ok": false,
+        "required": true,
+        "detail": "nothing answers at http://127.0.0.1:8899"
+       }
+      ],
+      "engines": [],
+      "state": {
+       "server": {
+        "url": "http://127.0.0.1:8899",
+        "owned": true,
+        "healthPid": 43179
+       },
+       "team": {
+        "section": "Agent Team dev team",
+        "lead": "Sudo",
+        "bots": 5
+       },
+       "task": null
+      },
+      "failed": [
+       "health"
+      ]
+     },
+     "source": {
+      "store": "~/.openclaw/agents/main/agent/codex-home/thread_history_1.sqlite",
+      "table": "thread_items",
+      "itemId": "exec-936689ac-506a-45de-aeb2-dbfd98fd574c",
+      "threadId": "01a0aac6-98bc-7ce0-b461-7e3fbb404e64",
+      "turnId": "01a0aac9-9b5e-7810-b4e9-ff1eeee78270"
+     }
+    },
+    {
+     "label": "turn 2: status --brief",
+     "command": "env OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js OMB_TOKEN= /home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs status --brief --project /tmp/oml-v2-hosts-i1Dlq7/project",
+     "startedAt": "2026-09-16T15:18:13.867Z",
+     "durationMs": 20,
+     "exitCode": 1,
+     "output": {
+      "ok": false,
+      "verb": "status",
+      "error": "cannot reach http://127.0.0.1:8899: EPERM",
+      "hint": "the shell's sandbox blocks outbound connections: run this command outside the sandbox (escalation), or use --remote against a reachable URL"
+     },
+     "source": {
+      "store": "~/.openclaw/agents/main/agent/codex-home/thread_history_1.sqlite",
+      "table": "thread_items",
+      "itemId": "exec-f9622d3e-3c34-4b5c-9f34-9ac04a5a2b50",
+      "threadId": "01a0aac6-98bc-7ce0-b461-7e3fbb404e64",
+      "turnId": "01a0aac9-9b5e-7810-b4e9-ff1eeee78270"
+     }
+    },
+    {
+     "label": "turn 3: doctor --server",
+     "command": "env OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js OMB_TOKEN= /home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs doctor --server --project /tmp/oml-v2-hosts-i1Dlq7/project",
+     "startedAt": "2026-09-16T15:22:00.055Z",
+     "durationMs": 434,
+     "exitCode": 0,
+     "output": {
+      "ok": true,
+      "verb": "doctor",
+      "mode": "local",
+      "url": "http://127.0.0.1:8899",
+      "project": "/tmp/oml-v2-hosts-i1Dlq7/project",
+      "dataDir": "/home/wsh/.cache/agent-team/omb-launcher-data-v2hosts-ZBIA7t-20260916T143458-6frTho",
+      "checks": [
+       {
+        "id": "node",
+        "ok": true,
+        "required": true,
+        "detail": "node 24.11.0; local mode needs 24+"
+       },
+       {
+        "id": "binary",
+        "ok": true,
+        "required": true,
+        "detail": "/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js (openmausbot 0.1.56, from OMB_BIN)"
+       },
+       {
+        "id": "git",
+        "ok": true,
+        "required": true,
+        "detail": "git on PATH"
+       },
+       {
+        "id": "project",
+        "ok": true,
+        "required": true,
+        "detail": "git repository at /tmp/oml-v2-hosts-i1Dlq7/project"
+       },
+       {
+        "id": "data-dir",
+        "ok": true,
+        "required": false,
+        "detail": "/home/wsh/.cache/agent-team/omb-launcher-data-v2hosts-ZBIA7t-20260916T143458-6frTho is readable"
+       },
+       {
+        "id": "health",
+        "ok": true,
+        "required": true,
+        "detail": "http://127.0.0.1:8899 answers, pid 43179"
+       },
+       {
+        "id": "session",
+        "ok": true,
+        "required": true,
+        "detail": "loopback with scopes admin,client"
+       },
+       {
+        "id": "engines",
+        "ok": true,
+        "required": true,
+        "detail": "grok:available kimi:unavailable droid:unavailable cursor:unavailable claude:available codex:available antigravity:unavailable opencodeGo:unavailable computer:unavailable openaiCompat:unavailable qwen:unavailable hermes:available pi:unavailable"
+       },
+       {
+        "id": "provider-keys",
+        "ok": true,
+        "required": true,
+        "detail": "no provider API keys in the server's environment"
+       },
+       {
+        "id": "identity",
+        "ok": true,
+        "required": false,
+        "detail": "the recorded server identity matches"
+       }
+      ],
+      "state": {
+       "server": {
+        "url": "http://127.0.0.1:8899",
+        "owned": true,
+        "healthPid": 43179
+       },
+       "team": {
+        "section": "Agent Team dev team",
+        "lead": "Sudo",
+        "bots": 5
+       },
+       "task": null
+      },
+      "failed": []
+     },
+     "source": {
+      "store": "~/.openclaw/agents/main/agent/codex-home/thread_history_1.sqlite",
+      "table": "thread_items",
+      "itemId": "exec-47863594-fa23-4530-83db-853728c358bf",
+      "threadId": "01a0aac6-98bc-7ce0-b461-7e3fbb404e64",
+      "turnId": "01a0aacf-0b2c-71c1-a60d-21874fd7dec2"
+     },
+     "outputOmitted": "the engines[] model catalogue is omitted; it is OpenMausBot's list of installed engines, not a launcher result, and the engines check line above carries the same summary verbatim"
+    },
+    {
+     "label": "turn 3: status --brief",
+     "command": "env OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js OMB_TOKEN= /home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs status --brief --project /tmp/oml-v2-hosts-i1Dlq7/project",
+     "startedAt": "2026-09-16T15:22:12.191Z",
+     "durationMs": 57,
+     "exitCode": 0,
+     "output": "status · no run · team idle",
+     "source": {
+      "store": "~/.openclaw/agents/main/agent/codex-home/thread_history_1.sqlite",
+      "table": "thread_items",
+      "itemId": "exec-309ee2fc-c93a-466d-9424-7bde183e9040",
+      "threadId": "01a0aac6-98bc-7ce0-b461-7e3fbb404e64",
+      "turnId": "01a0aacf-0b2c-71c1-a60d-21874fd7dec2",
+      "outputFrom": "the native store kept no output for this item; the text is the block the agent pasted in openclaw-turn3.json"
+     }
+    },
+    {
+     "label": "turn 3: send",
+     "command": "env OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js OMB_TOKEN= /home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs send \"OpenClaw check 396649b2: reply with just the nonce 396649b2\" --project /tmp/oml-v2-hosts-i1Dlq7/project",
+     "startedAt": "2026-09-16T15:22:23.938Z",
+     "durationMs": 59,
+     "exitCode": 0,
+     "output": {
+      "ok": true,
+      "verb": "send",
+      "bot": "Sudo",
+      "threadId": "86905161-06df-4cbd-9e6c-89eaadeae032",
+      "messageId": "8004203b-6416-4305-99ab-25b517702a66",
+      "steered": false,
+      "queued": false,
+      "queueId": null,
+      "duplicate": false,
+      "sendId": "send-dbd80eeeb88a2886"
+     },
+     "source": {
+      "store": "~/.openclaw/agents/main/agent/codex-home/thread_history_1.sqlite",
+      "table": "thread_items",
+      "itemId": "exec-01e71881-80a4-4189-b6fe-ea1cae793f6d",
+      "threadId": "01a0aac6-98bc-7ce0-b461-7e3fbb404e64",
+      "turnId": "01a0aacf-0b2c-71c1-a60d-21874fd7dec2"
+     }
+    },
+    {
+     "label": "turn 3: status --tail 3",
+     "command": "env OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js OMB_TOKEN= /home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs status --tail 3 --project /tmp/oml-v2-hosts-i1Dlq7/project",
+     "startedAt": "2026-09-16T15:22:35.912Z",
+     "durationMs": 49,
+     "exitCode": 0,
+     "output": {
+      "ok": true,
+      "verb": "status",
+      "run": null,
+      "complete": true,
+      "incomplete": [],
+      "bots": [
+       {
+        "id": "ab6bd30b-1c09-4d09-94d5-6031960c2ba0",
+        "name": "Quill",
+        "key": "quill",
+        "title": "Code Reviewer",
+        "busy": false,
+        "activity": "idle",
+        "threadId": "5e4c497f-21c6-442f-b1a1-8a91f857049d",
+        "discovered": false
+       },
+       {
+        "id": "52aea65f-42e5-4927-a453-a9c0f72c9d0e",
+        "name": "Nova",
+        "key": "nova",
+        "title": "Implementer",
+        "busy": false,
+        "activity": "idle",
+        "threadId": "0e59c3a5-510d-423e-9655-67ab765e8b63",
+        "discovered": false
+       },
+       {
+        "id": "31c7cbcb-cdd0-4f63-ae82-54fdcb1c1c62",
+        "name": "Vale",
+        "key": "vale",
+        "title": "Plan Reviewer",
+        "busy": false,
+        "activity": "idle",
+        "threadId": "a2083f1c-380a-41fe-9bb4-246a6f069005",
+        "discovered": false
+       },
+       {
+        "id": "2ec3974e-aa44-4790-8bc3-a01d6dded30c",
+        "name": "Sage",
+        "key": "sage",
+        "title": "Planner",
+        "busy": false,
+        "activity": "idle",
+        "threadId": "ebb0f0b9-f747-4f27-9aa4-e00596f9208d",
+        "discovered": false
+       },
+       {
+        "id": "73230cfd-3bba-4962-800e-57ba1d3d5004",
+        "name": "Sudo",
+        "key": "sudo",
+        "title": "Team Lead",
+        "busy": false,
+        "activity": "idle",
+        "threadId": "86905161-06df-4cbd-9e6c-89eaadeae032",
+        "discovered": false
+       }
+      ],
+      "busy": [],
+      "pending": [],
+      "lead": {
+       "id": "49c62479-285a-4ed2-b67e-b71f522dfade",
+       "at": 1789572152060,
+       "text": "396649b2"
+      },
+      "lastUser": {
+       "id": "8004203b-6416-4305-99ab-25b517702a66",
+       "at": 1789572143925,
+       "text": "OpenClaw check 396649b2: reply with just the nonce 396649b2"
+      },
+      "tail": [
+       {
+        "id": "6cff2a1d-dac3-473e-bb58-68560f95b3f4",
+        "at": 1789571858503,
+        "role": "bot",
+        "kind": "text",
+        "from": null,
+        "text": "ee42ea0e"
+       },
+       {
+        "id": "8004203b-6416-4305-99ab-25b517702a66",
+        "at": 1789572143925,
+        "role": "user",
+        "kind": "text",
+        "from": null,
+        "text": "OpenClaw check 396649b2: reply with just the nonce 396649b2"
+       },
+       {
+        "id": "49c62479-285a-4ed2-b67e-b71f522dfade",
+        "at": 1789572152060,
+        "role": "bot",
+        "kind": "text",
+        "from": null,
+        "text": "396649b2"
+       }
+      ]
+     },
+     "source": {
+      "store": "~/.openclaw/agents/main/agent/codex-home/thread_history_1.sqlite",
+      "table": "thread_items",
+      "itemId": "exec-c1a6c559-ba24-4875-b8da-29a290a3344c",
+      "threadId": "01a0aac6-98bc-7ce0-b461-7e3fbb404e64",
+      "turnId": "01a0aacf-0b2c-71c1-a60d-21874fd7dec2",
+      "outputFrom": "the native store kept no output for this item; the text is the block the agent pasted in openclaw-turn3.json"
+     }
+    }
+   ],
+   "escalations": {
+    "resolved": [
+     {
+      "id": "plugin:ed2a39a6-a6a9-4032-b9a1-818ad236e1b7",
+      "title": "Codex app-server command approval",
+      "pluginId": "codex",
+      "toolName": "codex_command_approval",
+      "agentId": "main",
+      "allowedDecisions": [
+       "allow-once",
+       "allow-always",
+       "deny"
+      ],
+      "createdAt": "2026-09-16T15:21:54.556Z",
+      "expiresAt": "2026-09-16T15:23:54.556Z",
+      "resolvedAt": "2026-09-16T15:21:59.883Z",
+      "decision": "allow-once",
+      "resolver": {
+       "kind": "runtime",
+       "id": "cli"
+      },
+      "status": "allowed",
+      "expiryWindowSeconds": 120.0,
+      "secondsToDecision": 5.327,
+      "authorizedCommand": {
+       "itemId": "exec-47863594-fa23-4530-83db-853728c358bf",
+       "startedAt": "2026-09-16T15:22:00.055Z",
+       "command": "env OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js OMB_TOKEN= /home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs doctor --server --project /tmp/oml-v2-hosts-i1Dlq7/project",
+       "exitCode": 0,
+       "msAfterDecision": 172
+      }
+     },
+     {
+      "id": "plugin:7d191f4a-d919-4e2c-9d8b-c4dda01a017b",
+      "title": "Codex app-server command approval",
+      "pluginId": "codex",
+      "toolName": "codex_command_approval",
+      "agentId": "main",
+      "allowedDecisions": [
+       "allow-once",
+       "allow-always",
+       "deny"
+      ],
+      "createdAt": "2026-09-16T15:22:07.540Z",
+      "expiresAt": "2026-09-16T15:24:07.540Z",
+      "resolvedAt": "2026-09-16T15:22:12.019Z",
+      "decision": "allow-once",
+      "resolver": {
+       "kind": "runtime",
+       "id": "cli"
+      },
+      "status": "allowed",
+      "expiryWindowSeconds": 120.0,
+      "secondsToDecision": 4.479,
+      "authorizedCommand": {
+       "itemId": "exec-309ee2fc-c93a-466d-9424-7bde183e9040",
+       "startedAt": "2026-09-16T15:22:12.191Z",
+       "command": "env OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js OMB_TOKEN= /home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs status --brief --project /tmp/oml-v2-hosts-i1Dlq7/project",
+       "exitCode": 0,
+       "msAfterDecision": 172
+      }
+     },
+     {
+      "id": "plugin:dba3b0a5-dc97-4a0f-a459-908bcd3c20a2",
+      "title": "Codex app-server command approval",
+      "pluginId": "codex",
+      "toolName": "codex_command_approval",
+      "agentId": "main",
+      "allowedDecisions": [
+       "allow-once",
+       "allow-always",
+       "deny"
+      ],
+      "createdAt": "2026-09-16T15:22:18.756Z",
+      "expiresAt": "2026-09-16T15:24:18.756Z",
+      "resolvedAt": "2026-09-16T15:22:23.763Z",
+      "decision": "allow-once",
+      "resolver": {
+       "kind": "runtime",
+       "id": "cli"
+      },
+      "status": "allowed",
+      "expiryWindowSeconds": 120.0,
+      "secondsToDecision": 5.007,
+      "authorizedCommand": {
+       "itemId": "exec-01e71881-80a4-4189-b6fe-ea1cae793f6d",
+       "startedAt": "2026-09-16T15:22:23.938Z",
+       "command": "env OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js OMB_TOKEN= /home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs send \"OpenClaw check 396649b2: reply with just the nonce 396649b2\" --project /tmp/oml-v2-hosts-i1Dlq7/project",
+       "exitCode": 0,
+       "msAfterDecision": 175
+      }
+     },
+     {
+      "id": "plugin:0ce14524-5400-4732-9077-ddcd72e2c49e",
+      "title": "Codex app-server command approval",
+      "pluginId": "codex",
+      "toolName": "codex_command_approval",
+      "agentId": "main",
+      "allowedDecisions": [
+       "allow-once",
+       "allow-always",
+       "deny"
+      ],
+      "createdAt": "2026-09-16T15:22:30.657Z",
+      "expiresAt": "2026-09-16T15:24:30.657Z",
+      "resolvedAt": "2026-09-16T15:22:35.735Z",
+      "decision": "allow-once",
+      "resolver": {
+       "kind": "runtime",
+       "id": "cli"
+      },
+      "status": "allowed",
+      "expiryWindowSeconds": 120.0,
+      "secondsToDecision": 5.078,
+      "authorizedCommand": {
+       "itemId": "exec-c1a6c559-ba24-4875-b8da-29a290a3344c",
+       "startedAt": "2026-09-16T15:22:35.912Z",
+       "command": "env OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js OMB_TOKEN= /home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs status --tail 3 --project /tmp/oml-v2-hosts-i1Dlq7/project",
+       "exitCode": 0,
+       "msAfterDecision": 177
+      }
+     }
+    ],
+    "rule": "one approval card per command; allow-once was used every time and allow-always never",
+    "expired": [
+     {
+      "id": "plugin:d5680bba-9625-40e3-995a-6bf946a38f76",
+      "source": "/tmp/openclaw/openclaw-2026-09-16.log line 245: \"[openclaw] Reason: Approval plugin:d5680bba-9625-40e3-995a-6bf946a38f76 expired.\" at 2026-09-16T15:20:48.153Z"
+     },
+     {
+      "id": "not recorded",
+      "note": "the second expired request of CLI turn 2 is visible only as a completed wait",
+      "source": "/tmp/openclaw/openclaw-2026-09-16.log lines 239 and 241: plugin.approval.waitDecision 119971ms at 15:18:00.738Z and 119976ms at 15:20:21.429Z"
+     }
+    ]
+   },
+   "automations": {
+    "alias": "openclaw cron is an alias of openclaw automations",
+    "jobs": [
+     {
+      "name": "omb-empty",
+      "id": "2e7024a8-50fd-4aea-b6be-f43fcd284ebd",
+      "command": "true",
+      "flags": "--announce --channel telegram --to 7724282441",
+      "payloadArgv": [
+       "sh",
+       "-lc",
+       "true"
+      ],
+      "cwd": "/tmp/oml-v2-hosts-i1Dlq7/project",
+      "schedule": {
+       "kind": "every",
+       "everyMs": 3600000
+      },
+      "run": {
+       "ts": 1789572099904,
+       "jobId": "2e7024a8-50fd-4aea-b6be-f43fcd284ebd",
+       "action": "finished",
+       "status": "ok",
+       "completionStatus": "succeeded",
+       "runId": "manual:2e7024a8-50fd-4aea-b6be-f43fcd284ebd:1789572099849:1",
+       "diagnostics": {
+        "entries": [
+         {
+          "ts": 1789572099903,
+          "source": "exec",
+          "severity": "info",
+          "message": "command ok with no output: \"sh\" \"-lc\" \"true\"",
+          "exitCode": 0
+         }
+        ]
+       },
+       "runAtMs": 1789572099864,
+       "durationMs": 40,
+       "nextRunAtMs": 1789575697100,
+       "delivered": false,
+       "deliveryStatus": "not-delivered",
+       "deliverySuppressionReason": "empty",
+       "delivery": {
+        "intended": {
+         "channel": "telegram",
+         "to": "7724282441",
+         "source": "explicit"
+        },
+        "delivered": false
+       },
+       "jobName": "omb-empty",
+       "tsIso": "2026-09-16T11:21:39.904-04:00",
+       "runAtIso": "2026-09-16T11:21:39.864-04:00",
+       "nextRunAtIso": "2026-09-16T12:21:37.100-04:00"
+      }
+     },
+     {
+      "name": "omb-status",
+      "id": "b117317c-f27b-4bc9-903a-4f63beac6a7a",
+      "command": "<skill>/scripts/omb.mjs status --project /tmp/oml-v2-hosts-i1Dlq7/project --brief",
+      "flags": "--command-env OMB_BIN=<cli.js> --command-env OMB_TOKEN= --announce --channel telegram --to 7724282441",
+      "payloadArgv": [
+       "sh",
+       "-lc",
+       "/home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs status --project /tmp/oml-v2-hosts-i1Dlq7/project --brief"
+      ],
+      "cwd": "/tmp/oml-v2-hosts-i1Dlq7/project",
+      "schedule": {
+       "kind": "every",
+       "everyMs": 3600000
+      },
+      "run": {
+       "ts": 1789572102832,
+       "jobId": "b117317c-f27b-4bc9-903a-4f63beac6a7a",
+       "action": "finished",
+       "status": "ok",
+       "completionStatus": "succeeded",
+       "summary": "status · no run · team idle",
+       "runId": "manual:b117317c-f27b-4bc9-903a-4f63beac6a7a:1789572101199:2",
+       "diagnostics": {
+        "summary": "status · no run · team idle",
+        "entries": [
+         {
+          "ts": 1789572101444,
+          "source": "exec",
+          "severity": "info",
+          "message": "command ok: \"sh\" \"-lc\" \"/home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs status --project /tmp/oml-v2-hosts-i1Dlq7/project --brief\"",
+          "exitCode": 0
+         }
+        ]
+       },
+       "runAtMs": 1789572101210,
+       "durationMs": 1622,
+       "nextRunAtMs": 1789575698499,
+       "delivered": true,
+       "deliveryStatus": "delivered",
+       "delivery": {
+        "intended": {
+         "channel": "telegram",
+         "to": "7724282441",
+         "source": "explicit"
+        },
+        "delivered": true
+       },
+       "jobName": "omb-status",
+       "tsIso": "2026-09-16T11:21:42.832-04:00",
+       "runAtIso": "2026-09-16T11:21:41.210-04:00",
+       "nextRunAtIso": "2026-09-16T12:21:38.499-04:00"
+      }
+     }
+    ],
+    "answer": "an OpenClaw automation with --announce does not deliver an empty message: the empty run is delivered:false, deliveryStatus \"not-delivered\", deliverySuppressionReason \"empty\", while the status line was delivered:true with summary \"status · no run · team idle\"",
+    "cleanup": "both jobs were removed after the test",
+    "rawFile": "scratchpad/openclaw-automations.txt"
+   },
+   "notExercised": [
+    "the exec tool's 10-second background yield for a long watch (it needs an open run)",
+    "allow-always",
+    "a non-loopback gateway bind"
+   ],
+   "acknowledgment": {
+    "nonce": "396649b2",
+    "threadId": "86905161-06df-4cbd-9e6c-89eaadeae032",
+    "sendMessageId": "8004203b-6416-4305-99ab-25b517702a66",
+    "sendId": "send-dbd80eeeb88a2886",
+    "duplicate": false,
+    "sentAtMs": 1789572143925,
+    "sentAt": "2026-09-16T15:22:23.925Z",
+    "replyMessageId": "49c62479-285a-4ed2-b67e-b71f522dfade",
+    "repliedAtMs": 1789572152060,
+    "repliedAt": "2026-09-16T15:22:32.060Z",
+    "replyText": "396649b2",
+    "secondsToReply": 8.135,
+    "ombTurnId": "50518f2e-25e6-4c19-93ef-a57a4beb314c"
+   }
+  },
+  "hermes": {
+   "version": "not printed by a version command (\"hermes version\" is not a command); ~/.hermes/hermes-agent/pyproject.toml reads name \"hermes-agent\", version \"0.21.3\"",
+   "installedOn": "2026-09-16",
+   "install": {
+    "command": "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash --non-interactive --skip-setup --skip-browser --skip-computer-use",
+    "target": "~/.hermes/hermes-agent (uv-managed Python)",
+    "prerequisite": "the installer needs a C++ compiler: sudo apt install build-essential",
+    "entryPoint": "~/.local/bin/hermes"
+   },
+   "auth": {
+    "command": "hermes auth add openai-codex --type oauth --no-browser",
+    "flow": "device code, completed in the user's browser",
+    "credential": "openai-codex-oauth-1",
+    "config": {
+     "model.provider": "openai-codex",
+     "model.default": "gpt-5.6-sol"
+    },
+    "probe": "hermes -z \"…\" → pong"
+   },
+   "discovery": {
+    "listCommand": "hermes skills list",
+    "beforeConfig": "openmausbot-launcher was absent: the documented default scan of ~/.agents/skills did not hold on this install",
+    "fix": "skills.external_dirs: [~/.agents/skills] in ~/.hermes/config.yaml",
+    "afterConfig": "listed as local/local/enabled",
+    "runtimeLoad": "the agent loaded it with its skill_view tool; the tool result begins {\"success\": true, \"name\": \"openmausbot-launcher\", …}",
+    "runtimeLoadSource": "~/.hermes/state.db messages 5 and 15"
+   },
+   "policy": {
+    "terminalBackend": "local",
+    "sandbox": "none",
+    "env": "OMB_BIN and OMB_TOKEN were exported in the launching shell",
+    "terminalTimeoutDefault": 180,
+    "terminalLifetimeSeconds": 300,
+    "timeoutsUsed": [
+     600,
+     180
+    ],
+    "configSource": "~/.hermes/config.yaml (terminal.backend, terminal.timeout, terminal.lifetime_seconds)"
+   },
+   "turns": [
+    {
+     "label": "turn 1: doctor, doctor --server, status --brief",
+     "sessionId": "20260916_111246_e6c67d",
+     "startedAt": "2026-09-16T15:12:43Z",
+     "endedAt": "2026-09-16T15:13:54Z",
+     "invocation": "hermes -z \"<prompt>\"",
+     "rawFile": "scratchpad/hermes-turn1.out"
+    },
+    {
+     "label": "turn 2: send and status --tail 3",
+     "sessionId": "20260916_111540_924d2f",
+     "startedAt": "2026-09-16T15:15:38Z",
+     "endedAt": "2026-09-16T15:16:48Z",
+     "invocation": "hermes -z \"<prompt>\"",
+     "rawFile": "scratchpad/hermes-turn2.out"
+    }
+   ],
+   "commands": [
+    {
+     "label": "turn 1: skill tool load",
+     "tool": "skill_view",
+     "command": "skill_view {\"name\":\"openmausbot-launcher\"}",
+     "timeoutArgument": null,
+     "startedAt": "2026-09-16T15:12:54.594Z",
+     "endedAt": "2026-09-16T15:12:54.741Z",
+     "output": "{\"success\": true, \"name\": \"openmausbot-launcher\", \"description\": \"Operate a local OpenMausBot (OMB) multi-bot server as the user's launcher. Starts and stops the headless server, imports a team package (.openmaus.json), binds the team to a  …",
+     "source": {
+      "store": "~/.hermes/state.db",
+      "table": "messages",
+      "sessionId": "20260916_111246_e6c67d",
+      "callMessageId": 4,
+      "resultMessageId": 5
+     },
+     "outputNote": "truncated: the skill tool returns the whole SKILL.md"
+    },
+    {
+     "label": "turn 1: doctor",
+     "tool": "terminal",
+     "command": "/home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs doctor --project /tmp/oml-v2-hosts-i1Dlq7/project",
+     "timeoutArgument": 600,
+     "startedAt": "2026-09-16T15:12:58.557Z",
+     "endedAt": "2026-09-16T15:12:58.873Z",
+     "exitCode": 0,
+     "output": {
+      "ok": true,
+      "verb": "doctor",
+      "mode": "local",
+      "url": "http://127.0.0.1:8899",
+      "project": "/tmp/oml-v2-hosts-i1Dlq7/project",
+      "dataDir": "/home/wsh/.cache/agent-team/omb-launcher-data-v2hosts-ZBIA7t-20260916T143458-6frTho",
+      "checks": [
+       {
+        "id": "node",
+        "ok": true,
+        "required": true,
+        "detail": "node 24.11.0; local mode needs 24+"
+       },
+       {
+        "id": "binary",
+        "ok": true,
+        "required": true,
+        "detail": "/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js (openmausbot 0.1.56, from OMB_BIN)"
+       },
+       {
+        "id": "git",
+        "ok": true,
+        "required": true,
+        "detail": "git on PATH"
+       },
+       {
+        "id": "project",
+        "ok": true,
+        "required": true,
+        "detail": "git repository at /tmp/oml-v2-hosts-i1Dlq7/project"
+       },
+       {
+        "id": "data-dir",
+        "ok": true,
+        "required": false,
+        "detail": "/home/wsh/.cache/agent-team/omb-launcher-data-v2hosts-ZBIA7t-20260916T143458-6frTho is readable"
+       }
+      ],
+      "engines": [],
+      "state": {
+       "server": {
+        "url": "http://127.0.0.1:8899",
+        "owned": true,
+        "healthPid": 43179
+       },
+       "team": {
+        "section": "Agent Team dev team",
+        "lead": "Sudo",
+        "bots": 5
+       },
+       "task": null
+      },
+      "failed": []
+     },
+     "source": {
+      "store": "~/.hermes/state.db",
+      "table": "messages",
+      "sessionId": "20260916_111246_e6c67d",
+      "callMessageId": 6,
+      "resultMessageId": 7
+     }
+    },
+    {
+     "label": "turn 1: doctor --server",
+     "tool": "terminal",
+     "command": "/home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs doctor --server --project /tmp/oml-v2-hosts-i1Dlq7/project",
+     "timeoutArgument": 600,
+     "startedAt": "2026-09-16T15:13:02.509Z",
+     "endedAt": "2026-09-16T15:13:03.543Z",
+     "exitCode": 0,
+     "output": {
+      "ok": true,
+      "verb": "doctor",
+      "mode": "local",
+      "url": "http://127.0.0.1:8899",
+      "project": "/tmp/oml-v2-hosts-i1Dlq7/project",
+      "dataDir": "/home/wsh/.cache/agent-team/omb-launcher-data-v2hosts-ZBIA7t-20260916T143458-6frTho",
+      "checks": [
+       {
+        "id": "node",
+        "ok": true,
+        "required": true,
+        "detail": "node 24.11.0; local mode needs 24+"
+       },
+       {
+        "id": "binary",
+        "ok": true,
+        "required": true,
+        "detail": "/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js (openmausbot 0.1.56, from OMB_BIN)"
+       },
+       {
+        "id": "git",
+        "ok": true,
+        "required": true,
+        "detail": "git on PATH"
+       },
+       {
+        "id": "project",
+        "ok": true,
+        "required": true,
+        "detail": "git repository at /tmp/oml-v2-hosts-i1Dlq7/project"
+       },
+       {
+        "id": "data-dir",
+        "ok": true,
+        "required": false,
+        "detail": "/home/wsh/.cache/agent-team/omb-launcher-data-v2hosts-ZBIA7t-20260916T143458-6frTho is readable"
+       },
+       {
+        "id": "health",
+        "ok": true,
+        "required": true,
+        "detail": "http://127.0.0.1:8899 answers, pid 43179"
+       },
+       {
+        "id": "session",
+        "ok": true,
+        "required": true,
+        "detail": "loopback with scopes admin,client"
+       },
+       {
+        "id": "engines",
+        "ok": true,
+        "required": true,
+        "detail": "grok:available kimi:unavailable droid:unavailable cursor:unavailable claude:available codex:available antigravity:unavailable opencodeGo:unavailable computer:unavailable openaiCompat:unavailable qwen:unavailable hermes:available pi:unavailable"
+       },
+       {
+        "id": "provider-keys",
+        "ok": true,
+        "required": true,
+        "detail": "no provider API keys in the server's environment"
+       },
+       {
+        "id": "identity",
+        "ok": true,
+        "required": false,
+        "detail": "the recorded server identity matches"
+       }
+      ],
+      "state": {
+       "server": {
+        "url": "http://127.0.0.1:8899",
+        "owned": true,
+        "healthPid": 43179
+       },
+       "team": {
+        "section": "Agent Team dev team",
+        "lead": "Sudo",
+        "bots": 5
+       },
+       "task": null
+      },
+      "failed": []
+     },
+     "source": {
+      "store": "~/.hermes/state.db",
+      "table": "messages",
+      "sessionId": "20260916_111246_e6c67d",
+      "callMessageId": 8,
+      "resultMessageId": 9
+     },
+     "outputOmitted": "the engines[] model catalogue is omitted; it is OpenMausBot's list of installed engines, not a launcher result, and the engines check line above carries the same summary verbatim"
+    },
+    {
+     "label": "turn 1: status --brief",
+     "tool": "terminal",
+     "command": "/home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs status --brief --project /tmp/oml-v2-hosts-i1Dlq7/project",
+     "timeoutArgument": 600,
+     "startedAt": "2026-09-16T15:13:11.266Z",
+     "endedAt": "2026-09-16T15:13:11.680Z",
+     "exitCode": 0,
+     "output": "status · no run · team idle",
+     "source": {
+      "store": "~/.hermes/state.db",
+      "table": "messages",
+      "sessionId": "20260916_111246_e6c67d",
+      "callMessageId": 10,
+      "resultMessageId": 11
+     }
+    },
+    {
+     "label": "turn 2: skill tool load",
+     "tool": "skill_view",
+     "command": "skill_view {\"name\":\"openmausbot-launcher\"}",
+     "timeoutArgument": null,
+     "startedAt": "2026-09-16T15:15:48.368Z",
+     "endedAt": "2026-09-16T15:15:48.447Z",
+     "output": "{\"success\": true, \"name\": \"openmausbot-launcher\", \"description\": \"Operate a local OpenMausBot (OMB) multi-bot server as the user's launcher. Starts and stops the headless server, imports a team package (.openmaus.json), binds the team to a  …",
+     "source": {
+      "store": "~/.hermes/state.db",
+      "table": "messages",
+      "sessionId": "20260916_111540_924d2f",
+      "callMessageId": 14,
+      "resultMessageId": 15
+     },
+     "outputNote": "truncated: the skill tool returns the whole SKILL.md"
+    },
+    {
+     "label": "turn 2: send",
+     "tool": "terminal",
+     "command": "/home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs send \"Hermes check 7755d349: reply with just the nonce 7755d349\" --project /tmp/oml-v2-hosts-i1Dlq7/project",
+     "timeoutArgument": 180,
+     "startedAt": "2026-09-16T15:15:52.447Z",
+     "endedAt": "2026-09-16T15:15:52.791Z",
+     "exitCode": 0,
+     "output": {
+      "ok": true,
+      "verb": "send",
+      "bot": "Sudo",
+      "threadId": "86905161-06df-4cbd-9e6c-89eaadeae032",
+      "messageId": "22ca85be-86c2-46c6-a07c-c01a26ed3813",
+      "steered": false,
+      "queued": false,
+      "queueId": null,
+      "duplicate": false,
+      "sendId": "send-30ae5edf298d1efd"
+     },
+     "source": {
+      "store": "~/.hermes/state.db",
+      "table": "messages",
+      "sessionId": "20260916_111540_924d2f",
+      "callMessageId": 16,
+      "resultMessageId": 17
+     },
+     "outputNote": "stdout also carried the Node SQLite ExperimentalWarning lines"
+    },
+    {
+     "label": "turn 2: status --tail 3",
+     "tool": "terminal",
+     "command": "/home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs status --tail 3 --project /tmp/oml-v2-hosts-i1Dlq7/project",
+     "timeoutArgument": 180,
+     "startedAt": "2026-09-16T15:15:57.461Z",
+     "endedAt": "2026-09-16T15:15:57.763Z",
+     "exitCode": 0,
+     "output": {
+      "ok": true,
+      "verb": "status",
+      "run": null,
+      "complete": true,
+      "incomplete": [],
+      "bots": [
+       {
+        "id": "ab6bd30b-1c09-4d09-94d5-6031960c2ba0",
+        "name": "Quill",
+        "key": "quill",
+        "title": "Code Reviewer",
+        "busy": false,
+        "activity": "idle",
+        "threadId": "5e4c497f-21c6-442f-b1a1-8a91f857049d",
+        "discovered": false
+       },
+       {
+        "id": "52aea65f-42e5-4927-a453-a9c0f72c9d0e",
+        "name": "Nova",
+        "key": "nova",
+        "title": "Implementer",
+        "busy": false,
+        "activity": "idle",
+        "threadId": "0e59c3a5-510d-423e-9655-67ab765e8b63",
+        "discovered": false
+       },
+       {
+        "id": "31c7cbcb-cdd0-4f63-ae82-54fdcb1c1c62",
+        "name": "Vale",
+        "key": "vale",
+        "title": "Plan Reviewer",
+        "busy": false,
+        "activity": "idle",
+        "threadId": "a2083f1c-380a-41fe-9bb4-246a6f069005",
+        "discovered": false
+       },
+       {
+        "id": "2ec3974e-aa44-4790-8bc3-a01d6dded30c",
+        "name": "Sage",
+        "key": "sage",
+        "title": "Planner",
+        "busy": false,
+        "activity": "idle",
+        "threadId": "ebb0f0b9-f747-4f27-9aa4-e00596f9208d",
+        "discovered": false
+       },
+       {
+        "id": "73230cfd-3bba-4962-800e-57ba1d3d5004",
+        "name": "Sudo",
+        "key": "sudo",
+        "title": "Team Lead",
+        "busy": true,
+        "activity": "working",
+        "threadId": "86905161-06df-4cbd-9e6c-89eaadeae032",
+        "discovered": false
+       }
+      ],
+      "busy": [
+       "Sudo"
+      ],
+      "pending": [],
+      "lead": null,
+      "lastUser": {
+       "id": "22ca85be-86c2-46c6-a07c-c01a26ed3813",
+       "at": 1789571752668,
+       "text": "Hermes check 7755d349: reply with just the nonce 7755d349"
+      },
+      "tail": [
+       {
+        "id": "22ca85be-86c2-46c6-a07c-c01a26ed3813",
+        "at": 1789571752668,
+        "role": "user",
+        "kind": "text",
+        "from": null,
+        "text": "Hermes check 7755d349: reply with just the nonce 7755d349"
+       }
+      ]
+     },
+     "source": {
+      "store": "~/.hermes/state.db",
+      "table": "messages",
+      "sessionId": "20260916_111540_924d2f",
+      "callMessageId": 18,
+      "resultMessageId": 19
+     }
+    },
+    {
+     "label": "turn 2: sleep 20",
+     "tool": "terminal",
+     "command": "sleep 20",
+     "timeoutArgument": 30,
+     "startedAt": "2026-09-16T15:16:01.662Z",
+     "endedAt": "2026-09-16T15:16:21.881Z",
+     "exitCode": 0,
+     "output": "",
+     "source": {
+      "store": "~/.hermes/state.db",
+      "table": "messages",
+      "sessionId": "20260916_111540_924d2f",
+      "callMessageId": 20,
+      "resultMessageId": 21
+     }
+    },
+    {
+     "label": "turn 2: status --tail 3 again",
+     "tool": "terminal",
+     "command": "/home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs status --tail 3 --project /tmp/oml-v2-hosts-i1Dlq7/project",
+     "timeoutArgument": 180,
+     "startedAt": "2026-09-16T15:16:26.356Z",
+     "endedAt": "2026-09-16T15:16:26.632Z",
+     "exitCode": 0,
+     "output": {
+      "ok": true,
+      "verb": "status",
+      "run": null,
+      "complete": true,
+      "incomplete": [],
+      "bots": [
+       {
+        "id": "ab6bd30b-1c09-4d09-94d5-6031960c2ba0",
+        "name": "Quill",
+        "key": "quill",
+        "title": "Code Reviewer",
+        "busy": false,
+        "activity": "idle",
+        "threadId": "5e4c497f-21c6-442f-b1a1-8a91f857049d",
+        "discovered": false
+       },
+       {
+        "id": "52aea65f-42e5-4927-a453-a9c0f72c9d0e",
+        "name": "Nova",
+        "key": "nova",
+        "title": "Implementer",
+        "busy": false,
+        "activity": "idle",
+        "threadId": "0e59c3a5-510d-423e-9655-67ab765e8b63",
+        "discovered": false
+       },
+       {
+        "id": "31c7cbcb-cdd0-4f63-ae82-54fdcb1c1c62",
+        "name": "Vale",
+        "key": "vale",
+        "title": "Plan Reviewer",
+        "busy": false,
+        "activity": "idle",
+        "threadId": "a2083f1c-380a-41fe-9bb4-246a6f069005",
+        "discovered": false
+       },
+       {
+        "id": "2ec3974e-aa44-4790-8bc3-a01d6dded30c",
+        "name": "Sage",
+        "key": "sage",
+        "title": "Planner",
+        "busy": false,
+        "activity": "idle",
+        "threadId": "ebb0f0b9-f747-4f27-9aa4-e00596f9208d",
+        "discovered": false
+       },
+       {
+        "id": "73230cfd-3bba-4962-800e-57ba1d3d5004",
+        "name": "Sudo",
+        "key": "sudo",
+        "title": "Team Lead",
+        "busy": false,
+        "activity": "idle",
+        "threadId": "86905161-06df-4cbd-9e6c-89eaadeae032",
+        "discovered": false
+       }
+      ],
+      "busy": [],
+      "pending": [],
+      "lead": {
+       "id": "539457e9-793a-4e4c-8a9e-9c6aeb323e3a",
+       "at": 1789571763146,
+       "text": "7755d349"
+      },
+      "lastUser": {
+       "id": "22ca85be-86c2-46c6-a07c-c01a26ed3813",
+       "at": 1789571752668,
+       "text": "Hermes check 7755d349: reply with just the nonce 7755d349"
+      },
+      "tail": [
+       {
+        "id": "22ca85be-86c2-46c6-a07c-c01a26ed3813",
+        "at": 1789571752668,
+        "role": "user",
+        "kind": "text",
+        "from": null,
+        "text": "Hermes check 7755d349: reply with just the nonce 7755d349"
+       },
+       {
+        "id": "539457e9-793a-4e4c-8a9e-9c6aeb323e3a",
+        "at": 1789571763146,
+        "role": "bot",
+        "kind": "text",
+        "from": null,
+        "text": "7755d349"
+       }
+      ]
+     },
+     "source": {
+      "store": "~/.hermes/state.db",
+      "table": "messages",
+      "sessionId": "20260916_111540_924d2f",
+      "callMessageId": 22,
+      "resultMessageId": 23
+     }
+    }
+   ],
+   "cron": {
+    "adapter": {
+     "path": "~/.hermes/scripts/omb-watch.sh",
+     "body": "#!/bin/sh\n# ~/.hermes/scripts/omb-watch.sh — Hermes cron adapter for the launcher (hosts.md recipe; status form while no run is open).\nexport OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js OMB_TOKEN=\n/home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs status --project /tmp/oml-v2-hosts-i1Dlq7/project --brief\nc=$?; case $c in 0|4|5) exit 0;; *) exit $c;; esac\n",
+     "note": "the hosts.md adapter with status --brief because no run was open; it exports OMB_BIN"
+    },
+    "createCommand": "hermes cron create \"every 5m\" --name omb-watch --no-agent --script omb-watch.sh --deliver local",
+    "jobId": "8be2016cb077",
+    "gatewayRequired": "jobs fire only with the gateway: hermes gateway install (user service hermes-gateway.service; the installer enabled loginctl linger)",
+    "runCommand": "hermes cron run 8be2016cb077",
+    "runResult": "Ran now: succeeded",
+    "execution": {
+     "id": "850abc24d9d84ee99831b4fb2d8583e4",
+     "job_id": "8be2016cb077",
+     "source": "direct",
+     "process_id": "52ace5cf1ecc429bbeefca94ee1044f1",
+     "pid": 62011,
+     "process_started_at": 1503163,
+     "status": "completed",
+     "handoff_pending": 0,
+     "handoff_started_at": null,
+     "claimed_at": "2026-09-16T11:18:35.444185-04:00",
+     "started_at": "2026-09-16T11:18:35.655640-04:00",
+     "finished_at": "2026-09-16T11:18:36.027060-04:00",
+     "error": null,
+     "delivery_outcome": "suppressed",
+     "scheduled_instant": null
+    },
+    "executionSource": "~/.hermes/cron/executions.db, table executions",
+    "outputFile": {
+     "path": "~/.hermes/cron/output/8be2016cb077/2026-09-16_11-18-35.md",
+     "contents": "Mode: no_agent (script) with the body line \"status · no run · team idle\"",
+     "contentsSource": "session ledger; the file was removed with the job and is no longer readable"
+    },
+    "deliverValues": [
+     "origin",
+     "local",
+     "telegram",
+     "discord",
+     "signal",
+     "platform:chat_id"
+    ],
+    "cleanup": "the job was removed afterwards (~/.hermes/cron/jobs.json now lists none)"
+   },
+   "notExercised": [
+    "a watch longer than the terminal tool's configured timeout",
+    "cron delivery to telegram, discord or signal"
+   ],
+   "acknowledgment": {
+    "nonce": "7755d349",
+    "threadId": "86905161-06df-4cbd-9e6c-89eaadeae032",
+    "sendMessageId": "22ca85be-86c2-46c6-a07c-c01a26ed3813",
+    "sendId": "send-30ae5edf298d1efd",
+    "duplicate": false,
+    "sentAtMs": 1789571752668,
+    "sentAt": "2026-09-16T15:15:52.668Z",
+    "replyMessageId": "539457e9-793a-4e4c-8a9e-9c6aeb323e3a",
+    "repliedAtMs": 1789571763146,
+    "repliedAt": "2026-09-16T15:16:03.146Z",
+    "replyText": "7755d349",
+    "secondsToReply": 10.478,
+    "ombTurnId": "c8630b48-c755-4817-aec4-ca293b3569c0"
+   }
+  },
+  "dsh": {
+   "version": "0.1.5-rc.1",
+   "versionSource": "/home/wsh/.local/lib/node-v24.11.0/lib/node_modules/@deepseek-ai/dsh/package.json",
+   "install": {
+    "command": "npm install -g @deepseek-ai/dsh@latest (Node 24.11.0 prefix)",
+    "allowScripts": [
+     "@deepseek-ai/dsh-subprocess-local",
+     "koffi",
+     "node-pty",
+     "@google/genai",
+     "protobufjs"
+    ],
+    "symlink": "~/.local/bin/dsh",
+    "key": "DEEPSEEK_API_KEY read by a wrapper from a 0600 file, never in argv",
+    "headlessEntry": "dsh --profile headless \"<task>\" (one task, reasoning on stderr, final message on stdout)",
+    "probe": "pong"
+   },
+   "provider": "deepseek-official",
+   "model": "deepseek-flash",
+   "discovery": {
+    "installLocation": "~/.agents/skills (the only install location on this machine)",
+    "evidence": "the session prompt lists openmausbot-launcher with its description in an <available_skills> block, and the skill tool resolves its base directory to /home/wsh/.agents/skills/openmausbot-launcher",
+    "tierNumbers": "not verified: the tier numbers claimed by third-party posts were not checked"
+   },
+   "policy": {
+    "permissionPreset": "workspace-write",
+    "sandboxMode": "workspace-write",
+    "approvalPolicy": "ask",
+    "processIsolation": "dsh runs its shell subprocesses as the same user in a systemd scope named dsh-subprocess-* with its own PID namespace",
+    "consequence": "local process-identity verbs fail: doctor --server reports provider-keys \"unknown: the server's environment is not readable\" and identity ok:false, and status exits 3 with \"the live server process identity could not be verified\"",
+    "workaround": "--remote --url http://127.0.0.1:8899, which uses HTTP only",
+    "loopback": "allowed: the health check answered",
+    "shellTimeLimit": "not measured"
+   },
+   "probe": {
+    "label": "PID namespace probe",
+    "sessionId": "session-14fc49bb-3988-4532-935d-51576fdc7d3b",
+    "output": "```console\n1000\nwsh\nWSH\n\n0::/user.slice/user-1000.slice/user@1000.service/app.slice/dsh-subprocess-57953-87ffb975f19c.scope\n1\npid:[4026532841]\n[stderr]\nls: cannot access '/proc/43179': No such file or directory\nhead: cannot open '/proc/43179/stat' for reading: No such file or directory\n[exit code: 1]\n```\n",
+    "rawFile": "scratchpad/dsh-probe.out",
+    "reading": "the subprocess reports cgroup dsh-subprocess-57953-87ffb975f19c.scope, a PID namespace inode of its own, and cannot see /proc/43179, the server process"
+   },
+   "turns": [
+    {
+     "label": "turn 1: doctor, doctor --server, status --brief",
+     "sessionId": "session-912303f2-5dad-4839-b7fc-cc941b7d072f",
+     "startedAt": "2026-09-16T15:12:49Z",
+     "endedAt": "2026-09-16T15:13:16Z",
+     "rawFile": "scratchpad/dsh-turn1.out"
+    },
+    {
+     "label": "turn 2: send and status --tail 3 in remote mode",
+     "sessionId": "session-1801381b-3419-426a-b30c-48d022dd6f04",
+     "startedAt": "2026-09-16T15:17:23Z",
+     "endedAt": "2026-09-16T15:18:16Z",
+     "rawFile": "scratchpad/dsh-turn2.out",
+     "note": "status --tail 3 ran three times: once directly and twice inside a retry loop that reported FOUND_ON_ATTEMPT 2"
+    }
+   ],
+   "commands": [
+    {
+     "label": "turn 1: skill tool load",
+     "tool": "skill",
+     "command": "{\"name\": \"openmausbot-launcher\"}",
+     "startedAt": "2026-09-16T15:12:54.390Z",
+     "endedAt": "2026-09-16T15:12:54.412Z",
+     "output": "<skill_content name=\"openmausbot-launcher\">\n<skill_resources>\nBase directory for this skill: /home/wsh/.agents/skills/openmausbot-launcher\nResolve relative paths mentioned by this skill against the base directory before using them. Load ref …",
+     "source": {
+      "store": "~/.dsh/sessions/--tmp--/session-912303f2-5dad-4839-b7fc-cc941b7d072f/session.v3.jsonl.zstd",
+      "sessionId": "session-912303f2-5dad-4839-b7fc-cc941b7d072f",
+      "callId": "call_00_Q3mbTzv1WZ9jYqFBK2VE4111"
+     },
+     "outputNote": "truncated: the skill tool returns the whole SKILL.md"
+    },
+    {
+     "label": "turn 1: doctor",
+     "tool": "bash",
+     "command": "/home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs doctor --project /tmp/oml-v2-hosts-i1Dlq7/project",
+     "startedAt": "2026-09-16T15:12:57.423Z",
+     "endedAt": "2026-09-16T15:12:57.803Z",
+     "output": {
+      "ok": true,
+      "verb": "doctor",
+      "mode": "local",
+      "url": "http://127.0.0.1:8899",
+      "project": "/tmp/oml-v2-hosts-i1Dlq7/project",
+      "dataDir": "/home/wsh/.cache/agent-team/omb-launcher-data-v2hosts-ZBIA7t-20260916T143458-6frTho",
+      "checks": [
+       {
+        "id": "node",
+        "ok": true,
+        "required": true,
+        "detail": "node 24.11.0; local mode needs 24+"
+       },
+       {
+        "id": "binary",
+        "ok": true,
+        "required": true,
+        "detail": "/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js (openmausbot 0.1.56, from OMB_BIN)"
+       },
+       {
+        "id": "git",
+        "ok": true,
+        "required": true,
+        "detail": "git on PATH"
+       },
+       {
+        "id": "project",
+        "ok": true,
+        "required": true,
+        "detail": "git repository at /tmp/oml-v2-hosts-i1Dlq7/project"
+       },
+       {
+        "id": "data-dir",
+        "ok": true,
+        "required": false,
+        "detail": "/home/wsh/.cache/agent-team/omb-launcher-data-v2hosts-ZBIA7t-20260916T143458-6frTho is readable"
+       }
+      ],
+      "engines": [],
+      "state": {
+       "server": {
+        "url": "http://127.0.0.1:8899",
+        "owned": true,
+        "healthPid": 43179
+       },
+       "team": {
+        "section": "Agent Team dev team",
+        "lead": "Sudo",
+        "bots": 5
+       },
+       "task": null
+      },
+      "failed": []
+     },
+     "source": {
+      "store": "~/.dsh/sessions/--tmp--/session-912303f2-5dad-4839-b7fc-cc941b7d072f/session.v3.jsonl.zstd",
+      "sessionId": "session-912303f2-5dad-4839-b7fc-cc941b7d072f",
+      "callId": "call_00_TjhNk3RNB7Xa6ljHxRNq6954"
+     }
+    },
+    {
+     "label": "turn 1: doctor --server",
+     "tool": "bash",
+     "command": "/home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs doctor --server --project /tmp/oml-v2-hosts-i1Dlq7/project",
+     "startedAt": "2026-09-16T15:13:00.635Z",
+     "endedAt": "2026-09-16T15:13:02.780Z",
+     "output": {
+      "ok": true,
+      "verb": "doctor",
+      "mode": "local",
+      "url": "http://127.0.0.1:8899",
+      "project": "/tmp/oml-v2-hosts-i1Dlq7/project",
+      "dataDir": "/home/wsh/.cache/agent-team/omb-launcher-data-v2hosts-ZBIA7t-20260916T143458-6frTho",
+      "checks": [
+       {
+        "id": "node",
+        "ok": true,
+        "required": true,
+        "detail": "node 24.11.0; local mode needs 24+"
+       },
+       {
+        "id": "binary",
+        "ok": true,
+        "required": true,
+        "detail": "/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js (openmausbot 0.1.56, from OMB_BIN)"
+       },
+       {
+        "id": "git",
+        "ok": true,
+        "required": true,
+        "detail": "git on PATH"
+       },
+       {
+        "id": "project",
+        "ok": true,
+        "required": true,
+        "detail": "git repository at /tmp/oml-v2-hosts-i1Dlq7/project"
+       },
+       {
+        "id": "data-dir",
+        "ok": true,
+        "required": false,
+        "detail": "/home/wsh/.cache/agent-team/omb-launcher-data-v2hosts-ZBIA7t-20260916T143458-6frTho is readable"
+       },
+       {
+        "id": "health",
+        "ok": true,
+        "required": true,
+        "detail": "http://127.0.0.1:8899 answers, pid 43179"
+       },
+       {
+        "id": "session",
+        "ok": true,
+        "required": true,
+        "detail": "loopback with scopes admin,client"
+       },
+       {
+        "id": "engines",
+        "ok": true,
+        "required": true,
+        "detail": "grok:available kimi:unavailable droid:unavailable cursor:unavailable claude:available codex:available antigravity:unavailable opencodeGo:unavailable computer:unavailable openaiCompat:unavailable qwen:unavailable hermes:available pi:unavailable"
+       },
+       {
+        "id": "provider-keys",
+        "ok": null,
+        "required": false,
+        "detail": "unknown: the server's environment is not readable"
+       },
+       {
+        "id": "identity",
+        "ok": false,
+        "required": false,
+        "detail": "the server is not the one recorded in the state (restarted or replaced): re-import or adopt the team"
+       }
+      ],
+      "state": {
+       "server": {
+        "url": "http://127.0.0.1:8899",
+        "owned": true,
+        "healthPid": 43179
+       },
+       "team": {
+        "section": "Agent Team dev team",
+        "lead": "Sudo",
+        "bots": 5
+       },
+       "task": null
+      },
+      "failed": []
+     },
+     "source": {
+      "store": "~/.dsh/sessions/--tmp--/session-912303f2-5dad-4839-b7fc-cc941b7d072f/session.v3.jsonl.zstd",
+      "sessionId": "session-912303f2-5dad-4839-b7fc-cc941b7d072f",
+      "callId": "call_00_fHssT0YEAcYIHhUl8AtC9009"
+     },
+     "outputOmitted": "the engines[] model catalogue is omitted; it is OpenMausBot's list of installed engines, not a launcher result, and the engines check line above carries the same summary verbatim"
+    },
+    {
+     "label": "turn 1: status --brief",
+     "tool": "bash",
+     "command": "/home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs status --brief --project /tmp/oml-v2-hosts-i1Dlq7/project",
+     "startedAt": "2026-09-16T15:13:05.761Z",
+     "endedAt": "2026-09-16T15:13:06.222Z",
+     "output": "{\"ok\":false,\"verb\":\"status\",\"error\":\"the live server process identity could not be verified\",\"hint\":\"run on the server's machine, or pass --remote for an HTTP connection\"}\n[exit code: 3]",
+     "source": {
+      "store": "~/.dsh/sessions/--tmp--/session-912303f2-5dad-4839-b7fc-cc941b7d072f/session.v3.jsonl.zstd",
+      "sessionId": "session-912303f2-5dad-4839-b7fc-cc941b7d072f",
+      "callId": "call_00_SX6uGvz3VSduH7wsKHBa8372"
+     }
+    },
+    {
+     "label": "turn 2: skill tool load",
+     "tool": "skill",
+     "command": "{\"name\": \"openmausbot-launcher\"}",
+     "startedAt": "2026-09-16T15:17:27.599Z",
+     "endedAt": "2026-09-16T15:17:27.615Z",
+     "output": "<skill_content name=\"openmausbot-launcher\">\n<skill_resources>\nBase directory for this skill: /home/wsh/.agents/skills/openmausbot-launcher\nResolve relative paths mentioned by this skill against the base directory before using them. Load ref …",
+     "source": {
+      "store": "~/.dsh/sessions/--tmp--/session-1801381b-3419-426a-b30c-48d022dd6f04/session.v3.jsonl.zstd",
+      "sessionId": "session-1801381b-3419-426a-b30c-48d022dd6f04",
+      "callId": "call_00_vykgFDz0qk9NWcnwV9iP4702"
+     },
+     "outputNote": "truncated: the skill tool returns the whole SKILL.md"
+    },
+    {
+     "label": "turn 2: send --remote",
+     "tool": "bash",
+     "command": "/home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs send \"dsh check ee42ea0e: reply with just the nonce ee42ea0e\" --remote --url http://127.0.0.1:8899 --project /tmp/oml-v2-hosts-i1Dlq7/project",
+     "startedAt": "2026-09-16T15:17:30.660Z",
+     "endedAt": "2026-09-16T15:17:31.099Z",
+     "output": "{\"ok\":true,\"verb\":\"send\",\"bot\":\"Sudo\",\"threadId\":\"86905161-06df-4cbd-9e6c-89eaadeae032\",\"messageId\":\"4ffbd26a-01b5-48bd-b757-c47cc6990fb4\",\"steered\":false,\"queued\":false,\"queueId\":null,\"duplicate\":false,\"sendId\":\"send-7a661dbfc58f3d9e\"}\n[stderr]\n(node:2) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n",
+     "source": {
+      "store": "~/.dsh/sessions/--tmp--/session-1801381b-3419-426a-b30c-48d022dd6f04/session.v3.jsonl.zstd",
+      "sessionId": "session-1801381b-3419-426a-b30c-48d022dd6f04",
+      "callId": "call_00_QNrgXent8kWfLaPGMNSf9777"
+     }
+    },
+    {
+     "label": "turn 2: status --tail 3 --remote",
+     "tool": "bash",
+     "command": "/home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs status --tail 3 --remote --url http://127.0.0.1:8899 --project /tmp/oml-v2-hosts-i1Dlq7/project",
+     "startedAt": "2026-09-16T15:17:33.926Z",
+     "endedAt": "2026-09-16T15:17:34.266Z",
+     "output": {
+      "ok": true,
+      "verb": "status",
+      "run": null,
+      "complete": true,
+      "incomplete": [],
+      "bots": [
+       {
+        "id": "ab6bd30b-1c09-4d09-94d5-6031960c2ba0",
+        "name": "Quill",
+        "key": "quill",
+        "title": "Code Reviewer",
+        "busy": false,
+        "activity": "idle",
+        "threadId": "5e4c497f-21c6-442f-b1a1-8a91f857049d",
+        "discovered": false
+       },
+       {
+        "id": "52aea65f-42e5-4927-a453-a9c0f72c9d0e",
+        "name": "Nova",
+        "key": "nova",
+        "title": "Implementer",
+        "busy": false,
+        "activity": "idle",
+        "threadId": "0e59c3a5-510d-423e-9655-67ab765e8b63",
+        "discovered": false
+       },
+       {
+        "id": "31c7cbcb-cdd0-4f63-ae82-54fdcb1c1c62",
+        "name": "Vale",
+        "key": "vale",
+        "title": "Plan Reviewer",
+        "busy": false,
+        "activity": "idle",
+        "threadId": "a2083f1c-380a-41fe-9bb4-246a6f069005",
+        "discovered": false
+       },
+       {
+        "id": "2ec3974e-aa44-4790-8bc3-a01d6dded30c",
+        "name": "Sage",
+        "key": "sage",
+        "title": "Planner",
+        "busy": false,
+        "activity": "idle",
+        "threadId": "ebb0f0b9-f747-4f27-9aa4-e00596f9208d",
+        "discovered": false
+       },
+       {
+        "id": "73230cfd-3bba-4962-800e-57ba1d3d5004",
+        "name": "Sudo",
+        "key": "sudo",
+        "title": "Team Lead",
+        "busy": true,
+        "activity": "working",
+        "threadId": "86905161-06df-4cbd-9e6c-89eaadeae032",
+        "discovered": false
+       }
+      ],
+      "busy": [
+       "Sudo"
+      ],
+      "pending": [],
+      "lead": {
+       "id": "539457e9-793a-4e4c-8a9e-9c6aeb323e3a",
+       "at": 1789571763146,
+       "text": "7755d349"
+      },
+      "lastUser": {
+       "id": "4ffbd26a-01b5-48bd-b757-c47cc6990fb4",
+       "at": 1789571851005,
+       "text": "dsh check ee42ea0e: reply with just the nonce ee42ea0e"
+      },
+      "tail": [
+       {
+        "id": "22ca85be-86c2-46c6-a07c-c01a26ed3813",
+        "at": 1789571752668,
+        "role": "user",
+        "kind": "text",
+        "from": null,
+        "text": "Hermes check 7755d349: reply with just the nonce 7755d349"
+       },
+       {
+        "id": "539457e9-793a-4e4c-8a9e-9c6aeb323e3a",
+        "at": 1789571763146,
+        "role": "bot",
+        "kind": "text",
+        "from": null,
+        "text": "7755d349"
+       },
+       {
+        "id": "4ffbd26a-01b5-48bd-b757-c47cc6990fb4",
+        "at": 1789571851005,
+        "role": "user",
+        "kind": "text",
+        "from": null,
+        "text": "dsh check ee42ea0e: reply with just the nonce ee42ea0e"
+       }
+      ]
+     },
+     "source": {
+      "store": "~/.dsh/sessions/--tmp--/session-1801381b-3419-426a-b30c-48d022dd6f04/session.v3.jsonl.zstd",
+      "sessionId": "session-1801381b-3419-426a-b30c-48d022dd6f04",
+      "callId": "call_00_umPU0JvwbJzQ1qKgYIKI2061"
+     }
+    },
+    {
+     "label": "turn 2: status --tail 3 --remote, retry loop (2 attempts)",
+     "tool": "bash",
+     "command": "CMD=(/home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs status --tail 3 --remote --url http://127.0.0.1:8899 --project /tmp/oml-v2-hosts-i1Dlq7/project)\nattempt=1\nout=$(\"${CMD[@]}\" 2>/dev/null)\nprintf '%s' \"$out\" > /tmp/omb_status_1.json\necho \"attempt 1 done\"\nfor i in $(seq 1 7); do\n  attempt=$((attempt+1))\n  sleep 20\n  out=$(\"${CMD[@]}\" 2>/dev/null)\n  printf '%s' \"$out\" > /tmp/omb_status_${attempt}.json\n  echo \"attempt ${attempt} done\"\n  if printf '%s' \"$out\" | grep -qE '\"lead\":\\{[^}]*\"text\":\"ee42ea0e\"'; then\n    echo \"FOUND_ON_ATTEMPT ${attempt}\"\n    break\n  fi\ndone\necho \"TOTAL_ATTEMPTS ${attempt}\"",
+     "startedAt": "2026-09-16T15:17:42.754Z",
+     "endedAt": "2026-09-16T15:18:03.375Z",
+     "output": "attempt 1 done\nattempt 2 done\nFOUND_ON_ATTEMPT 2\nTOTAL_ATTEMPTS 2\n",
+     "source": {
+      "store": "~/.dsh/sessions/--tmp--/session-1801381b-3419-426a-b30c-48d022dd6f04/session.v3.jsonl.zstd",
+      "sessionId": "session-1801381b-3419-426a-b30c-48d022dd6f04",
+      "callId": "call_00_lTSDdHrNWpYx3NCjAVzc7483"
+     }
+    },
+    {
+     "label": "turn 2: read the saved status JSON",
+     "tool": "read",
+     "command": "{\"file_path\": \"/tmp/omb_status_2.json\"}",
+     "startedAt": "2026-09-16T15:18:08.035Z",
+     "endedAt": "2026-09-16T15:18:08.051Z",
+     "output": "<path>/tmp/omb_status_2.json</path>\n<type>file</type>\n<content>\n1: {\"ok\":true,\"verb\":\"status\",\"run\":null,\"complete\":true,\"incomplete\":[],\"bots\":[{\"id\":\"ab6bd30b-1c09-4d09-94d5-6031960c2ba0\",\"name\":\"Quill\",\"key\":\"quill\",\"title\":\"Code Reviewer\",\"busy\":false,\"activity\":\"idle\",\"threadId\":\"5e4c497f-21c6-442f-b1a1-8a91f857049d\",\"discovered\":false},{\"id\":\"52aea65f-42e5-4927-a453-a9c0f72c9d0e\",\"name\":\"Nova\",\"key\":\"nova\",\"title\":\"Implementer\",\"busy\":false,\"activity\":\"idle\",\"threadId\":\"0e59c3a5-510d-423e-9655-67ab765e8b63\",\"discovered\":false},{\"id\":\"31c7cbcb-cdd0-4f63-ae82-54fdcb1c1c62\",\"name\":\"Vale\",\"key\":\"vale\",\"title\":\"Plan Reviewer\",\"busy\":false,\"activity\":\"idle\",\"threadId\":\"a2083f1c-380a-41fe-9bb4-246a6f069005\",\"discovered\":false},{\"id\":\"2ec3974e-aa44-4790-8bc3-a01d6dded30c\",\"name\":\"Sage\",\"key\":\"sage\",\"title\":\"Planner\",\"busy\":false,\"activity\":\"idle\",\"threadId\":\"ebb0f0b9-f747-4f27-9aa4-e00596f9208d\",\"discovered\":false},{\"id\":\"73230cfd-3bba-4962-800e-57ba1d3d5004\",\"name\":\"Sudo\",\"key\":\"sudo\",\"title\":\"Team Lead\",\"busy\":false,\"activity\":\"idle\",\"threadId\":\"86905161-06df-4cbd-9e6c-89eaadeae032\",\"discovered\":false}],\"busy\":[],\"pending\":[],\"lead\":{\"id\":\"6cff2a1d-dac3-473e-bb58-68560f95b3f4\",\"at\":1789571858503,\"text\":\"ee42ea0e\"},\"lastUser\":{\"id\":\"4ffbd26a-01b5-48bd-b757-c47cc6990fb4\",\"at\":1789571851005,\"text\":\"dsh check ee42ea0e: reply with just the nonce ee42ea0e\"},\"tail\":[{\"id\":\"539457e9-793a-4e4c-8a9e-9c6aeb323e3a\",\"at\":1789571763146,\"role\":\"bot\",\"kind\":\"text\",\"from\":null,\"text\":\"7755d349\"},{\"id\":\"4ffbd26a-01b5-48bd-b757-c47cc6990fb4\",\"at\":1789571851005,\"role\":\"user\",\"kind\":\"text\",\"from\":null,\"text\":\"dsh check ee42ea0e: reply with just the nonce ee42ea0e\"},{\"id\":\"6cff2a1d-dac3-473e-bb58-68560f95b3f4\",\"at\":1789571858503,\"role\":\"bot\",\"kind\":\"text\",\"from\":null,\"text\":\"ee42ea0e\"}]}\n\n(End of file - total 1 lines)\n</content>",
+     "source": {
+      "store": "~/.dsh/sessions/--tmp--/session-1801381b-3419-426a-b30c-48d022dd6f04/session.v3.jsonl.zstd",
+      "sessionId": "session-1801381b-3419-426a-b30c-48d022dd6f04",
+      "callId": "call_00_Qn6P53yAlrdDHudCmRqY1418"
+     }
+    }
+   ],
+   "notExercised": [
+    "watch in remote mode",
+    "a shell time limit measurement"
+   ],
+   "acknowledgment": {
+    "nonce": "ee42ea0e",
+    "threadId": "86905161-06df-4cbd-9e6c-89eaadeae032",
+    "sendMessageId": "4ffbd26a-01b5-48bd-b757-c47cc6990fb4",
+    "sendId": "send-7a661dbfc58f3d9e",
+    "duplicate": false,
+    "sentAtMs": 1789571851005,
+    "sentAt": "2026-09-16T15:17:31.005Z",
+    "replyMessageId": "6cff2a1d-dac3-473e-bb58-68560f95b3f4",
+    "repliedAtMs": 1789571858503,
+    "repliedAt": "2026-09-16T15:17:38.503Z",
+    "replyText": "ee42ea0e",
+    "secondsToReply": 7.498,
+    "ombTurnId": "a9400914-a1a3-4791-8744-cb64d455ff90"
+   }
+  }
+ },
+ "botTurns": [
+  {
+   "botKey": "sudo",
+   "botId": "73230cfd-3bba-4962-800e-57ba1d3d5004",
+   "modelBinding": "codex/gpt-5.6-luna/high",
+   "provider": "codex",
+   "providerModel": "gpt-5.6-luna",
+   "providerSessionId": "01a0aac9-ec00-7ba1-ab94-c558f903e19f",
+   "threadId": "86905161-06df-4cbd-9e6c-89eaadeae032",
+   "turnId": "c8630b48-c755-4817-aec4-ca293b3569c0",
+   "hostThatSent": "hermes",
+   "nonce": "7755d349",
+   "startedAt": "2026-09-16T15:15:52.740Z",
+   "completedAt": "2026-09-16T15:16:03.207Z",
+   "ok": true,
+   "usage": {
+    "input": 19215,
+    "output": 42,
+    "cachedInput": 9984
+   }
+  },
+  {
+   "botKey": "sudo",
+   "botId": "73230cfd-3bba-4962-800e-57ba1d3d5004",
+   "modelBinding": "codex/gpt-5.6-luna/high",
+   "provider": "codex",
+   "providerModel": "gpt-5.6-luna",
+   "providerSessionId": "01a0aac9-ec00-7ba1-ab94-c558f903e19f",
+   "threadId": "86905161-06df-4cbd-9e6c-89eaadeae032",
+   "turnId": "a9400914-a1a3-4791-8744-cb64d455ff90",
+   "hostThatSent": "dsh",
+   "nonce": "ee42ea0e",
+   "startedAt": "2026-09-16T15:17:31.041Z",
+   "completedAt": "2026-09-16T15:17:38.578Z",
+   "ok": true,
+   "usage": {
+    "input": 23638,
+    "output": 19,
+    "cachedInput": 5888
+   }
+  },
+  {
+   "botKey": "sudo",
+   "botId": "73230cfd-3bba-4962-800e-57ba1d3d5004",
+   "modelBinding": "codex/gpt-5.6-luna/high",
+   "provider": "codex",
+   "providerModel": "gpt-5.6-luna",
+   "providerSessionId": "01a0aac9-ec00-7ba1-ab94-c558f903e19f",
+   "threadId": "86905161-06df-4cbd-9e6c-89eaadeae032",
+   "turnId": "50518f2e-25e6-4c19-93ef-a57a4beb314c",
+   "hostThatSent": "openclaw",
+   "nonce": "396649b2",
+   "startedAt": "2026-09-16T15:22:23.957Z",
+   "completedAt": "2026-09-16T15:22:32.072Z",
+   "ok": true,
+   "usage": {
+    "input": 25220,
+    "output": 8,
+    "cachedInput": 23296
+   }
+  }
+ ],
+ "runtimeEventSources": [
+  {
+   "botKey": "sudo",
+   "threadId": "86905161-06df-4cbd-9e6c-89eaadeae032",
+   "file": "/home/wsh/.cache/agent-team/omb-launcher-data-v2hosts-ZBIA7t-20260916T143458-6frTho/events/86905161-06df-4cbd-9e6c-89eaadeae032.ndjson",
+   "sha256": "3b14cc21c40a16b3075397534ca983cb9a0b3644853e28cada6f3eea35bf1aff",
+   "lines": 32,
+   "serveLog": [
+    "[omb-turn] bot=73230cfd-3bba-4962-800e-57ba1d3d5004 text=\"Hermes check 7755d349: reply with just the nonce 7755d349\" images=0 depth=0 card=false",
+    "[omb-turn] bot=73230cfd-3bba-4962-800e-57ba1d3d5004 text=\"dsh check ee42ea0e: reply with just the nonce ee42ea0e\" images=0 depth=0 card=false",
+    "[omb-turn] bot=73230cfd-3bba-4962-800e-57ba1d3d5004 text=\"OpenClaw check 396649b2: reply with just the nonce 396649b2\" images=0 depth=0 card=false"
+   ]
+  }
+ ],
+ "incidents": [
+  {
+   "host": "openclaw",
+   "description": "tools.exec.mode=allowlist made every agent turn fail at preflight before any command ran; ask and auto both work and ask was kept",
+   "source": "/tmp/openclaw/openclaw-2026-09-16.log lines 170-182",
+   "resolved": true
+  },
+  {
+   "host": "openclaw",
+   "description": "the exec allowlist entries name the script path, so the agent's own \"node <script> …\" invocation did not match and still raised an approval card",
+   "source": "~/.openclaw/agents/main/agent/codex-home/thread_history_1.sqlite item exec-ec7498e9-9220-450c-8df0-b7042cb94fae",
+   "resolved": false
+  },
+  {
+   "host": "openclaw",
+   "description": "skills.entries.openmausbot-launcher.env is not applied to commands run through the Codex harness: the binary check failed until the command carried an explicit env prefix",
+   "source": "~/.openclaw/agents/main/agent/codex-home/thread_history_1.sqlite items exec-94d3185a-2ffd-4102-bf9e-ce3ff72ed684 and exec-154842da-3f4d-42ec-bd34-482767d51568",
+   "resolved": "worked around with the env prefix"
+  },
+  {
+   "host": "openclaw",
+   "description": "two escalation requests in CLI turn 2 expired unanswered after the full 120 s window because the operator's resolver filtered on a summary that the card truncates",
+   "source": "/tmp/openclaw/openclaw-2026-09-16.log lines 239, 241 and 245",
+   "resolved": "turn 3 resolved every card within about 5 s"
+  },
+  {
+   "host": "openclaw",
+   "description": "doctor --server reported \"nothing answers at http://127.0.0.1:8899\" for a healthy server because the driver's health probe turns a network error into null, so the check cannot tell a blocked socket from a dead server",
+   "source": "~/.openclaw/agents/main/agent/codex-home/thread_history_1.sqlite item exec-936689ac-506a-45de-aeb2-dbfd98fd574c",
+   "resolved": false,
+   "note": "observed limitation of the driver, recorded for a later fix"
+  },
+  {
+   "host": "dsh",
+   "description": "dsh shell subprocesses run in their own PID namespace, so the driver cannot verify the server process identity: doctor --server returns provider-keys unknown and identity false, and status exits 3",
+   "source": "scratchpad/dsh-turn1.out and scratchpad/dsh-probe.out",
+   "resolved": "--remote --url http://127.0.0.1:8899"
+  },
+  {
+   "host": "hermes",
+   "description": "hermes skills list did not show the skill until skills.external_dirs included ~/.agents/skills; the documented default scan did not hold on this install",
+   "source": "~/.hermes/config.yaml",
+   "resolved": true
+  }
+ ],
+ "cleanup": {
+  "reconcile": {
+   "ok": true,
+   "verb": "reconcile",
+   "clean": true,
+   "branch": "main",
+   "defaultBranch": "main",
+   "defaultBranchSource": "facts",
+   "worktrees": [
+    {
+     "path": "/tmp/oml-v2-hosts-i1Dlq7/project",
+     "head": "28f7f90772c94b6cc30d5a59c421687d704db1c1",
+     "branch": "main"
+    }
+   ],
+   "taskBranches": [],
+   "dirty": [],
+   "problems": [],
+   "dryRun": false,
+   "removed": []
+  },
+  "cleanupKill": {
+   "ok": true,
+   "verb": "cleanup",
+   "supported": true,
+   "pattern": "codex-linux-sandbox",
+   "orphans": [],
+   "killed": [],
+   "reconcile": {
+    "clean": true,
+    "branch": "main",
+    "defaultBranch": "main",
+    "defaultBranchSource": "facts",
+    "worktrees": [
+     {
+      "path": "/tmp/oml-v2-hosts-i1Dlq7/project",
+      "head": "28f7f90772c94b6cc30d5a59c421687d704db1c1",
+      "branch": "main"
+     }
+    ],
+    "taskBranches": [],
+    "dirty": [],
+    "problems": []
+   },
+   "down": null
+  },
+  "down": {
+   "ok": true,
+   "verb": "down",
+   "stopped": true,
+   "supervisorPid": 43172,
+   "healthPid": 43179,
+   "url": "http://127.0.0.1:8899",
+   "orphans": []
+  },
+  "verification": "ports 8899/8900 closed\n1\npackage 48e4ac637c7afb6d9e82f0ecf035967411d9c75e61ac8e0603ee7b62a3255949",
+  "verificationNote": "quoted as written; the bare line \"1\" is an unlabelled command result and its meaning is not recorded",
+  "source": "scratchpad/shutdown.txt"
+ },
+ "verification": {
+  "fullSuite": {
+   "command": "npm test",
+   "passed": 198,
+   "failed": 0,
+   "skipped": 0,
+   "durationSeconds": 58.083,
+   "note": "documentation-only change; the suite was unchanged by this pass"
+  }
+ }
+}

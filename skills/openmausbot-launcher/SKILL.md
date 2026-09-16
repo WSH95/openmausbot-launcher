@@ -21,9 +21,10 @@ already dedupes.
 `omb` below means the driver next to this file: `<dir of this
 SKILL.md>/scripts/omb.mjs`. Run it by path (Claude Code:
 `${CLAUDE_SKILL_DIR}/scripts/omb.mjs`; Hermes: `${HERMES_SKILL_DIR}/…`;
-other hosts: the directory this file was loaded from). It needs no
-dependencies. Every verb prints one JSON object; `--brief` prints one line
-for a phone. `--project <dir>` names the project (default: the git root of
+other hosts: the directory this file was loaded from, which OpenClaw,
+Hermes and DeepSeek Harness each resolve to the installed skill directory).
+It needs no dependencies. Every verb prints one JSON object; `--brief`
+prints one line for a phone. `--project <dir>` names the project (default: the git root of
 the working directory); the driver keeps its state in
 `<project>/.omb/state.json`, so later calls need only `--project`.
 `omb state --show --project <dir>` prints that file as the driver reads it,
@@ -205,9 +206,17 @@ shell. Codex: `--max-seconds 100`; `up` needs an escalated command
 because the sandbox denies listening sockets, and so does every live verb
 when the sandbox blocks loopback (`cannot reach … EPERM`). OpenClaw:
 `--max-seconds 1500` in the background, or an automation that announces to
-Telegram.
-Hermes: `--max-seconds 240` from a cron adapter. Install paths,
-allowlists, and the recipes are in `references/hosts.md`.
+Telegram (an automation that prints nothing sends nothing); its Codex
+runtime asks for one approval per command, so answer each card with
+allow-once, keep `tools.exec.mode` at `ask`, and put `env OMB_BIN=…` in
+front of the command because the skill's env block does not reach it.
+Hermes: `--max-seconds 240` from a cron adapter, and the skill is invisible
+until `~/.hermes/config.yaml` lists `~/.agents/skills` in
+`skills.external_dirs`. DeepSeek Harness: add `--remote --url
+http://127.0.0.1:<port>` to every live verb, because its shell runs in its
+own PID namespace and the local identity check cannot pass (`status` exits
+3). Install paths, allowlists, and the recipes are in
+`references/hosts.md`.
 
 ## 9. References
 

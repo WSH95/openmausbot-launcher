@@ -7,7 +7,8 @@ the lead bot, watch the delegation chain, relay the lead's questions and the
 user's answers, reconcile the repository between tasks, clean up, and report.
 The skill includes install guidance for Claude Code, Codex CLI, Grok Build,
 OpenClaw, Hermes Agent, and DeepSeek Harness. The OpenClaw phone recipe
-uses a workstation gateway and Telegram; it is documented but unverified.
+uses a workstation gateway and Telegram; it was verified end to end on
+2026-09-16, from a Telegram message to the answer in the same chat.
 
 This repository does not contain OpenMausBot. It is a launcher: a `SKILL.md`
 and a dependency-free Node driver (sixteen verbs, about 2,500 lines under

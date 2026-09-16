@@ -672,3 +672,379 @@ a Codex lead can pass all nine checks: that needs a reviewer whose verdict
 line is unambiguous. Raw command outputs and the structured extraction:
 session scratchpad `t13/` and
 [docs/validation/2026-09-08-fix-pass-t13.json](validation/2026-09-08-fix-pass-t13.json).
+
+## 2026-09-16 — v2 host verification: OpenClaw, Hermes Agent, DeepSeek Harness on real OpenMausBot 0.1.56 (3 bot turns)
+
+The three hosts that `references/hosts.md` carried as "documented only" now have
+command evidence: **OpenClaw 2026.9.4 (3a9d69d)**, **Hermes Agent** (no version
+command; `~/.hermes/hermes-agent/pyproject.toml` reads `0.21.3`) and **DeepSeek
+Harness (dsh) 0.1.5-rc.1**, each driving the launcher against real OpenMausBot
+**0.1.56** on Node 24.11.0. Beads `oml-n2f` (OpenClaw) and `oml-5bw` (Hermes and
+dsh). The structured record is
+[validation/2026-09-16-hosts-v2.json](validation/2026-09-16-hosts-v2.json): native
+session and item ids, every executed command with its exit code and output, the
+approval cards, the automation runs, the cron execution row and the shutdown.
+
+**What this establishes.** Each host found the installed skill, ran the driver by
+path, reached the real server, sent one operator-authored message to Sudo and read
+the matching reply back through `status`. It also establishes the OpenClaw phone
+path end to end, from a Telegram DM to the answer in the same chat; that an
+OpenClaw automation with `--announce` does not deliver an empty output; and that a
+Hermes cron job runs the adapter script through the Hermes gateway. It does not
+establish `watch` on any of these hosts, a launcher task (`run` was `null`
+throughout), bot-to-bot delegation, or the other four bot models executing. Only
+Sudo ran, for exactly **three OMB turns**. The host sessions also consumed the
+user's subscriptions; the counts are below.
+
+### Environment and fixture
+
+- Temporary Git project `/tmp/oml-v2-hosts-i1Dlq7/project`, branch `main`, one
+  commit `28f7f90772c94b6cc30d5a59c421687d704db1c1` ("init").
+- Fresh data directory
+  `/home/wsh/.cache/agent-team/omb-launcher-data-v2hosts-ZBIA7t-20260916T143458-6frTho`.
+- Server `http://127.0.0.1:8899` (webhook ingress 8900), environment
+  `3165e5e8-3ad0-4d84-bb65-fb311b09556b`, owned supervisor/health pids `43172` and
+  `43179`, started 14:35:02.391Z, stopped 15:26:12.443Z. `doctor --server` from the
+  operator shell passed 10/10.
+- `OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js`,
+  `OMB_TOKEN` empty (loopback trust). The driver ran on Node 24.11.0 in every host;
+  OpenClaw itself runs on Node 24.21.0, installed side by side.
+- Unchanged external test input:
+  `/home/wsh/Documents/agent-team-devpack/packages/dev-team/dev-team.openmaus.json`,
+  release 0.4.2. SHA-256 before the import and after every check:
+  `48e4ac637c7afb6d9e82f0ecf035967411d9c75e61ac8e0603ee7b62a3255949`.
+- Sudo `73230cfd-3bba-4962-800e-57ba1d3d5004`; conversation
+  `86905161-06df-4cbd-9e6c-89eaadeae032` for all three sends.
+
+| Role | Binding | Execution in these checks |
+|---|---|---|
+| Sudo, leader | `codex/gpt-5.6-luna/high` | three acknowledgment turns |
+| Sage, planner | `claude/claude-sonnet-5/high` | configured only |
+| Vale, plan reviewer | `codex/gpt-5.6-terra/high` | configured only |
+| Nova, implementer | `claude/claude-opus-5/high` | configured only |
+| Quill, code reviewer | `grok/grok-4.6/medium` | configured only |
+
+`bind` ran with `--approval auto`; the state file records `approvalMode: auto` for
+Sudo, Sage, Vale and Nova and `ask` for Quill. `facts` recorded `test: none`,
+`setup: none`, `merge: auto`, `taskLog: README.md`, `tracker: none`,
+`planReview: ask`.
+
+Each host was told to use the installed skill, run the commands exactly as written
+and paste stdout verbatim. The operator authored every nonce.
+
+### OpenClaw 2026.9.4 (3a9d69d), bead `oml-n2f`
+
+Install: Node 24.21.0 under `~/.local/lib/node-v24.21.0` (OpenClaw needs 24.16 or
+later), `npm install -g --prefix` that directory `openclaw@latest` with build
+scripts allowed for `openclaw`, `@google/genai`, `koffi`, `tree-sitter-bash` and
+`protobufjs`; a wrapper `~/.local/bin/openclaw` puts that Node first on `PATH`.
+Onboarded non-interactively (`--non-interactive --accept-risk --flow quickstart
+--auth-choice skip --mode local --gateway-bind loopback --install-daemon`): gateway
+`loopback:18789` with token auth and a `systemd --user` unit
+`openclaw-gateway.service`. Auth: `openclaw models auth login --provider openai
+--device-code --set-default`, which needs a TTY and a browser for the device code;
+default model `openai/gpt-5.6-sol`. Agent turns run through the bundled Codex
+app-server harness (`agentHarnessId: codex`).
+
+Discovery: `openclaw skills list` shows `openmausbot-launcher` as `ready`, source
+`agents-skills-personal` (the `~/.agents/skills` symlink); `openclaw skills check`
+answers "Ready and visible to model".
+
+Policy. `tools.exec.mode=allowlist` makes every agent turn fail at preflight before
+any command runs:
+
+```
+Codex app-server local execution is unavailable because effective tools.exec.mode=allowlist.
+Execution-host approvals are authoritative. For gateway turns, inspect them with
+`openclaw approvals get --gateway` and update that same target with
+`openclaw approvals set --gateway --stdin`; for local `agent exec`, omit `--gateway`.
+Intentionally align that host policy before retrying.
+```
+
+`ask` and `auto` both work; `ask` was kept. Two allowlist entries were added with
+`openclaw approvals allowlist add --agent main <path>/scripts/omb.mjs`, for the repo
+path and for the `~/.agents/skills` symlink path, both with scope "any args". They
+bought nothing here, because an entry matches a command whose program is that path
+and the agent's own invocations were `node <script> …` on the phone path and
+`env OMB_BIN=… <script> …` in the CLI turns. Every command also runs inside the
+Codex sandbox, which blocks loopback. `status` exits 1 with
+
+```json
+{"ok":false,"verb":"status","error":"cannot reach http://127.0.0.1:8899: EPERM","hint":"the shell's sandbox blocks outbound connections: run this command outside the sandbox (escalation), or use --remote against a reachable URL"}
+```
+
+and `doctor --server` reports `nothing answers at http://127.0.0.1:8899` against a
+healthy server, because the driver's health probe returns `null` on a network error
+(`scripts/lib/server.mjs:70-75`) and the check has nothing else to print
+(`scripts/lib/verbs/lifecycle.mjs:70`). That is a driver limitation, recorded here
+and not fixed in this pass.
+
+The way through is the harness's own escalation: the Codex plugin raises an
+OpenClaw approval titled "Codex app-server command approval" with a 120 s window and
+the decisions `allow-once`, `allow-always` and `deny`, resolvable with `openclaw
+approvals resolve <id> allow-once`. `allow-once` was used every time and
+`allow-always` never.
+
+`skills.entries.openmausbot-launcher.env` (`OMB_BIN`, `OMB_TOKEN`) is stored in
+`~/.openclaw/openclaw.json` but is not applied to commands run through the Codex
+harness: `doctor` failed with `openmausbot not found: set OMB_BIN to cli.js of the
+openmausbot package or put openmausbot on PATH` until the command itself carried an
+explicit `env OMB_BIN=… OMB_TOKEN= …` prefix.
+
+Three CLI turns, each `openclaw agent --json -m …`:
+
+| Turn | Run id | Window | Commands and result |
+|---|---|---|---|
+| 1 | `2e1a8c31-f201-42bb-a27b-e0f4ab9413a8` | 15:12:13Z to 15:12:57Z, 42 s | `doctor` exit 3 (the binary check failed: no env), `doctor --server` exit 3 (binary and "nothing answers"), `status --brief` exit 1 (EPERM); no escalation requested |
+| 2 | `85d47860-0e98-46ce-9fdb-e0f651c80531` | 15:15:31Z to 15:20:45Z, 312 s | the env prefix fixed `doctor` (exit 0); two escalation requests expired unanswered, so `doctor --server` and `status --brief` stayed sandboxed |
+| 3 | `70443744-9399-421d-a220-a662ca6d6a50` | 15:21:27Z to 15:23:32Z, 123 s | four commands, each allowed once: `doctor --server` 10/10, `status --brief` `status · no run · team idle`, `send`, `status --tail 3` |
+
+Turn 3's commands, as executed:
+
+```sh
+env OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js OMB_TOKEN= \
+  /home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs doctor --server --project /tmp/oml-v2-hosts-i1Dlq7/project
+env … omb.mjs status --brief --project /tmp/oml-v2-hosts-i1Dlq7/project
+env … omb.mjs send "OpenClaw check 396649b2: reply with just the nonce 396649b2" --project /tmp/oml-v2-hosts-i1Dlq7/project
+env … omb.mjs status --tail 3 --project /tmp/oml-v2-hosts-i1Dlq7/project
+```
+
+Four approval cards, one per command, each allowed within about five seconds, and
+each command started about 175 ms after its decision:
+
+| Approval | Created | Allowed | Command it authorised |
+|---|---|---|---|
+| `plugin:ed2a39a6-a6a9-4032-b9a1-818ad236e1b7` | 15:21:54.556Z | 15:21:59.883Z | `doctor --server` |
+| `plugin:7d191f4a-d919-4e2c-9d8b-c4dda01a017b` | 15:22:07.540Z | 15:22:12.019Z | `status --brief` |
+| `plugin:dba3b0a5-dc97-4a0f-a459-908bcd3c20a2` | 15:22:18.756Z | 15:22:23.763Z | `send` |
+| `plugin:0ce14524-5400-4732-9077-ddcd72e2c49e` | 15:22:30.657Z | 15:22:35.735Z | `status --tail 3` |
+
+The send returned message `8004203b-6416-4305-99ab-25b517702a66` (nonce `396649b2`)
+at 15:22:23.925Z; Sudo answered `396649b2` as `49c62479-285a-4ed2-b67e-b71f522dfade`
+at 15:22:32.060Z, 8.1 s later, in OMB turn
+`50518f2e-25e6-4c19-93ef-a57a4beb314c`.
+
+**Phone proof.** A Telegram DM asking for the project's status line (inbound
+15:09:52.611Z, 139 characters, `telegram:7724282441 -> @OMBLauncherCheckBot`)
+produced, in OpenClaw run `cc799b9f-94e5-4a50-a4d4-bf8c8ad74c39`, thread
+`01a0aac4-6c6f-71d2-8d7c-3618b890e931`: the agent reading the skill, then `node
+/home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs status --project
+/tmp/oml-v2-hosts-i1Dlq7/project --brief` at 15:10:08.971Z exiting 1 with the EPERM
+error above; approval card `plugin:7c145865-a890-4ad7-96e2-2389490b98f0` raised at
+15:10:15.123Z and delivered to Telegram as message `9` at 15:10:18.439Z; an inbound
+Telegram update at 15:11:04.766Z, after which the gateway's
+`plugin.approval.waitDecision` returned at 15:11:05.397Z having waited 50,186 ms;
+the same command at 15:11:05.624Z exiting 0 with `status · no run · team idle`; and
+the agent sending that exact line back as Telegram message `10` to chat
+`7724282441` at 15:11:12.437Z.
+The bot is `@OMBLauncherCheckBot`; its token lives in
+`~/.openclaw/telegram-bot.token` (mode 0600) referenced by
+`channels.telegram.tokenFile` and never appears on a command line. The DM required
+pairing: code `TGLH7375`, approved with `openclaw pairing approve telegram
+TGLH7375`, which also made that user the command owner. An earlier DM attempt failed
+with "Something went wrong" while `tools.exec.mode=allowlist`, the preflight refusal
+quoted above.
+
+**Automations** (`openclaw automations create`, aliased as `openclaw cron`) answer
+the open question about `--announce` on empty output. Two jobs were created against
+the fixture and run manually:
+
+| Job | Command | Run | Result |
+|---|---|---|---|
+| `omb-empty` `2e7024a8-50fd-4aea-b6be-f43fcd284ebd` | `true` | `manual:2e7024a8-50fd-4aea-b6be-f43fcd284ebd:1789572099849:1` | succeeded; `command ok with no output`; `delivered: false`, `deliveryStatus: "not-delivered"`, `deliverySuppressionReason: "empty"` |
+| `omb-status` `b117317c-f27b-4bc9-903a-4f63beac6a7a` | `<skill>/scripts/omb.mjs status --project <fixture> --brief` with `--command-env OMB_BIN=…` and `--command-env OMB_TOKEN=` | `manual:b117317c-f27b-4bc9-903a-4f63beac6a7a:1789572101199:2` | succeeded; `delivered: true` with summary `status · no run · team idle` |
+
+Both used `--announce --channel telegram --to 7724282441` and both were removed
+afterwards. An empty output is therefore not announced, and `--command-env` is how
+an automation gets `OMB_BIN`.
+
+### Hermes Agent, bead `oml-5bw`
+
+Install: `curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+--non-interactive --skip-setup --skip-browser --skip-computer-use` into
+`~/.hermes/hermes-agent` (uv-managed Python); the installer needs a C++ compiler
+(`sudo apt install build-essential`), and puts `hermes` on `~/.local/bin`. There is
+no version command (`hermes version` is not a command); the package metadata reads
+`0.21.3`. Auth: `hermes auth add openai-codex --type oauth --no-browser` (device
+code completed in the user's browser) produced credential `openai-codex-oauth-1`,
+with `model.provider openai-codex` and `model.default gpt-5.6-sol`; `hermes -z`
+answered `pong`.
+
+Discovery: `hermes skills list` did **not** show the skill until
+`~/.hermes/config.yaml` gained
+
+```yaml
+skills:
+  external_dirs:
+    - ~/.agents/skills
+```
+
+after which it is listed as local, enabled. The documented default scan of
+`~/.agents/skills` did not hold on this install. At run time the agent loaded the
+skill with its own `skill_view` tool, whose result begins `{"success": true,
+"name": "openmausbot-launcher", …}`.
+
+Turns ran through `hermes -z` with the terminal backend `local` and no sandbox;
+`OMB_BIN` and `OMB_TOKEN` were exported in the launching shell. Turn 1
+(15:12:43Z to 15:13:54Z, session `20260916_111246_e6c67d`) ran the three read
+commands by path:
+
+```sh
+/home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs doctor --project /tmp/oml-v2-hosts-i1Dlq7/project
+/home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs doctor --server --project /tmp/oml-v2-hosts-i1Dlq7/project
+/home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs status --brief --project /tmp/oml-v2-hosts-i1Dlq7/project
+```
+
+`doctor` passed 5/5, `doctor --server` passed all ten checks including `identity`
+("the recorded server identity matches") and `provider-keys` ("no provider API keys
+in the server's environment"), and `status --brief` printed `status · no run · team
+idle`. Turn 2 (15:15:38Z to 15:16:48Z, session `20260916_111540_924d2f`) sent
+message `22ca85be-86c2-46c6-a07c-c01a26ed3813` (nonce `7755d349`) at 15:15:52.668Z;
+Sudo answered `7755d349` as `539457e9-793a-4e4c-8a9e-9c6aeb323e3a` at 15:16:03.146Z,
+10.5 s later, in OMB turn `c8630b48-c755-4817-aec4-ca293b3569c0`. The agent ran
+`status --tail 3` twice, with a `sleep 20` between them. The `send` command's stdout
+also carried Node's SQLite `ExperimentalWarning` lines ahead of the JSON.
+
+**Cron adapter.** `~/.hermes/scripts/omb-watch.sh` holds the `references/hosts.md`
+adapter, in the `status --brief` form because no run was open:
+
+```sh
+#!/bin/sh
+export OMB_BIN=/home/wsh/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js OMB_TOKEN=
+/home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs status --project /tmp/oml-v2-hosts-i1Dlq7/project --brief
+c=$?; case $c in 0|4|5) exit 0;; *) exit $c;; esac
+```
+
+`hermes cron create "every 5m" --name omb-watch --no-agent --script omb-watch.sh
+--deliver local` created job `8be2016cb077`. Jobs fire only with the gateway
+running: `hermes gateway install` installs the user service `hermes-gateway.service`
+and the installer enabled `loginctl` lingering itself. `hermes cron run
+8be2016cb077` answered "Ran now: succeeded"; the execution row
+(`~/.hermes/cron/executions.db`) reads `status completed`, started
+2026-09-16T11:18:35.655640-04:00, finished 11:18:36.027060-04:00,
+`delivery_outcome: suppressed` for the `local` target. The output file
+`~/.hermes/cron/output/8be2016cb077/2026-09-16_11-18-35.md` held "Mode: no_agent
+(script)" and the line `status · no run · team idle`; it was removed with the job
+and is no longer readable, so that content is quoted from the session ledger rather
+than from the file. `--deliver` accepts `origin`, `local`, `telegram`, `discord`,
+`signal` and `platform:chat_id`.
+
+### DeepSeek Harness (dsh) 0.1.5-rc.1, bead `oml-5bw`
+
+Install: `npm install -g @deepseek-ai/dsh@latest` under the Node 24.11.0 prefix with
+build scripts allowed for `@deepseek-ai/dsh-subprocess-local`, `koffi`, `node-pty`,
+`@google/genai` and `protobufjs`; symlink `~/.local/bin/dsh`. The DeepSeek key is
+read by a wrapper from a 0600 file and never appears in argv. The headless entry is
+`dsh --profile headless "<task>"`, which answers one task with reasoning on stderr
+and the final message on stdout; a probe answered `pong`. The session runs
+`deepseek-official` / `deepseek-flash`.
+
+Discovery: the session prompt lists `openmausbot-launcher` with its description in
+an `<available_skills>` block, and the skill tool resolves its base directory to
+`/home/wsh/.agents/skills/openmausbot-launcher`, the only install location on this
+machine. The tier numbers that third-party posts claim were not verified.
+
+**PID namespace.** dsh runs its shell subprocesses as the same user inside a systemd
+scope named `dsh-subprocess-*` with its own PID namespace (session log: permission
+preset `workspace-write`, sandbox mode `workspace-write`, approval policy `ask`). A
+probe returned:
+
+```
+1000
+wsh
+WSH
+
+0::/user.slice/user-1000.slice/user@1000.service/app.slice/dsh-subprocess-57953-87ffb975f19c.scope
+1
+pid:[4026532841]
+[stderr]
+ls: cannot access '/proc/43179': No such file or directory
+head: cannot open '/proc/43179/stat' for reading: No such file or directory
+```
+
+The server process is invisible from inside, so the driver's local process-identity
+checks cannot pass. Loopback HTTP is allowed: health answered. In turn 1 (15:12:49Z
+to 15:13:16Z) `doctor` passed 5/5 and `doctor --server` returned `ok: true` with an
+empty `failed` list, because the two checks that did not pass are not required:
+
+```
+provider-keys  ok: null   unknown: the server's environment is not readable
+identity       ok: false  the server is not the one recorded in the state (restarted or replaced): re-import or adopt the team
+```
+
+`status --brief` then exited 3:
+
+```json
+{"ok":false,"verb":"status","error":"the live server process identity could not be verified","hint":"run on the server's machine, or pass --remote for an HTTP connection"}
+```
+
+Turn 2 (15:17:23Z to 15:18:16Z) took the hint and used remote mode:
+
+```sh
+/home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs send "dsh check ee42ea0e: reply with just the nonce ee42ea0e" --remote --url http://127.0.0.1:8899 --project /tmp/oml-v2-hosts-i1Dlq7/project
+/home/wsh/.agents/skills/openmausbot-launcher/scripts/omb.mjs status --tail 3 --remote --url http://127.0.0.1:8899 --project /tmp/oml-v2-hosts-i1Dlq7/project
+```
+
+The send returned `4ffbd26a-01b5-48bd-b757-c47cc6990fb4` (nonce `ee42ea0e`) at
+15:17:31.005Z; Sudo answered `ee42ea0e` as
+`6cff2a1d-dac3-473e-bb58-68560f95b3f4` at 15:17:38.503Z, 7.5 s later, in OMB turn
+`a9400914-a1a3-4791-8744-cb64d455ff90`. `status --tail 3` ran three times: once
+directly and twice inside the agent's own retry loop, which reported
+`FOUND_ON_ATTEMPT 2`. So `--remote` is not an optional nicety on dsh; it is how the
+live verbs work there.
+
+### Incidents
+
+1. OpenClaw's `tools.exec.mode=allowlist` blocks the Codex harness entirely, before
+   any command runs. Fixed by keeping `ask`.
+2. The exec allowlist matches the command's own program path, so neither the
+   agent's `node <script> …` nor its `env OMB_BIN=… <script> …` form matched an
+   entry for `<script>`, and the cards kept coming. Not fixed; treat the allowlist
+   as an optimisation, not as a way to avoid approvals.
+3. `skills.entries.<name>.env` is not applied to Codex-harness commands. Worked
+   around with an explicit `env …` prefix in the command itself.
+4. Two escalation requests in OpenClaw CLI turn 2 expired unanswered after the full
+   120 s window, because the operator's auto-resolver filtered on a summary that the
+   card truncates. One is named in the gateway log
+   (`plugin:d5680bba-9625-40e3-995a-6bf946a38f76`, "expired" at 15:20:48.153Z); the
+   other appears only as a second 119,976 ms wait and its id is not recorded. Turn 3
+   resolved every card in about five seconds.
+5. `doctor --server` cannot distinguish a blocked socket from a dead server: the
+   health probe returns `null` on a network error (`scripts/lib/server.mjs:70-75`)
+   and the check prints "nothing answers" (`scripts/lib/verbs/lifecycle.mjs:70`),
+   while `status` on the same socket names the sandbox. Driver limitation, observed
+   here, not fixed in this pass.
+6. dsh's PID namespace defeats the local identity check. Answer: `--remote`.
+7. Hermes did not scan `~/.agents/skills` by default. Answer: `skills.external_dirs`.
+
+### Cleanup and accounting
+
+`reconcile` at 15:26:12Z reported clean on `main`, one worktree, no task branches,
+`defaultBranchSource: facts`. `cleanup --kill` found no orphan
+(`pattern: codex-linux-sandbox`, `orphans: []`, `killed: []`). `down` stopped the
+owned server (`supervisorPid 43172`, `healthPid 43179`); ports 8899 and 8900 are
+closed afterwards and the package hash is unchanged. No pushes occurred.
+
+Bot turns: **3**, all Sudo, all `ok: true`, in thread
+`86905161-06df-4cbd-9e6c-89eaadeae032`:
+
+| OMB turn | Host that sent | Completed | Usage in/out (cached in) |
+|---|---|---|---|
+| `c8630b48-c755-4817-aec4-ca293b3569c0` | Hermes | 15:16:03.207Z | 19215 / 42 (9984) |
+| `a9400914-a1a3-4791-8744-cb64d455ff90` | dsh | 15:17:38.578Z | 23638 / 19 (5888) |
+| `50518f2e-25e6-4c19-93ef-a57a4beb314c` | OpenClaw | 15:22:32.072Z | 25220 / 8 (23296) |
+
+Paid host turns, counted from each host's own store: OpenClaw **6** (two `pong`
+probes, one Telegram DM turn, three CLI turns; the session brief estimated about
+five, and the attempts that failed at the allowlist preflight never reached the
+model), Hermes **3** (pong, turn 1, turn 2), dsh **4** (pong, turn 1, the namespace
+probe, turn 2).
+
+### Not exercised
+
+OpenClaw's `exec` 10-second background yield for a long `watch` (it needs an open
+run), `allow-always`, a non-loopback gateway bind; Hermes cron delivery to a chat
+channel and any watch longer than the terminal tool's configured timeout; a dsh
+shell time limit and `watch` in remote mode; `watch`, `task`, `answer`, `interrupt`
+and `report` on all three hosts. The M1 hosts (Claude Code, Codex CLI, Grok Build)
+were not re-run in this pass.

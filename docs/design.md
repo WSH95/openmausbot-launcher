@@ -43,7 +43,13 @@ against the 0.1.56 source and folded in below:
 2. **Phone path: documentation only** this round. Real verification on the
    three installed hosts (Claude Code 2.1.263, Codex 0.153.4, Grok Build
    1.0.13). OpenClaw, Hermes, DSH get install and phone recipes from their
-   docs, marked unverified, with a follow-up bead.
+   docs, marked unverified, with a follow-up bead. *Closed 2026-09-16:* that
+   follow-up (beads `oml-n2f` and `oml-5bw`) installed OpenClaw 2026.9.4,
+   Hermes Agent and dsh 0.1.5-rc.1 and ran the doctor/status/send sequence
+   on each against real OpenMausBot 0.1.56, including the OpenClaw Telegram
+   path from DM to answer. `docs/evidence.md` ("v2 host verification") and
+   `docs/validation/2026-09-16-hosts-v2.json` hold the record; `watch` on
+   those three hosts is still unverified.
 3. **Topology: same machine.** OpenClaw gateway and OMB on the workstation:
    loopback, no pairing. Remote is a token in the environment or a 0600
    file, tested against the fake server only; the `pair` verb is deferred.
@@ -467,37 +473,42 @@ task through my OpenMausBot team and relay its questions to me."`,
 | Claude Code | `ln -s <repo>/skills/openmausbot-launcher ~/.claude/skills/openmausbot-launcher` | Bash, `${CLAUDE_SKILL_DIR}/scripts/omb.mjs` | `--max-seconds 100` (120 s default), or 570 in background with a 600 s timeout | command checks verified; see evidence for watch coverage |
 | Grok Build | reads `~/.claude/skills`, nothing more | bash tool | 100 | command checks verified |
 | Codex | `ln -s … ~/.agents/skills/openmausbot-launcher` (also `~/.codex/skills`); `$openmausbot-launcher` | shell under sandbox; loopback HTTP and `up` may need escalation | 100 | command checks verified with escalation; long SSE unverified |
-| DSH | `~/.agents/skills` (tier 500, non-recursive) | shell | 100 | docs only |
-| OpenClaw | `~/.agents/skills` (default state only) or `openclaw skills install <path>`; allowlist the script path, scoped per agent and arguments per the exec-approvals docs | `exec` with `host: gateway` and an explicit `timeoutSeconds` | 1500 in background, or automations | docs only |
-| Hermes | `~/.hermes/skills/` copy or `skills.external_dirs: [~/.agents/skills]`; `hermes skills trust` for project installs | terminal, `${HERMES_SKILL_DIR}` | 240 in cron via the `.sh` adapter | docs only |
+| DSH 0.1.5-rc.1 | `~/.agents/skills` (non-recursive; the tier numbers are unverified) | shell, script path; `--remote --url http://127.0.0.1:<port>` for live verbs | 100, shell limit not measured | command checks verified 2026-09-16; its PID namespace defeats the local identity check |
+| OpenClaw 2026.9.4 | `~/.agents/skills` (default state only) or `openclaw skills install <path>`; keep `tools.exec.mode` at `ask`, never `allowlist`; an allowlist entry matches a command path, not every form the agent types | the agent's shell under the bundled Codex harness; one approval card per command, `approvals resolve <id> allow-once` | 1500 in background, or automations | command checks, the Telegram path and automations verified 2026-09-16; the 10 s exec yield is not |
+| Hermes Agent | `skills.external_dirs: [~/.agents/skills]` is required (the default scan missed it) or a `~/.hermes/skills/` copy; `hermes skills trust` for project installs | terminal tool, script path, no sandbox | 240 in cron via the `.sh` adapter; the terminal tool's own `timeout`/`lifetime_seconds` are 180 and 300 | command checks and the cron adapter verified 2026-09-16 |
 
 `npx skills add ~/Documents/openmausbot-launcher -g` installs for the hosts
 it knows (symlinks by default); Hermes and OpenClaw still need the one
 config line or their own installer, and discovery is verified per host, not
 assumed.
 
-**Phone mode, same machine (OpenClaw).** Telegram → gateway → `exec
-<abs>/scripts/omb.mjs` → loopback OMB. Session flow: "start the team on
-~/proj and do T10 (bead slg-a9x)" → `doctor`, `up --fresh`, `doctor
---server`, `import`/`bind`/`facts` for that fresh server, `task
---todo T10 --bead slg-a9x`, reply with the brief line. Progress: (a) an
+**Phone mode, same machine (OpenClaw).** Telegram → gateway → the agent's
+shell → loopback OMB; verified end to end 2026-09-16, from a DM to the
+answer in the same chat, with one approval card in between. Session flow:
+"start the team on ~/proj and do T10 (bead slg-a9x)" → `doctor`, `up
+--fresh`, `doctor --server`, `import`/`bind`/`facts` for that fresh server,
+`task --todo T10 --bead slg-a9x`, reply with the brief line. Progress: (a) an
 automation `openclaw automations create "*/5 * * * *" --command "<abs>/scripts/omb.mjs
 watch --brief --max-seconds 240 --until change --quiet-if-unchanged --nudge"
---command-cwd <project> --announce --channel telegram --to <chat>` (an
-admin-authored command, separate from the agent's exec allowlist; disable it
-after done; whether an empty output is announced is unverified); or (b) the
-agent runs `watch --max-seconds 1500 --until change` in the background and
-relays each result. Answers: "tell Sudo: …" → `send`; "approve" → `answer
---allow --request <id>`; "what's happening" → `status --brief`. Reuse a team
-binding only on the same verified server; after a restart, re-import or
-adopt to establish the new identity even when old team state is present.
+--command-cwd <project> --command-env OMB_BIN=<cli.js> --announce --channel
+telegram --to <chat>` (an admin-authored command, separate from the agent's
+exec allowlist; remove it after done; an empty output is **not** announced,
+verified 2026-09-16: the run reports `deliverySuppressionReason: "empty"`);
+or (b) the agent runs `watch --max-seconds 1500 --until change` in the
+background and relays each result, which is still unverified. Answers: "tell
+Sudo: …" → `send`; "approve" → `answer --allow --request <id>`; "what's
+happening" → `status --brief`. Reuse a team binding only on the same
+verified server; after a restart, re-import or adopt to establish the new
+identity even when old team state is present.
 
 **Hermes**: a short `~/.hermes/scripts/omb-watch.sh` adapter (cron
-`--script` takes a filename there, not an absolute path) that runs `watch
---brief --max-seconds 240 --until change --quiet-if-unchanged` with the
-project path and exits 0 for the expected codes 0, 4, and 5 while letting
-1, 2, 3, and 6 through as real failures; `hermes cron create "every 5m"
---no-agent --script omb-watch.sh` with `deliver: telegram`.
+`--script` takes a filename there, not an absolute path) that exports
+`OMB_BIN`, runs `watch --brief --max-seconds 240 --until change
+--quiet-if-unchanged` with the project path and exits 0 for the expected
+codes 0, 4, and 5 while letting 1, 2, 3, and 6 through as real failures;
+`hermes cron create "every 5m" --no-agent --script omb-watch.sh --deliver
+telegram`. Verified 2026-09-16 in script mode, with the caveat that jobs
+fire only while the `hermes-gateway.service` user unit runs.
 
 **Remote variant (documented only).** `openmausbot serve --tailscale` (or
 `--tunnel` after `login`), `openmausbot pair --label openclaw`, one `curl
@@ -665,8 +676,16 @@ hold the record; the devpack gate `atw-07l.27` is met. The suite grew from
    before finding 26 it exited 3 with a misleading identity error. The same
    commands pass under `danger-full-access` or against a user-started server
    that `up` attaches to. Long SSE inside the sandbox remains unverified.
-2. OpenClaw `--announce` on empty output and the exact allowlist argument
-   syntax are documented, not verified (OpenClaw is not installed).
+2. OpenClaw, verified 2026-09-16 on 2026.9.4: `--announce` does not deliver an
+   empty output (the run records `deliverySuppressionReason: "empty"`), and
+   `openclaw approvals allowlist add --agent <agent> <path>` takes a command
+   path with scope "any args". The allowlist is weaker than it looks: it
+   matches the path the agent types, so `node <script>` does not match an
+   entry for `<script>`, and under the bundled Codex harness every command
+   still raises one approval card. Keep `tools.exec.mode` at `ask`;
+   `allowlist` refuses every turn at preflight. Still unverified: the 10 s
+   `exec` background yield, `allow-always`, a non-loopback gateway bind, and
+   `watch` from OpenClaw at all.
 3. The run marker depends on the lead following the brief's last
    paragraph; a lead that omits it yields `attention` after quiet, which
    costs the agent one read of the closing report.

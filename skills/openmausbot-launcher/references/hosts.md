@@ -12,9 +12,9 @@ the hosts' own documentation and are marked so.
 | Claude Code 2.1.263 | `ln -s <repo>/skills/openmausbot-launcher ~/.claude/skills/openmausbot-launcher` (or `.claude/skills/` in a project) | Bash: `${CLAUDE_SKILL_DIR}/scripts/omb.mjs <verb> …` — the host substitutes the path into the skill text at load time and the shell variable itself is unset, so use the path as it appears in the loaded skill; a permission prompt shows the script path | doctor, server doctor, status, send and reply verified 2026-09-08; trigger phrase "run T10 through the team", the substituted skill path, and the 100 s foreground plus 570 s background watches verified 2026-09-08 (M1 review) |
 | Grok Build 1.0.13 | none: it reads `~/.claude/skills` and `.claude/skills` | bash tool, same path | doctor, server doctor, status, send and reply verified 2026-09-08; started the real server detached and it outlived the Grok process (survival spike, M1 review) |
 | Codex CLI 0.153.4 | `ln -s <repo>/skills/openmausbot-launcher ~/.agents/skills/openmausbot-launcher` (also read: `~/.codex/skills`, a project's `.agents/skills`); `agents/openai.yaml` makes it `$openmausbot-launcher` | shell; under `workspace-write` every loopback call and `up` need escalation, see "Codex sandbox" | doctor, server doctor, status, send and reply verified 2026-09-08 with escalation; skill listing (`read-only`), state file writable (`workspace-write`), and the real-server survival spike (`danger-full-access`) verified 2026-09-08 (M1 review) |
-| DeepSeek Harness (dsh) | `~/.agents/skills/openmausbot-launcher` (tier 500; a project's `.agents/skills` is tier 200; discovery is not recursive) | shell | documented only |
-| OpenClaw | `~/.agents/skills/openmausbot-launcher` (read in the default state) or `openclaw skills install <repo>/skills/openmausbot-launcher`; then allow the script: `openclaw approvals allowlist add --agent "<agent>" <abs>/scripts/omb.mjs` | `exec` with `host: gateway` and an explicit `timeoutSeconds` | documented only |
-| Hermes Agent | copy into `~/.hermes/skills/openmausbot-launcher`, or add `~/.agents/skills` to `skills.external_dirs` in `~/.hermes/config.yaml`; project installs need `hermes skills trust` | terminal: `${HERMES_SKILL_DIR}/scripts/omb.mjs …` | documented only |
+| DeepSeek Harness (dsh) 0.1.5-rc.1 | `~/.agents/skills/openmausbot-launcher`; discovery is not recursive (the tier numbers third-party posts quote are unverified) | shell, the script path directly; **add `--remote --url http://127.0.0.1:<port>` to every live verb** | doctor, server doctor, send and reply verified 2026-09-16; dsh runs its shell in its own PID namespace, so local identity checks fail and `status` exits 3 until `--remote` |
+| OpenClaw 2026.9.4 | `~/.agents/skills/openmausbot-launcher` (read in the default state) or `openclaw skills install <repo>/skills/openmausbot-launcher`; keep `tools.exec.mode` at `ask` or `auto`, never `allowlist`; the token for a chat channel goes in a 0600 file named by `channels.telegram.tokenFile` | the agent's shell under the bundled Codex harness; **every command raises one approval card**, resolved with `openclaw approvals resolve <id> allow-once` | doctor, server doctor, status, send and reply verified 2026-09-16 through that escalation; the Telegram phone path and automations verified the same day |
+| Hermes Agent (`pyproject` 0.21.3) | add `~/.agents/skills` to `skills.external_dirs` in `~/.hermes/config.yaml` (the documented default scan did not find the skill), or copy into `~/.hermes/skills/openmausbot-launcher`; project installs need `hermes skills trust` | terminal tool, the script path directly; no sandbox | doctor, server doctor, status, send and reply verified 2026-09-16; the cron adapter verified the same day |
 
 `npx skills add ~/Documents/openmausbot-launcher -g` creates the symlinks for
 the hosts it knows; check discovery on each host afterwards (`/skills`,
@@ -38,9 +38,9 @@ quiet window before it can declare a run settled, so never go below
 | Claude Code | Bash 120 s by default, up to 600 s with `timeout`; `run_in_background` for longer | `--max-seconds 100`, or `--max-seconds 570` in the background with a 600 s timeout |
 | Grok Build | similar to Claude Code | `--max-seconds 100` |
 | Codex CLI | the exec timeout of the sandbox | `--max-seconds 100` |
-| OpenClaw | `exec` yields after 10 s and keeps the process running in the background; the process timeout still applies | `--max-seconds 1500` in the background, read the result through the process tool; or automations |
-| Hermes | cron jobs run a script to completion | `--max-seconds 240` from the cron adapter |
-| DSH | unverified | `--max-seconds 100` |
+| OpenClaw | `exec` yields after 10 s and keeps the process running in the background; the process timeout still applies | `--max-seconds 1500` in the background, read the result through the process tool; or automations. The 10 s yield is still unverified: the 2026-09-16 pass had no open run |
+| Hermes | cron jobs run a script to completion (verified 2026-09-16); the terminal tool takes a per-call timeout, over `terminal.timeout` (180 s) and `terminal.lifetime_seconds` (300 s) in `config.yaml` | `--max-seconds 240` from the cron adapter; raise the two config values before a longer watch |
+| DSH | not measured | `--max-seconds 100` |
 
 ## Codex sandbox (verified 2026-09-08 against real OpenMausBot 0.1.56)
 
@@ -86,53 +86,124 @@ The M1 review's tier 2 (2026-09-08, `docs/evidence.md`) added the
 real-server survival spike from Grok and Codex, the Codex skill listing and
 state-file writability checks, and the Claude trigger phrase; its tier 3
 ran the 100 s foreground and 570 s background watches. Long Codex SSE
-watches inside the sandbox remain unverified. OpenClaw, Hermes, and DSH are
-documentation only.
+watches inside the sandbox remain unverified.
 
-## Phone mode with OpenClaw on the same machine (documented only)
+## OpenClaw, Hermes and dsh (verified 2026-09-16 against real OpenMausBot 0.1.56)
 
-Telegram → OpenClaw gateway → `exec <abs>/scripts/omb.mjs` → loopback
-OpenMausBot. The state file under the project keeps every call
-independent, so a fresh session or an automation can continue a run.
+The three remaining hosts ran the same doctor/server-doctor/status/send
+sequence in a fresh temporary project, one send each, three Sudo turns in
+total. `docs/evidence.md` ("v2 host verification") and
+`docs/validation/2026-09-16-hosts-v2.json` hold the ids and outputs. The
+driver ran on Node 24.11.0 in all three; OpenClaw itself needs Node 24.16
+or later, which can live in its own prefix. Each host has one thing to get
+right:
 
-1. Install the skill and allow the script path for the agent (table above).
-2. Session flow. "start the team on ~/proj and do T10 (bead slg-a9x)" →
+- **dsh**: its shell subprocesses run in their own PID namespace, so the
+  driver cannot see the server process. `doctor --server` still passes
+  (`provider-keys` reads `unknown: the server's environment is not
+  readable`, `identity` reads false), but `status` exits 3 with "the live
+  server process identity could not be verified". Pass `--remote --url
+  http://127.0.0.1:<port>`: `send` and `status` were verified that way, and
+  the rest of the HTTP-only verb set is in "Remote variant" below.
+- **OpenClaw**: `tools.exec.mode=allowlist` refuses every turn before any
+  command runs ("Codex app-server local execution is unavailable because
+  effective tools.exec.mode=allowlist"). Keep `ask`. Under `ask` the Codex
+  harness raises one "Codex app-server command approval" card per command,
+  with a 120 s window; `openclaw approvals resolve <id> allow-once` clears
+  it, and an unanswered card simply expires and the command stays
+  sandboxed. Two more facts: the exec allowlist matches command paths, so
+  an agent that types `node <script> …` does not match an entry for
+  `<script>`; and `skills.entries.<name>.env` is not applied to
+  Codex-harness commands, so put `env OMB_BIN=… OMB_TOKEN= ` in front of
+  the command itself.
+- **Hermes**: `hermes skills list` found nothing until
+  `skills.external_dirs: [~/.agents/skills]` was in `~/.hermes/config.yaml`.
+  Its terminal backend is `local` with no sandbox, so the driver behaves as
+  it does in a plain shell; export `OMB_BIN` in the launching shell.
+
+Inside the OpenClaw sandbox the driver reports a blocked socket the way it
+reports a dead server: `status` exits 1 with `cannot reach
+http://127.0.0.1:<port>: EPERM` and names the sandbox, but `doctor
+--server` prints `nothing answers at http://127.0.0.1:<port>` because its
+health probe turns the network error into null. Read that line as "blocked
+or dead", and escalate before concluding the server is gone.
+
+## Phone mode with OpenClaw on the same machine (verified 2026-09-16)
+
+Telegram → OpenClaw gateway → the agent's shell → loopback OpenMausBot. The
+state file under the project keeps every call independent, so a fresh
+session or an automation can continue a run. A DM asking for the status
+line was answered in the same chat after one approval tap; the record is in
+`docs/evidence.md`.
+
+1. Install the skill (table above) and pair the chat: the first DM produces
+   a pairing code, `openclaw pairing approve telegram <code>` approves it
+   and makes that user the command owner. Put the bot token in a 0600 file
+   and name it with `channels.telegram.tokenFile`; never on a command line.
+2. Expect one approval card per command. Under `tools.exec.mode=ask` the
+   Codex harness asks before each command, the card reaches the same chat,
+   and Allow Once runs it. Use allow-once, not allow-always: the card names
+   one command, and the allowlist entry that would replace it does not
+   match every form the agent types. A card expires after 120 s and the
+   command then stays inside the sandbox, where loopback is blocked.
+3. Session flow. "start the team on ~/proj and do T10 (bead slg-a9x)" →
    `doctor --project ~/proj`, `up --fresh`, `doctor --server`, then
    `import`, `bind`, and `facts` for that fresh server, then
    `task --todo T10 --bead slg-a9x`, and reply with the `--brief` line.
    When attaching to the same verified server, reuse its binding. After a
    restart, re-import or adopt to establish the new identity before a task;
    the presence of old team state alone is insufficient.
-3. Progress reaches the phone either way:
-   - An automation, disabled after the run is done:
-     `openclaw automations create "*/5 * * * *" --command "<abs>/scripts/omb.mjs watch --brief --max-seconds 240 --until change --quiet-if-unchanged --nudge" --command-cwd /home/you/proj --announce --channel telegram --to <chat id>`.
-     It prints one line only when something is new; whether an empty
-     output is announced as an empty message is unverified.
+4. Progress reaches the phone either way:
+   - An automation, removed after the run is done:
+     `openclaw automations create "*/5 * * * *" --command "<abs>/scripts/omb.mjs watch --brief --max-seconds 240 --until change --quiet-if-unchanged --nudge" --command-cwd /home/you/proj --command-env OMB_BIN=<cli.js> --command-env OMB_TOKEN= --announce --channel telegram --to <chat id>`.
+     `--command-env` is how the job gets `OMB_BIN`; the skill's own env
+     block does not reach it. A run that prints nothing is **not**
+     announced: the run records `delivered: false`, `deliveryStatus:
+     not-delivered`, `deliverySuppressionReason: "empty"`, so
+     `--quiet-if-unchanged` costs no empty messages. A run that prints one
+     line delivers it as the run summary. The 2026-09-16 check fired both
+     jobs by hand (their run ids begin `manual:`); the cron expression
+     itself is still from OpenClaw's own documentation.
    - Interactive: the agent runs `watch --max-seconds 1500 --until change`
-     in the background, relays each result, and loops.
-4. Answers from the phone: "tell Sudo: no new dependency, use a table" →
+     in the background, relays each result, and loops. That background
+     path is still unverified.
+5. Answers from the phone: "tell Sudo: no new dependency, use a table" →
    `send "no new dependency, use a table"`; "approve" → `answer --allow
    --request <id>`; "what's happening" → `status --brief`.
 
 Automations are admin-authored commands, separate from the agent's exec
 allowlist; keep the command line exact.
 
-## Hermes cron adapter (documented only)
+## Hermes cron adapter (verified 2026-09-16)
 
 Hermes cron `--script` takes a file name under `~/.hermes/scripts/`, not an
-absolute path, and treats a non-zero exit as an error alert. A three-line
-adapter keeps the expected watch outcomes quiet and lets real failures
-through:
+absolute path, and treats a non-zero exit as an error alert. A four-line
+adapter keeps the expected watch outcomes quiet, exports `OMB_BIN` for the
+job's own environment, and lets real failures through:
 
 ```sh
 #!/bin/sh
 # ~/.hermes/scripts/omb-watch.sh
+export OMB_BIN=/abs/path/to/openmausbot/cli.js OMB_TOKEN=
 /abs/path/skills/openmausbot-launcher/scripts/omb.mjs watch --project /home/you/proj --brief --max-seconds 240 --until change --quiet-if-unchanged
 c=$?; case $c in 0|4|5) exit 0;; *) exit $c;; esac
 ```
 
-`hermes cron create "every 5m" --no-agent --script omb-watch.sh` with
-`deliver: telegram` sends the line to the chat.
+`hermes cron create "every 5m" --name omb-watch --no-agent --script
+omb-watch.sh --deliver telegram` creates the job. `--deliver` accepts
+`origin`, `local`, `telegram`, `discord`, `signal` and `platform:<chat id>`.
+
+Jobs only fire while the Hermes gateway runs: `hermes gateway install`
+installs the `hermes-gateway.service` user unit and enables lingering.
+`hermes cron run <job id>` fires one immediately and answers "Ran now:
+succeeded"; the run writes
+`~/.hermes/cron/output/<job id>/<timestamp>.md` with a "Mode: no_agent
+(script)" header and the script's output as the body, and the execution row
+lands in `~/.hermes/cron/executions.db`. Removing the job removes its
+output directory, so copy anything worth keeping first.
+
+The 2026-09-16 run used the `status --brief` form of the adapter because no
+run was open; a cron `watch` against a live run is still unverified.
 
 ## Remote variant (documented only)
 
