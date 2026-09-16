@@ -364,13 +364,16 @@ async function twoRuns(t) {
   assert.equal((await runOmb(["import", PKG, "--project", dir, "--url", f.url], { env })).code, 0);
   assert.equal((await runOmb(["bind", "--project", dir, "--default", "claude/claude-sonnet-5"], { env })).code, 0);
   assert.equal((await runOmb(["facts", "--project", dir, "--test", "node -e 'process.exit(0)'", "--task-log", "PROGRESS.md", "--tracker", "beads"], { env })).code, 0);
+  // the second implementer has to be adopted and bound before either run opens
+  const vex = (await f.control({ op: "bot", name: "Vex", title: "Implementer", section: "Dev team" })).bot;
+  assert.equal((await runOmb(["import", "--adopt", "Dev team", "--project", dir, "--url", f.url], { env })).code, 0);
+  assert.equal((await runOmb(["bind", "--project", dir, "--default", "claude/claude-sonnet-5"], { env })).code, 0);
   const a = (await runOmb(["task", "--todo", "T10", "--bead", "slg-1", "--project", dir], { env })).json;
   assert.ok(a.runId, JSON.stringify(a));
-  const vex = (await f.control({ op: "bot", name: "Vex", title: "Implementer", section: "Dev team" })).bot;
   const b = (await runOmb(["task", "--todo", "T11", "--bead", "slg-2", "--project", dir], { env })).json;
   assert.ok(b.runId, JSON.stringify(b));
   const st = loadState(statePaths(dir));
-  const nova = st.team.bots.find((x) => x.key === "nova");
+  const nova = st.team.bots.find((x) => x.name === "Nova");
   for (const slug of ["t10", "t11"]) git("worktree", "add", "-q", "-b", `task/${slug}`, `.worktrees/${slug}`, "main");
   // A delegates to Nova, whose thread both runs record; B delegates to Vex.
   await f.control({ op: "delegated", threadId: a.leadThreadId, name: "Nova", reason: "implement T10" });

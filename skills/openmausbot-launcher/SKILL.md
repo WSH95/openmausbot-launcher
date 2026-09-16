@@ -106,8 +106,18 @@ The driver has no force option.
 
 **A second run** is allowed while the first is open, when the user asks for
 parallel work: the lead must be idle at that moment, the new run needs its
-own name, and it needs an implementer no open run has claimed — ask the lead
-to create one ("Sudo, create a second implementer") when they are all taken.
+own name, and it needs an implementer no open run has claimed. When they are
+all taken, ask the lead to create one ("Sudo, create a second implementer")
+**before** you open the first run, and then adopt and bind it:
+
+```
+omb import --adopt <section> --project <dir>   # records the new bot
+omb bind --project <dir> --default <eng/model> # gives it this project
+```
+
+A bot the launcher never bound is not this team's: it has no working folder
+here, `--bot <name>` cannot reach it, and `task` refuses to claim it. Neither
+adopt nor bind is allowed while a run is open, so this happens first.
 The lead still runs one turn at a time, so "parallel" means two open tasks
 whose implementers work at once, not two lead turns. Later runs keep the
 specialists' existing threads: only the lead gets a thread per run.
@@ -179,7 +189,10 @@ line. Relay the lead's own words; do not paraphrase decisions.
 - `omb interrupt [--run <ref>]` stops that run's current turn; nothing else.
   A turn the lead is running on another run's thread cannot be reached from
   here at all ("the bot switched tasks before it could be interrupted"): wait
-  for the lead to go idle, then `task --abandon --run <ref>`.
+  for the lead to go idle, then `task --abandon --run <ref>`. With two runs
+  open the specialists share one thread each, so `--bot <name>` is refused
+  unless this run is the only one that claims that bot — naming a run is not
+  proof that the turn running there is its own.
 - Keep the user's words. Never answer on the user's behalf.
 
 ## 6. Finish and clean up

@@ -251,21 +251,29 @@ test("evaluate treats a run's own open delegation as inflight", () => {
   assert.equal(evaluate({ ...s, openDelegations: { byName: {}, total: 0, unknown: false } }, task, { now: T0 + 200_000, quiet: { since: T0 + 120_000 } }).state, "done");
 });
 
+/** The lead's extra implementer, recorded and bound the way the skill says. */
+async function addImplementer(f, dir, env, name = "Vex") {
+  const bot = (await f.control({ op: "bot", name, title: "Implementer", section: "Dev team" })).bot;
+  assert.equal((await runOmb(["import", "--adopt", "Dev team", "--project", dir, "--url", f.url], { env })).code, 0);
+  assert.equal((await runOmb(["bind", "--project", dir, "--default", "claude/claude-sonnet-5"], { env })).code, 0);
+  return bot;
+}
+
 test("two runs get their own view of one team: tails, outcomes, busy bots and cards", async (t) => {
   const f = await startFake(); t.after(() => f.close());
   const env = { OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir };
   const { dir } = makeRepo();
   assert.equal((await runOmb(["import", PKG, "--project", dir, "--url", f.url], { env })).code, 0);
   assert.equal((await runOmb(["bind", "--project", dir, "--default", "claude/claude-sonnet-5"], { env })).code, 0);
+  const vex = await addImplementer(f, dir, env);
   const a = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
   assert.equal(a.code, 0, a.stdout);
-  const vex = (await f.control({ op: "bot", name: "Vex", title: "Implementer", section: "Dev team" })).bot;
   const b = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
   assert.equal(b.code, 0, b.stdout);
   const st = loadState(statePaths(dir));
   const runs = Object.values(st.runs);
   const client = createClient({ url: f.url });
-  const nova = st.team.bots.find((x) => x.key === "nova");
+  const nova = st.team.bots.find((x) => x.name === "Nova");
   // A delegates to Nova and A's card is on A's lead thread; B delegates to Vex
   await f.control({ op: "delegated", threadId: a.json.leadThreadId, name: "Nova", reason: "implement T10" });
   await f.control({ op: "delegated", threadId: b.json.leadThreadId, name: "Vex" });
@@ -306,15 +314,15 @@ test("a card no run can claim is shared, and a busy lead blocks every run until 
   const { dir } = makeRepo();
   assert.equal((await runOmb(["import", PKG, "--project", dir, "--url", f.url], { env })).code, 0);
   assert.equal((await runOmb(["bind", "--project", dir, "--default", "claude/claude-sonnet-5"], { env })).code, 0);
+  await addImplementer(f, dir, env);
   const a = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
   assert.equal(a.code, 0, a.stdout);
-  await f.control({ op: "bot", name: "Vex", title: "Implementer", section: "Dev team" });
   const b = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
   assert.equal(b.code, 0, b.stdout);
   const st = loadState(statePaths(dir));
   const runs = Object.values(st.runs);
   const client = createClient({ url: f.url });
-  const quill = st.team.bots.find((x) => x.key === "quill");
+  const quill = st.team.bots.find((x) => x.name === "Quill");
   // Quill has nothing to do with either run, and raises a card anyway
   await f.control({ op: "card", threadId: st.runs[a.json.runId].threads[quill.id], requestId: "loose", kind: "approval", text: "May Quill push?" });
   let views = (await snapshotRuns(client, { team: st.team, runs }, { dataDir: f.dataDir })).views;
@@ -346,13 +354,13 @@ test("status evaluates every open run, and still reads as one run when only one 
   const { dir } = makeRepo();
   assert.equal((await runOmb(["import", PKG, "--project", dir, "--url", f.url], { env })).code, 0);
   assert.equal((await runOmb(["bind", "--project", dir, "--default", "claude/claude-sonnet-5"], { env })).code, 0);
+  await addImplementer(f, dir, env);
   const a = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
   assert.equal(a.code, 0, a.stdout);
   let r = await runOmb(["status", "--project", dir], { env });
   assert.equal(r.code, 0, r.stdout);
   assert.equal(r.json.run.runId, a.json.runId, "one run keeps the shape it always had");
   assert.equal(r.json.runs.length, 1); assert.equal(r.json.runs[0].slug, "t10"); assert.equal(r.json.runs[0].state, r.json.state);
-  await f.control({ op: "bot", name: "Vex", title: "Implementer", section: "Dev team" });
   const b = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
   assert.equal(b.code, 0, b.stdout);
   await f.control({ op: "delegated", threadId: a.json.leadThreadId, name: "Nova", reason: "implement T10" });

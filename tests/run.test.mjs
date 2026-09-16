@@ -11,6 +11,14 @@ const env = { OMB_TOKEN: "" };
 const fleet = async (f) => (await (await fetch(`${f.url}/api/bots?messages=0`)).json()).bots;
 const thread = async (f, id) => (await (await fetch(`${f.url}/api/threads/${id}/messages`)).json()).messages;
 
+/** The lead's extra implementer, recorded and bound the way the skill says: create it, adopt the section, bind. */
+async function addImplementer(f, dir, name = "Vex") {
+  const bot = (await f.control({ op: "bot", name, title: "Implementer", section: "Dev team" })).bot;
+  assert.equal((await runOmb(["import", "--adopt", "Dev team", "--project", dir, "--url", f.url], { env })).code, 0);
+  assert.equal((await runOmb(["bind", "--project", dir, "--default", "claude/claude-sonnet-5"], { env })).code, 0);
+  return bot;
+}
+
 async function setup(t) {
   const f = await startFake(); t.after(() => f.close()); env.OMB_DATA_DIR = f.dataDir;
   const { dir, git } = makeRepo();
@@ -131,9 +139,9 @@ test("task owns .worktrees/<slug> on task/<slug>, says so in the brief, and clai
 test("a second run keeps the lead's threads apart, reuses the specialists' live threads, and claims another implementer", async (t) => {
   const { f, dir, team, lead } = await setup(t);
   const nova = team.bots.find((b) => b.key === "nova");
+  const vex = await addImplementer(f, dir);
   const a = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
   assert.equal(a.code, 0, a.stdout);
-  const vex = (await f.control({ op: "bot", name: "Vex", title: "Implementer", section: team.section })).bot;
   // A's implementer is at work: a second dispatch may not wait for the whole team to be idle
   await f.control({ op: "activity", botId: nova.id, activity: "working" });
   const b = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
@@ -335,8 +343,8 @@ test("deliverToLead leaves a thread that is nobody's run alone", async () => {
 test("send, answer's fallback and --nudge all reach the run they name while the lead sits on another", async (t) => {
   const { f, dir, lead, team, client } = await setup(t);
   const nova = team.bots.find((b) => b.key === "nova");
+  await addImplementer(f, dir);
   const a = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
-  await f.control({ op: "bot", name: "Vex", title: "Implementer", section: "Dev team" });
   const b = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
   assert.equal(b.code, 0, b.stdout);
   const active = async () => (await fleet(f)).find((x) => x.id === lead.id).threadId;
@@ -373,8 +381,8 @@ test("send, answer's fallback and --nudge all reach the run they name while the 
 
 test("every run-scoped verb asks which run when two are open, and interrupt says what it could not reach", async (t) => {
   const { f, dir, lead, client } = await setup(t);
+  await addImplementer(f, dir);
   const a = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
-  await f.control({ op: "bot", name: "Vex", title: "Implementer", section: "Dev team" });
   const b = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
   for (const args of [["send", "hi"], ["interrupt"], ["watch", "--max-seconds", "2"], ["report", "--no-tests"], ["task", "--abandon"], ["task", "--resume"]]) {
     const r = await runOmb([...args, "--project", dir], { env });
@@ -403,8 +411,8 @@ test("every run-scoped verb asks which run when two are open, and interrupt says
 
 test("answer works on one run's own cards and refuses a request no run can claim without --request", async (t) => {
   const { f, dir, team } = await setup(t);
+  await addImplementer(f, dir);
   const a = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
-  await f.control({ op: "bot", name: "Vex", title: "Implementer", section: "Dev team" });
   const b = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
   assert.equal(b.code, 0, b.stdout);
   await f.control({ op: "card", threadId: a.json.leadThreadId, requestId: "q-a", kind: "question", text: "Which table?" });
@@ -424,8 +432,8 @@ test("answer works on one run's own cards and refuses a request no run can claim
 
 test("a second run cannot share the first one's lead thread", async (t) => {
   const { f, dir } = await setup(t);
+  await addImplementer(f, dir);
   assert.equal((await runOmb(["task", "--todo", "T10", "--no-fresh-threads", "--project", dir], { env })).code, 0, "the first run may use the threads that exist");
-  await f.control({ op: "bot", name: "Vex", title: "Implementer", section: "Dev team" });
   const r = await runOmb(["task", "--todo", "T11", "--no-fresh-threads", "--project", dir], { env });
   assert.equal(r.code, 2, r.stdout); assert.match(r.json.error, /--no-fresh-threads/);
   assert.equal((await runOmb(["task", "--todo", "T11", "--project", dir], { env })).code, 0, "with its own lead thread it dispatches");
@@ -433,9 +441,9 @@ test("a second run cannot share the first one's lead thread", async (t) => {
 
 test("task --resume sends the brief to its own run's thread even when the lead moved to another run", async (t) => {
   const { f, dir, lead } = await setup(t);
+  await addImplementer(f, dir);
   const a = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
   assert.equal(a.code, 0, a.stdout);
-  await f.control({ op: "bot", name: "Vex", title: "Implementer", section: "Dev team" });
   const b = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
   assert.equal(b.code, 0, b.stdout);
   // A is back to preparing with a brief the server has not seen — the state a
@@ -449,4 +457,62 @@ test("task --resume sends the brief to its own run's thread even when the lead m
   const msgs = await thread(f, a.json.leadThreadId);
   assert.equal(msgs.filter((m) => m.sendId === "task-resend").length, 1, "the brief landed once, on t10's own thread");
   assert.equal((await fleet(f)).find((x) => x.id === lead.id).threadId, a.json.leadThreadId, "the switch is what made it land");
+});
+
+test("an implementer the launcher never bound is not assigned: adopt it and bind it first", async (t) => {
+  const { f, dir } = await setup(t);
+  // the lead's own answer to "every implementer is claimed" (create_bot, index.ts:8213-8228):
+  // a same-section bot with no project folder that the launcher has never seen
+  const vex = (await f.control({ op: "bot", name: "Vex", title: "Implementer", section: "Dev team" })).bot;
+  assert.equal(vex.cwd, undefined, "create_bot gives it no working folder");
+  const a = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  assert.equal(a.code, 0, a.stdout); assert.equal(a.json.implementer.name, "Nova");
+  let r = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
+  assert.equal(r.code, 3, r.stdout); assert.match(r.json.error, /every implementer is claimed/);
+  assert.match(r.json.hint, /Vex is on the server but not in this team/);
+  assert.match(r.json.hint, /import --adopt Dev team/); assert.match(r.json.hint, /then bind/);
+  r = await runOmb(["task", "--todo", "T11", "--implementer", "Vex", "--project", dir], { env });
+  assert.equal(r.code, 3, r.stdout); assert.match(r.json.error, /Vex is on the server but not in this team/);
+  // the documented recovery: close the open run, adopt the section, bind it, dispatch again
+  assert.equal((await runOmb(["task", "--abandon", "--project", dir], { env })).code, 0);
+  assert.equal((await runOmb(["import", "--adopt", "Dev team", "--project", dir, "--url", f.url], { env })).code, 0);
+  assert.equal((await runOmb(["bind", "--project", dir, "--default", "claude/claude-sonnet-5"], { env })).code, 0);
+  assert.equal((await fleet(f)).find((x) => x.id === vex.id).cwd, dir, "binding is what gives it the project");
+  assert.ok(loadState(statePaths(dir)).team.bots.some((b) => b.id === vex.id), "and what records it");
+  const a2 = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const b2 = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
+  assert.equal(b2.code, 0, b2.stdout);
+  assert.deepEqual([a2.json.implementer.name, b2.json.implementer.name].sort(), ["Nova", "Vex"]);
+});
+
+test("interrupt refuses a specialist thread the other run may be using, and allows the one this run delegated to", async (t) => {
+  const { f, dir, team } = await setup(t);
+  const nova = team.bots.find((b) => b.key === "nova");
+  await addImplementer(f, dir);
+  const a = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const b = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
+  assert.equal(b.code, 0, b.stdout);
+  assert.equal(a.json.threads[nova.id], b.json.threads[nova.id], "both runs record Nova's one thread");
+  await f.control({ op: "activity", botId: nova.id, activity: "working" });
+  // Nova is t10's implementer, so t11 may not stop whatever it is doing
+  let r = await runOmb(["interrupt", "--run", "t11", "--bot", "nova", "--project", dir], { env });
+  assert.equal(r.code, 3, r.stdout); assert.match(r.json.error, /Nova's task .* is shared with t10/);
+  assert.match(r.json.hint, /t10 .* claims Nova as its implementer/);
+  assert.equal((await fleet(f)).find((x) => x.id === nova.id).busy, true, "nothing was interrupted");
+  // with the delegation open the answer is the same, and says so in its own words
+  await f.control({ op: "delegated", threadId: a.json.leadThreadId, name: "Nova", reason: "implement T10" });
+  r = await runOmb(["interrupt", "--run", "t11", "--bot", "nova", "--project", dir], { env });
+  assert.equal(r.code, 3, r.stdout); assert.match(r.json.hint, /t10 .* has an open delegation to Nova/);
+  assert.equal((await fleet(f)).find((x) => x.id === nova.id).busy, true);
+  // and when both runs could be the one waiting on it, neither may stop it
+  await updateState(statePaths(dir), (d) => { d.runs[b.json.runId].implementer = { id: nova.id, name: "Nova" }; return d; });
+  r = await runOmb(["interrupt", "--run", "t10", "--bot", "nova", "--project", dir], { env });
+  assert.equal(r.code, 3, r.stdout); assert.match(r.json.hint, /t10 .*; t11 .*: interrupt the lead/);
+  await updateState(statePaths(dir), (d) => { d.runs[b.json.runId].implementer = null; return d; });
+  r = await runOmb(["interrupt", "--run", "t10", "--bot", "nova", "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout);
+  assert.equal((await fleet(f)).find((x) => x.id === nova.id).busy, false);
+  // the lead's thread is the run's own: it needs no attribution
+  await f.control({ op: "activity", botId: team.lead.id, activity: "working" });
+  assert.equal((await runOmb(["interrupt", "--run", "t11", "--project", dir], { env })).code, 0);
 });

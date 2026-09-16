@@ -12,16 +12,24 @@ let env = { OMB_TOKEN: "" };
 const fast = ["--quiet-seconds", "1", "--drop-seconds", "1", "--poll", "1"];
 const thread = async (f, id) => (await (await fetch(`${f.url}/api/threads/${id}/messages`)).json()).messages;
 
-async function setup(t, opts = {}) {
+async function setup(t, { implementer = null, ...opts } = {}) {
   const f = await startFake({ heartbeatMs: 100, ...opts }); t.after(() => f.close());
   env = { OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir };
   const { dir } = makeRepo();
   assert.equal((await runOmb(["import", PKG, "--project", dir, "--url", f.url], { env })).code, 0);
   assert.equal((await runOmb(["bind", "--project", dir, "--default", "claude/claude-sonnet-5"], { env })).code, 0);
+  // An implementer the lead created is only this team's once it is adopted and
+  // bound, and neither is allowed while a run is open — so it happens first.
+  let extra = null;
+  if (implementer) {
+    extra = (await f.control({ op: "bot", name: implementer, title: "Implementer", section: "Dev team" })).bot;
+    assert.equal((await runOmb(["import", "--adopt", "Dev team", "--project", dir, "--url", f.url], { env })).code, 0);
+    assert.equal((await runOmb(["bind", "--project", dir, "--default", "claude/claude-sonnet-5"], { env })).code, 0);
+  }
   const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
   assert.equal(run.code, 0, run.stdout + run.stderr);
   const st = loadState(statePaths(dir));
-  return { f, dir, lead: st.team.lead, team: st.team, run: run.json, lt: run.json.leadThreadId };
+  return { f, dir, lead: st.team.lead, team: st.team, run: run.json, lt: run.json.leadThreadId, extra };
 }
 
 test("relevantFrame", () => {
@@ -156,6 +164,15 @@ test("mergeCheckpoint takes the watch's watermarks but keeps a newer lastChangeA
   assert.equal(mergeCheckpoint({}, {}).lastChangeAt, null);
 });
 
+test("mergeCards forgets an answered card only when the observation was complete", async () => {
+  const { mergeCards } = await import("../skills/openmausbot-launcher/scripts/lib/watch.mjs");
+  assert.deepEqual(mergeCards({ a: true, b: true }, { b: true }, true), { b: true }, "a complete read is the whole truth: a settled card is forgotten");
+  assert.deepEqual(mergeCards({ a: true, b: true }, { b: true }, false), { a: true, b: true }, "an incomplete read never drops a remembered owner");
+  assert.deepEqual(mergeCards({ a: true }, { b: true }, false), { a: true, b: true }, "and still records what it did see");
+  assert.deepEqual(mergeCards(undefined, {}, true), {});
+  assert.deepEqual(mergeCards(undefined, { a: true }, false), { a: true });
+});
+
 test("the watch checkpoint keeps a lastChangeAt another writer advanced", async (t) => {
   const { f, dir, lt, run } = await setup(t);
   const paths = statePaths(dir);
@@ -218,8 +235,7 @@ test("frameScope separates a frame that concerns the team from one that concerns
 });
 
 test("watch --run settles one run while the other keeps a second implementer busy on the active task", async (t) => {
-  const { f, dir, lead, run: a } = await setup(t);
-  const vex = (await f.control({ op: "bot", name: "Vex", title: "Implementer", section: "Dev team" })).bot;
+  const { f, dir, lead, run: a, extra: vex } = await setup(t, { implementer: "Vex" });
   const b = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
   assert.equal(b.code, 0, b.stdout + b.stderr);
   assert.equal((await (await fetch(`${f.url}/api/bots`)).json()).bots.find((x) => x.id === lead.id).threadId, b.json.leadThreadId, "B's task is the active one");

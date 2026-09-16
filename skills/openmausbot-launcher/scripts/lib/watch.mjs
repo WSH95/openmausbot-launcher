@@ -87,6 +87,17 @@ export function mergeCheckpoint(existing, watermarks) {
   return { ...prior, ...watermarks, lastChangeAt: stamps.length ? Math.max(...stamps) : null };
 }
 
+/**
+ * The pending requests a run owns after this watch. A complete observation is
+ * the whole truth, so a card that has been answered stops being remembered; an
+ * incomplete one may simply have failed to read the thread the card is on, and
+ * dropping the owner there would turn it into a `shared` request the run can no
+ * longer answer without `--request`.
+ */
+export function mergeCards(prior, cards, complete) {
+  return complete ? { ...cards } : { ...(prior ?? {}), ...cards };
+}
+
 /** Watch uses one monotonic observation deadline, including every invalidation
  * drain. Only complete snapshots advance the cursor covered by REST truth. */
 export async function watchRun({ client, team, task, runs = [], dataDir = null, maxSeconds = 100, until = "settled", pollMs = 30_000, quietMs = DEFAULTS.quietMs, dropMs = DEFAULTS.dropMs, stallMs = DEFAULTS.stallMs, idleMs = 45_000, coalesceMs = 2_000, nudge = null, log = () => {}, deadline = performance.now() + maxSeconds * 1000 }) {

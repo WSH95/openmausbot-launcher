@@ -175,7 +175,7 @@ is needed; 6 stalled or failed.
 | `answer` | `--allow\|--deny\|--message "<text>" [--request ID] [--run <ref>]` | typed requests: ordinary question and approval cards (`card.requestId`, unanswered, undismissed) are answered on the owning thread with outcomes `allowed-once\|rejected\|answered\|unavailable` reported as is; an `unavailable` **textual** answer on the lead's run thread falls back to `send`; an unavailable allow or deny is never turned into chat; `--request` required when more than one card is pending, and when the one pending card belongs to no open run (`shared`); connector, credential, skill (reviewed-hash) and routine requests are **reported with their type and route, exit 5, unsupported in v1**; bare text = `send` | `POST /api/threads/:id/respond` |
 | `status` | `[--bots] [--tail N]` | one snapshot, one evaluation per open run in `runs[]` (with the single run's fields also at the top level when exactly one is open); without an open task, returns `run: null`, roster, latest leader/user messages and the requested tail without a task verdict; never blocks; `carried: true` marks a verdict carried from the last watch rather than settled by this snapshot | snapshot routes |
 | `watch` | `--max-seconds N` (default 100) `--until settled\|change\|question` `[--poll 30] [--stall-minutes 40] [--nudge] [--quiet-if-unchanged] [--run <ref>]` | one run at a time, see below | `/api/events`, snapshot routes, receipts file |
-| `interrupt` | `[--bot] [--run <ref>]` | stops the run's turn only: always sends `{threadId: <run thread>}`; a 409 (the bot is busy in a room or routine, `index.ts:11044`) is reported, never overridden; a turn pinned to a thread that is not the bot's active task — a drained delegation wake — cannot be reached at all (409 `the bot switched tasks before it could be interrupted`, `index.ts:11077-11084`), and the hint says to wait for the lead to go idle and then `task --abandon --run <ref>`; takes no state lock, since it writes nothing | `POST /api/bots/:id/interrupt` |
+| `interrupt` | `[--bot] [--run <ref>]` | stops the run's turn only: always sends `{threadId: <run thread>}`; a specialist thread another open run also records is refused unless this run is the only one that claims that bot (an open delegation to it, or its implementer claim), because naming a run is not proof that the turn running there is that run's; a 409 (the bot is busy in a room or routine, `index.ts:11044`) is reported, never overridden; a turn pinned to a thread that is not the bot's active task — a drained delegation wake — cannot be reached at all (409 `the bot switched tasks before it could be interrupted`, `index.ts:11077-11084`), and the hint says to wait for the lead to go idle and then `task --abandon --run <ref>`; takes no state lock, since it writes nothing | `POST /api/bots/:id/interrupt` |
 | `reconcile` | `[--remove <slug>]… [--claim <slug> --run <ref>]…` | one `.worktrees/<slug>` on `task/<slug>` per open run matched by name, no other worktree and no other `task/*` branch, clean `git status --porcelain --untracked-files=normal`, on the default branch; reports `openRuns[]` and each worktree's owning `run`; `--claim` records a leftover slug on an open run (`claimedSlugs`) so the lead's own differently named worktree stops blocking the next dispatch; `--remove` = `git worktree remove` then `git branch -D`, explicit slugs only; reports `defaultBranchSource` (`facts`, `origin`, `main`, `master`, `current`) and hints to record the branch with `facts --default-branch` when only the current branch supplied it | git |
 | `cleanup` | `[--kill] [--pattern codex-linux-sandbox] [--down]` | processes matching the pattern whose cwd is under `<project>/.worktrees/` and deleted; never a pid recorded as the owned server; identity (pid, start time, cwd) rechecked before SIGTERM and again before SIGKILL (5 s later); Linux only, macOS reports | `/proc`, `pgrep` |
 | `report` | `[--md] [--check-042] [--run <ref>\|last] [--no-tests] [--close\|--no-close]` | one run: `--run` resolves an open run first, then the history; turns and tokens from **every run thread's** `events/<thread>.ndjson`, with the turns on a thread another run also records allocated by this run's open-delegation windows and the rest counted as `shared`; outcomes for the run, lead text, decisions, `git log <sentSha>..HEAD`, worktree list; verifies the record step; runs the project test command independently; `--check-042` adds the pack-validation checks (below); `--md` renders the evidence section; the record commit and the task-log entry must name the run (its slug, title or bead) and fall inside its window; the root check ignores the other open runs' worktrees and branches, and checks the whole repository again when the last run closes; **closes the run**: moves it out of `runs` into `history` by `runId` with a result of `passed`, `incomplete`, or `failed` | data dir, git, `bd show` |
@@ -203,11 +203,15 @@ routine requests in `answer`. `pair` was deferred in v1 and landed on
    runs own, and refuses on a dirty root, the wrong branch, or a worktree or
    `task/*` branch with no owner.
 3. Claim an implementer when the team has bots titled Implementer: the idle
-   one no open run has claimed. `--implementer <bot>` names one, and a bot
-   another run claimed is refused unless `--share-implementer` — a bot runs
-   one turn at a time (`index.ts:3775`), so a second task on it only queues.
-   When every implementer is claimed the hint is the pack's own answer: ask
-   the lead to create another. A team with no implementers claims nothing.
+   one no open run has claimed, **and only one this launcher recorded and
+   bound**. `--implementer <bot>` names one, and a bot another run claimed is
+   refused unless `--share-implementer` — a bot runs one turn at a time
+   (`index.ts:3775`), so a second task on it only queues. A same-section bot
+   the lead created with `create_bot` (`index.ts:8213-8228`) has no working
+   folder, is not in `team.bots`, and cannot be named by `--bot`, so it is
+   never claimed: the refusal names it and says to finish the open run, then
+   `import --adopt <section>` and `bind`. A team with no implementers of its
+   own claims nothing.
 4. Under the state lock, persist the intent: `runId`, `status: preparing`,
    the brief, `sendId = task-<runId>`, the slug, branch and implementer, and
    the run's thread title `<title> [oml:<runId8>]` (task creation has no
@@ -373,7 +377,9 @@ Notifications are wake-ups only (a bot's notifications can be off,
    lastLeadMessageId, lastChangeAt, outcomes, evidence, lastReported}` over
    the existing record, keeping the newer `lastChangeAt` when a `send`
    advanced it during the watch, and writes `runs[runId].cards` (the pending
-   requests this run owns), only for that run and only for the same binding.
+   requests this run owns) — replacing them only when the observation was
+   complete, since an incomplete one may just have failed to read the thread
+   the card is on — only for that run and only for the same binding.
    No other run's record is read or written. Lock timeout or a replaced run
    returns `checkpointed:false`; other state errors propagate. `watch` never
    changes a run's `status`.

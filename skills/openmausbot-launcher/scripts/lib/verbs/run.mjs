@@ -97,26 +97,43 @@ export const implementersIn = (bots) => bots.filter((b) => /implementer/i.test(b
 
 /**
  * Which implementer this run claims (design, "Several runs"). A claim is
- * conservative: one open run per implementer, because a bot runs one turn at a
- * time and the second task would only queue behind the first.
+ * conservative twice over. One open run per implementer, because a bot runs one
+ * turn at a time (index.ts:3775) and a second task would only queue behind the
+ * first. And only a bot this launcher has recorded and bound: the lead's own
+ * answer to "every implementer is claimed" is `create_bot`, which makes a
+ * same-section bot with no working folder (index.ts:8213-8228), so a run that
+ * claimed it would send its work to whatever directory that bot defaults to,
+ * `--bot <name>` could not name it, and its threads would not belong to the
+ * roster a closed run is read back with. `import --adopt <section>` records it
+ * and `bind` gives it the project; until then it is not this team's.
  */
-export function pickImplementer(live, openRuns, { wanted = null, share = false } = {}) {
+export function pickImplementer(live, openRuns, { wanted = null, share = false, bound = null, section = null } = {}) {
   const claimedBy = new Map();
   for (const run of openRuns) if (run.implementer?.id) claimedBy.set(run.implementer.id, run);
-  const pool = implementersIn(live);
+  const ours = (b) => !bound || bound.has(b.id);
+  const adopt = `import --adopt ${section ?? "<section>"} records it and then bind gives it this project; a bot the launcher never bound has no working folder here`;
   if (wanted) {
     const bot = findBot({ bots: live }, wanted);
     if (!bot) throw new Fail(EXIT.USAGE, `no bot named ${wanted} on this team`, { hint: `bots: ${live.map((b) => b.name).join(", ")}` });
+    if (!ours(bot)) throw new Fail(EXIT.PRECONDITION, `${bot.name} is on the server but not in this team`, { hint: adopt });
     const by = claimedBy.get(bot.id);
     if (by && !share) throw new Fail(EXIT.PRECONDITION, `${bot.name} is the implementer of ${runLabel(by)}`, { hint: "pass --share-implementer to give it a second task anyway, or name another bot" });
     return { id: bot.id, name: bot.name };
   }
-  if (!pool.length) return null;
+  const all = implementersIn(live);
+  const pool = all.filter(ours);
+  const unbound = all.filter((b) => !ours(b));
+  if (!pool.length && !unbound.length) return null;
   const free = pool.filter((b) => !claimedBy.has(b.id));
   const idle = free.find((b) => !b.busy);
   if (idle) return { id: idle.id, name: idle.name };
-  const why = free.length ? `every free implementer is working: ${free.map((b) => b.name).join(", ")}` : `every implementer is claimed: ${pool.map((b) => `${b.name} by ${runLabel(claimedBy.get(b.id))}`).join(", ")}`;
-  throw new Fail(EXIT.PRECONDITION, why, { hint: "ask the lead to create another implementer, or pass --implementer <bot> --share-implementer" });
+  const why = !pool.length ? "this team has no implementer of its own"
+    : free.length ? `every free implementer is working: ${free.map((b) => b.name).join(", ")}`
+    : `every implementer is claimed: ${pool.map((b) => `${b.name} by ${runLabel(claimedBy.get(b.id))}`).join(", ")}`;
+  const hint = unbound.length
+    ? `${unbound.map((b) => b.name).join(", ")} is on the server but not in this team: finish or abandon the open run, then ${adopt}`
+    : "ask the lead to create another implementer, or pass --implementer <bot> --share-implementer";
+  throw new Fail(EXIT.PRECONDITION, why, { hint });
 }
 
 
@@ -179,7 +196,7 @@ verb("task", {
       if (clash) throw new Fail(EXIT.PRECONDITION, `a run with the slug ${slug} is already open: ${runLabel(clash)}`, { hint: "pass --title to give this task its own name" });
       const taken = slugTaken(cfg.projectDir, slug);
       if (taken.length) throw new Fail(EXIT.PRECONDITION, `${taken.join(" and ")} already exists`, { hint: `remove it with reconcile --remove ${slug}, give it to a run with reconcile --claim ${slug} --run <ref>, or pass --title for another name` });
-      implementer = pickImplementer(live, openBefore, { wanted: flags.implementer ?? null, share: flags["share-implementer"] === true });
+      implementer = pickImplementer(live, openBefore, { wanted: flags.implementer ?? null, share: flags["share-implementer"] === true, bound: new Set(team.bots.map((b) => b.id)), section: team.section });
     }
     const check = reconcileCheck(cfg.projectDir, cfg.state.facts, { runs: openBefore });
     if (!check.clean) throw new Fail(EXIT.PRECONDITION, `the repository is not reconciled: ${check.problems.join("; ")}`, { hint: "run reconcile; a stopped task keeps its worktree until you pass --remove <slug>" });
@@ -405,6 +422,25 @@ verb("interrupt", {
     const task = runFor(cfg, flags);
     const threadId = task?.threads?.[bot.id] ?? null;
     if (!threadId) throw new Fail(EXIT.PRECONDITION, `no run thread is recorded for ${bot.name}`, { hint: "interrupt only stops the run's own turn" });
+    // A later run records the specialists' existing threads, so naming a run is
+    // not proof that the turn on that thread is its own: an interrupt there
+    // would stop whichever run's work is running. Only an open delegation from
+    // this run — or a claim no other run shares — says the turn is ours.
+    const alsoRecorded = openRuns(cfg.state).filter((r) => r.runId !== task.runId && r.threads?.[bot.id] === threadId);
+    if (bot.id !== team.lead.id && alsoRecorded.length) {
+      const all = openRuns(cfg.state);
+      const snap = await snapshot(client, { team, runs: all }, { dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null });
+      const delegating = (r) => (snap.views[r.runId]?.openDelegations?.byName[bot.name] ?? 0) > 0;
+      const claimants = all.filter((r) => delegating(r) || r.implementer?.id === bot.id);
+      if (claimants.length !== 1 || claimants[0].runId !== task.runId) {
+        const why = (r) => `${runLabel(r)} ${delegating(r) ? `has an open delegation to ${bot.name}` : `claims ${bot.name} as its implementer`}`;
+        throw new Fail(EXIT.PRECONDITION, `${bot.name}'s task ${threadId} is shared with ${alsoRecorded.map(runLabel).join(", ")}`, {
+          hint: claimants.length
+            ? `${claimants.map(why).join("; ")}: interrupt the lead of the run you mean, or wait`
+            : `nothing attributes ${bot.name}'s turn to an open run: interrupt the lead instead, or wait`,
+        });
+      }
+    }
     try { await client.post(`/api/bots/${bot.id}/interrupt`, { threadId }); }
     catch (e) {
       // A turn pinned to a thread that is not the bot's active task — a drained
@@ -419,7 +455,7 @@ verb("interrupt", {
 });
 
 // ── watch ──
-import { watchRun, mergeCheckpoint } from "../watch.mjs";
+import { watchRun, mergeCheckpoint, mergeCards } from "../watch.mjs";
 import { brief as briefLine, EXIT_FOR, TERMINAL as TERMINAL_STATES } from "../snapshot.mjs";
 
 verb("watch", {
@@ -459,7 +495,7 @@ verb("watch", {
           if (!live || live.status === "closed") return;
           if (JSON.stringify(doc.server) !== JSON.stringify(cfg.state.server) || doc.team?.lead?.id !== team.lead.id) throw new Fail(EXIT.PRECONDITION, "the server binding changed before the watch checkpoint", { hint: "re-read the state" });
           live.lastEval = mergeCheckpoint(live.lastEval, r.watermarks);
-          live.cards = r.cards;
+          live.cards = mergeCards(live.cards, r.cards, r.snap.complete);
           if (r.nudged && !live.nudgedAt) live.nudgedAt = new Date().toISOString();
           commitState(cfg.paths, doc); checkpointed = true;
         }, { waitMs: 1000 });
