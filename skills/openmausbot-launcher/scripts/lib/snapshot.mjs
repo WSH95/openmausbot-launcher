@@ -56,6 +56,34 @@ export function openDelegations(leadTail, sinceAt = null) {
 }
 
 /**
+ * When each delegation from this run was open, by target name: from the queued
+ * chip to the settlement that closed it, `to` null while it is still open. A
+ * turn on a thread two runs share can only be attributed inside one of these.
+ */
+export function delegationWindows(leadTail, sinceAt = null) {
+  const out = {};
+  const openFor = (name) => (out[name] ??= []).find((w) => w.to === null);
+  for (const m of leadTail ?? []) {
+    if (sinceAt != null && typeof m.at === "number" && m.at < sinceAt) continue;
+    let name = null; let settles = false;
+    if (m.kind === "activity" && typeof m.tool?.name === "string") {
+      const chip = m.tool.name.trim();
+      let x;
+      if ((x = QUEUED_RE.exec(chip)) || (x = ASK_CONVERTED_RE.exec(chip))) name = x[1];
+      else if ((x = SETTLED_RE.exec(chip)) || (x = START_FAILED_RE.exec(chip))) { name = x[1]; settles = true; }
+    } else if (m.role === "bot" && m.kind === "text" && m.from) {
+      const x = REPLIED_RE.exec(m.text ?? "");
+      if (x) { name = x[1]; settles = true; }
+    }
+    if (!name) continue;
+    if (!settles) { (out[name] ??= []).push({ from: m.at, to: null }); continue; }
+    const live = openFor(name);
+    if (live) live.to = m.at;
+  }
+  return out;
+}
+
+/**
  * Which lead thread is running the turn, when the runtime log says so. A bot is
  * busy as a whole (store.ts:407-409); the log is the only place that names the
  * thread, and a turn may be pinned to a thread that is not the active one

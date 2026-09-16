@@ -4,11 +4,11 @@ import path from "node:path";
 import { verb, EXIT, Fail } from "../cli.mjs";
 import { resolveConfig } from "../config.mjs";
 import { createClient } from "../http.mjs";
-import { snapshot, evaluate, carriedVerdict, TERMINAL as TERMINAL_STATES } from "../snapshot.mjs";
+import { snapshot, evaluate, carriedVerdict, delegationWindows, TERMINAL as TERMINAL_STATES } from "../snapshot.mjs";
 import { updateState } from "../state.mjs";
 import { openRuns, selectRun, runLabel } from "../runs.mjs";
 import { requireTeam, requireDataDir, requireSameEnvironment, runContext } from "../session.mjs";
-import { readNdjson, turnsFromEvents, nativeCalls, check042, beadStatus, commitsSince, runTests, renderMarkdown, mergedShaFrom, historicalContext, archivedMessages } from "../report.mjs";
+import { readNdjson, turnsFromEvents, nativeCalls, check042, beadStatus, commitsSince, runTests, renderMarkdown, mergedShaFrom, historicalContext, archivedMessages, namesRun, taskLogEntry, allocateTurns, totalsOf, secondsOf } from "../report.mjs";
 import { reconcileCheck as rootCheck, git as gitRun } from "../git.mjs";
 
 verb("report", {
@@ -45,21 +45,39 @@ verb("report", {
       if (ev.state === "running" && prior) ev = { ...ev, state: prior, carried: true };
     }
     const sinceMs = task.sentAt ?? 0;
+    const untilMs = task.closedAt ? Date.parse(task.closedAt) : Date.now();
     const readLog = (folder, threadId) => cfg.dataDir ? readNdjson(path.join(cfg.dataDir, folder, `${threadId}.ndjson`)) : null;
+    const messages = fromHistory ? context.ok ? await archivedMessages(cfg.dataDir, task.leadThreadId) : null : snap.leadTail;
+    // A thread another run also recorded carries both runs' turns. Only the
+    // ones inside this run's open-delegation windows are this run's; the rest
+    // are counted as shared rather than claimed (design, "Attribution").
+    const windows = delegationWindows(messages ?? [], sinceMs);
+    const elsewhere = new Set();
+    for (const other of [...(cfg.state?.history ?? []), ...Object.values(cfg.state?.runs ?? {})]) {
+      if (other.runId === task.runId) continue;
+      for (const threadId of Object.values(other.threads ?? {})) elsewhere.add(threadId);
+    }
+    const counted = new Set();
     const threads = Object.entries(task.threads ?? {}).map(([botId, threadId]) => {
       const bot = team?.bots.find((b) => b.id === botId);
       const events = context.ok ? readLog("events", threadId) : null;
       const t = turnsFromEvents(events, sinceMs);
-      return { bot: bot?.name ?? botId, threadId, available: events !== null, turns: t.turns.length, seconds: t.seconds, totals: t.totals, models: [...new Set(t.turns.map((x) => x.model).filter(Boolean))] };
+      const shareable = elsewhere.has(threadId) && threadId !== task.leadThreadId;
+      const { mine, shared } = shareable ? allocateTurns(t.turns, windows[bot?.name] ?? []) : { mine: t.turns, shared: 0 };
+      for (const turn of mine) counted.add(`${threadId}:${turn.turnId}`);
+      return { bot: bot?.name ?? botId, threadId, available: events !== null, turns: mine.length, shared, seconds: secondsOf(mine), totals: totalsOf(mine), models: [...new Set(mine.map((x) => x.model).filter(Boolean))] };
     });
     const native = context.ok ? readLog("native", task.leadThreadId) : null;
-    const messages = fromHistory ? context.ok ? await archivedMessages(cfg.dataDir, task.leadThreadId) : null : snap.leadTail;
-    const commits = commitsSince(cfg.projectDir, task.sentSha);
+    // Only commits inside this run's own window, naming this run.
+    const commits = commitsSince(cfg.projectDir, task.sentSha).filter((c) => !Number.isFinite(c.at) || (c.at + 999 >= sinceMs && c.at <= untilMs + 1000));
     const facts = context.facts ?? {};
     const taskLog = facts.taskLog && facts.taskLog !== "none" ? facts.taskLog : null;
     const taskLogText = taskLog ? (() => { try { return fs.readFileSync(path.join(cfg.projectDir, taskLog), "utf8"); } catch { return null; } })() : null;
-    const recordCommit = taskLog ? commits.find((c) => /^docs\(team\): .* merged as [0-9a-f]{7,}/.test(c.subject) && c.files.length > 0 && c.files.every((f) => f === taskLog || f.startsWith(".beads/"))) : null;
-    const taskLogChanged = taskLog ? commits.some((c) => c.files.includes(taskLog)) : null;
+    const recordCommit = taskLog ? commits.find((c) => /^docs\(team\): .* merged as [0-9a-f]{7,}/.test(c.subject) && namesRun(c.subject, task) && c.files.length > 0 && c.files.every((f) => f === taskLog || f.startsWith(".beads/"))) : null;
+    const logEntry = taskLog ? taskLogEntry(taskLogText, task) : null;
+    // The task log moved for this run when a commit in its window touched it
+    // and the log carries an entry that names the run.
+    const taskLogChanged = taskLog ? commits.some((c) => c.files.includes(taskLog)) && (taskLogText === null || logEntry !== null) : null;
     const bead = { ...beadStatus(task.bead, cfg.projectDir), applicable: Boolean(task.bead) };
     const closing = snap.leadText?.text ?? null;
     const mergedSha = mergedShaFrom(closing, recordCommit?.subject);
@@ -67,7 +85,9 @@ verb("report", {
     const tests = flags["no-tests"] || cfg.dryRun || !context.ok ? { ran: false, ok: null, detail: cfg.dryRun ? "skipped: dry run" : flags["no-tests"] ? "skipped with --no-tests" : "unknown run facts" } : runTests(facts.test, cfg.projectDir);
     tests.applicable = true;
     // A passing suite can dirty the checkout; observe the root after it ran.
-    const reconcile = rootCheck(cfg.projectDir, facts);
+    // Per run: the worktrees and branches the other open runs own are theirs,
+    // not leftovers. Closing the last run checks the whole repository again.
+    const reconcile = rootCheck(cfg.projectDir, facts, { runs: open.filter((r) => r.runId !== task.runId) });
     let ancestor = null;
     if (mergedSha) { try { gitRun(["merge-base", "--is-ancestor", mergedSha, reconcile.defaultBranch], cfg.projectDir); ancestor = true; } catch { ancestor = false; } }
     const recordRequired = taskLog !== null || Boolean(task.bead);
@@ -75,7 +95,7 @@ verb("report", {
       ...(taskLog ? [{ id: "task-log-changed", ok: taskLogChanged }, { id: "record-commit", ok: Boolean(recordCommit) }] : []),
       ...(task.bead ? [{ id: "bead-closed", ok: bead.ok }] : []),
     ];
-    const record = { taskLog, taskLogChanged, commit: recordCommit?.sha ?? null, commitSubject: recordCommit?.subject ?? null, bead, applicable: recordRequired, ok: !recordRequired ? null : recordChecks.some((c) => c.ok === false) ? false : recordChecks.every((c) => c.ok === true) ? true : null };
+    const record = { taskLog, taskLogChanged, taskLogEntry: logEntry, commit: recordCommit?.sha ?? null, commitSubject: recordCommit?.subject ?? null, bead, applicable: recordRequired, ok: !recordRequired ? null : recordChecks.some((c) => c.ok === false) ? false : recordChecks.every((c) => c.ok === true) ? true : null };
     let checks = null;
     if (flags["check-042"]) {
       const reviewer = team?.bots.find((b) => /plan review/i.test(b.title ?? ""));
@@ -98,7 +118,7 @@ verb("report", {
     const result = ev.state === "failed" || tests.ok === false ? "failed" : evidence.every((c) => c.ok === true) ? "passed" : "incomplete";
     const shouldClose = !fromHistory && !flags["no-close"] && (TERMINAL_STATES.has(ev.state) || flags.close);
     const report = {
-      date: new Date().toISOString().slice(0, 10), runId: task.runId, tag: task.tag, title: task.title, slug: task.slug, project: cfg.projectDir, version: env?.version ?? context.server?.version ?? null,
+      date: new Date().toISOString().slice(0, 10), runId: task.runId, tag: task.tag, title: task.title, slug: task.slug, branch: task.branch ?? null, implementer: task.implementer ?? null, openRuns: open.filter((r) => r.runId !== task.runId).map((r) => r.slug ?? r.runId), project: cfg.projectDir, version: env?.version ?? context.server?.version ?? null,
       lead: team?.lead.name ?? "unknown", leadModel: team?.lead.model ?? null, sentAt: task.sentAt ? new Date(task.sentAt).toISOString() : null, sentSha: task.sentSha, state: ev.state, carried: ev.carried === true, result,
       historical: fromHistory, contextSource: context.source, unknown, failedChecks,
       threads, outcomes: snap.outcomes, commits, record, tests, reconcile: { clean: reconcile.clean, problems: reconcile.problems, defaultBranch: reconcile.defaultBranch }, mergedSha, ancestor, check042: checks, closing, decisions: null,

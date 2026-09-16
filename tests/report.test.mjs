@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { startFake, makeRepo, runOmb, ROOT, tmpDir } from "./helpers.mjs";
+import { startFake, makeRepo, runOmb, ROOT, tmpDir, sleep } from "./helpers.mjs";
 import { statePaths, loadState, updateState } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
 import { turnsFromEvents, nativeCalls, check042, renderMarkdown, bareCommand, mergedShaFrom, beadStatus } from "../skills/openmausbot-launcher/scripts/lib/report.mjs";
 
@@ -334,4 +334,99 @@ test("beadStatus gives up on a hung bd within its timeout", (t) => {
   const r = beadStatus("slg-1", bin, { timeoutMs: 200 });
   assert.ok(performance.now() - started < 2000, "bd show returned only after sleep finished");
   assert.equal(r.ok, null); assert.match(r.detail, /^bd show slg-1 unavailable: spawnSync bd ETIMEDOUT/);
+});
+
+// ── two runs, one repository: each report is about its own run ──
+async function twoRuns(t) {
+  const f = await startFake(); t.after(() => f.close());
+  const { dir, git } = makeRepo();
+  const bin = fs.mkdtempSync("/tmp/oml-report-bin-"); t.after(() => fs.rmSync(bin, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(bin, "bd"), '#!/bin/sh\nprintf \'[{"status":"closed"}]\\n\'\n', { mode: 0o755 });
+  const env = { OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir, PATH: `${bin}:${process.env.PATH}` };
+  fs.writeFileSync(path.join(dir, "PROGRESS.md"), "# Progress log\n\n### 2026-09-01T00:00:00Z — seed\nSeed entry.\n");
+  fs.mkdirSync(path.join(dir, ".beads")); fs.writeFileSync(path.join(dir, ".beads", "issues.jsonl"), "{}\n");
+  git("add", "-A"); git("commit", "-q", "-m", "seed");
+  assert.equal((await runOmb(["import", PKG, "--project", dir, "--url", f.url], { env })).code, 0);
+  assert.equal((await runOmb(["bind", "--project", dir, "--default", "claude/claude-sonnet-5"], { env })).code, 0);
+  assert.equal((await runOmb(["facts", "--project", dir, "--test", "node -e 'process.exit(0)'", "--task-log", "PROGRESS.md", "--tracker", "beads"], { env })).code, 0);
+  const a = (await runOmb(["task", "--todo", "T10", "--bead", "slg-1", "--project", dir], { env })).json;
+  assert.ok(a.runId, JSON.stringify(a));
+  const vex = (await f.control({ op: "bot", name: "Vex", title: "Implementer", section: "Dev team" })).bot;
+  const b = (await runOmb(["task", "--todo", "T11", "--bead", "slg-2", "--project", dir], { env })).json;
+  assert.ok(b.runId, JSON.stringify(b));
+  const st = loadState(statePaths(dir));
+  const nova = st.team.bots.find((x) => x.key === "nova");
+  for (const slug of ["t10", "t11"]) git("worktree", "add", "-q", "-b", `task/${slug}`, `.worktrees/${slug}`, "main");
+  // A delegates to Nova, whose thread both runs record; B delegates to Vex.
+  await f.control({ op: "delegated", threadId: a.leadThreadId, name: "Nova", reason: "implement T10" });
+  const w0 = Date.now();
+  await sleep(20);
+  await f.control({ op: "echo", threadId: a.leadThreadId, fromBotId: nova.id, name: "Nova", text: "implemented" });
+  const w1 = Date.now();
+  await f.control({ op: "delegated", threadId: b.leadThreadId, name: "Vex" });
+  const ev = (threadId, turnId, s, e, usage) => [{ turnId, provider: "claude", threadId, type: "turn.started", createdAt: iso(s) }, { turnId, threadId, type: "session.started", createdAt: iso(s + 1), model: "claude-sonnet-5" }, { turnId, threadId, type: "turn.completed", createdAt: iso(e), ok: true, usage }];
+  const write = (threadId, lines) => fs.writeFileSync(path.join(f.dataDir, "events", `${threadId}.ndjson`), lines.map((x) => JSON.stringify(x)).join("\n") + "\n");
+  write(a.leadThreadId, ev(a.leadThreadId, "a1", a.sentAt + 10, a.sentAt + 1000, { input: 100, output: 10, cachedInput: 0 }));
+  write(b.leadThreadId, ev(b.leadThreadId, "b1", b.sentAt + 10, b.sentAt + 1000, { input: 200, output: 20, cachedInput: 0 }));
+  // Nova's thread carries one turn inside A's delegation window and one after it
+  write(a.threads[nova.id], [...ev(a.threads[nova.id], "n1", w0 + 1, w1 - 1, { input: 500, output: 50, cachedInput: 0 }), ...ev(a.threads[nova.id], "n2", w1 + 5000, w1 + 6000, { input: 900, output: 90, cachedInput: 0 })]);
+  return { f, dir, git, env, a, b, nova, vex, st };
+}
+
+const record = (git, dir, slug, stamp, sha) => {
+  const log = fs.readFileSync(path.join(dir, "PROGRESS.md"), "utf8");
+  fs.writeFileSync(path.join(dir, "PROGRESS.md"), log.replace("# Progress log\n", `# Progress log\n\n### ${stamp} — Sudo\n${slug.toUpperCase()} merged as ${sha.slice(0, 7)}.\n`));
+  fs.writeFileSync(path.join(dir, ".beads", "issues.jsonl"), `{"${slug}":true}\n`);
+  git("add", "-A"); git("commit", "-q", "-m", `docs(team): ${slug.toUpperCase()} merged as ${sha.slice(0, 7)}`);
+};
+
+for (const first of ["t10", "t11"]) test(`two open runs are reported and closed one at a time, ${first} first`, async (t) => {
+  const { f, dir, git, env, a, b, nova } = await twoRuns(t);
+  const runs = { t10: a, t11: b };
+  const second = first === "t10" ? "t11" : "t10";
+  // each run's feature merges, then its own record commit
+  const shas = {};
+  for (const slug of [first, second]) {
+    fs.writeFileSync(path.join(dir, `${slug}.txt`), "done\n"); git("add", "-A"); git("commit", "-q", "-m", `feat: ${slug}`);
+    shas[slug] = git("rev-parse", "HEAD").trim();
+    record(git, dir, slug, new Date().toISOString().replace(/\.\d{3}Z$/, "Z"), shas[slug]);
+    if (slug === "t11") await f.control({ op: "delegationDone", threadId: b.leadThreadId, name: "Vex", variant: "empty" });
+    await f.control({ op: "leadSay", threadId: runs[slug].leadThreadId, text: `Closing report: ${slug.toUpperCase()} merged as ${shas[slug]}.\n\nDONE ${runs[slug].tag}` });
+  }
+  assert.equal((await runOmb(["report", "--project", dir, "--no-tests"], { env })).code, 3, "two runs are open: report asks which");
+  // the first run settles, cleans up after itself, and is reported
+  assert.equal((await runOmb(["watch", "--run", first, "--project", dir, "--max-seconds", "10", "--quiet-seconds", "1", "--poll", "1"], { env })).json.state, "done");
+  const tidy = await runOmb(["reconcile", "--project", dir, "--remove", first], { env });
+  assert.equal(tidy.code, 0, `the other run's worktree has an owner, so the repository is reconciled: ${tidy.stdout}`);
+  assert.equal(tidy.json.worktrees.find((w) => w.slug === second).run, runs[second].runId);
+  let r = await runOmb(["report", "--run", first, "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.equal(r.json.state, "done"); assert.equal(r.json.carried, true, "the watch's verdict survived the other run's work");
+  assert.equal(r.json.result, "passed", JSON.stringify({ unknown: r.json.unknown, failed: r.json.failedChecks, reconcile: r.json.reconcile }));
+  assert.equal(r.json.closed, true); assert.equal(r.json.slug, first);
+  assert.equal(r.json.record.commitSubject, `docs(team): ${first.toUpperCase()} merged as ${shas[first].slice(0, 7)}`, "the record commit that names this run");
+  assert.match(r.json.record.taskLogEntry, new RegExp(`### .* — Sudo`));
+  assert.equal(r.json.mergedSha, shas[first]);
+  assert.equal(r.json.reconcile.clean, true, `the other run's worktree is not a leftover: ${r.json.reconcile.problems}`);
+  const novaThread = r.json.threads.find((x) => x.bot === "Nova");
+  if (first === "t10") { assert.equal(novaThread.turns, 1, "only the turn inside t10's delegation window"); assert.equal(novaThread.shared, 1); assert.equal(novaThread.totals.input, 500); }
+  else { assert.equal(novaThread.turns, 0, "t11 never delegated to Nova"); assert.equal(novaThread.shared, 2); }
+  const mid = loadState(statePaths(dir));
+  assert.deepEqual(Object.keys(mid.runs), [runs[second].runId], "the other run is still open");
+  assert.equal(mid.history.at(-1).runId, runs[first].runId);
+  assert.equal(fs.existsSync(path.join(dir, ".worktrees", second)), true, "and still owns its worktree");
+  // re-reporting the closed run after more work on the other one
+  await f.control({ op: "leadSay", threadId: runs[second].leadThreadId, text: "still going" });
+  r = await runOmb(["report", "--run", runs[first].runId.slice(0, 8), "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.historical, true); assert.equal(r.json.reReported, true); assert.equal(r.json.slug, first);
+  // the last run closing checks the whole repository again
+  assert.equal((await runOmb(["watch", "--run", second, "--project", dir, "--max-seconds", "10", "--quiet-seconds", "1", "--poll", "1"], { env })).json.state, "attention", "the closing report is no longer the last word");
+  await f.control({ op: "leadSay", threadId: runs[second].leadThreadId, text: `Closing report: ${second.toUpperCase()} merged as ${shas[second]}.\n\nDONE ${runs[second].tag}` });
+  assert.equal((await runOmb(["watch", "--run", second, "--project", dir, "--max-seconds", "10", "--quiet-seconds", "1", "--poll", "1"], { env })).json.state, "done");
+  r = await runOmb(["report", "--run", second, "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.closed, true);
+  assert.equal(r.json.reconcile.clean, false, "the last run's own worktree is still there");
+  assert.ok(r.json.failedChecks.includes("root-clean"));
+  assert.equal((await runOmb(["reconcile", "--project", dir, "--remove", second], { env })).code, 0, "and once it is gone the repository is reconciled");
+  assert.deepEqual(Object.keys(loadState(statePaths(dir)).runs), []);
 });

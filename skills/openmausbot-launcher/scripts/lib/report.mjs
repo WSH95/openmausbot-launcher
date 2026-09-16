@@ -183,9 +183,45 @@ export function beadStatus(id, cwd, { timeoutMs = 30_000 } = {}) {
 
 export function commitsSince(projectDir, sinceSha) {
   let out = "";
-  try { out = git(["log", "--format=%H%x09%s", `${sinceSha}..HEAD`], projectDir); } catch { return []; }
-  return out ? out.split("\n").filter(Boolean).map((l) => { const [sha, ...rest] = l.split("\t"); let files = []; try { files = git(["diff-tree", "--no-commit-id", "--name-only", "-r", sha], projectDir).split("\n").filter(Boolean); } catch {} return { sha, subject: rest.join("\t"), files }; }) : [];
+  try { out = git(["log", "--format=%H%x09%ct%x09%s", `${sinceSha}..HEAD`], projectDir); } catch { return []; }
+  return out ? out.split("\n").filter(Boolean).map((l) => { const [sha, at, ...rest] = l.split("\t"); let files = []; try { files = git(["diff-tree", "--no-commit-id", "--name-only", "-r", sha], projectDir).split("\n").filter(Boolean); } catch {} return { sha, at: Number(at) * 1000, subject: rest.join("\t"), files }; }) : [];
 }
+
+/** Does this text name the run? Its slug, its title, or the bead it carries. */
+export const namesRun = (text, run) => {
+  const hay = String(text ?? "").toLowerCase();
+  return [run?.slug, run?.title, run?.bead].filter(Boolean).some((n) => hay.includes(String(n).toLowerCase()));
+};
+
+/** The task log entry this run wrote: the heading whose section names the run. */
+export function taskLogEntry(text, run) {
+  if (!text) return null;
+  const lines = text.split("\n");
+  const heads = lines.map((l, i) => (/^#{2,4} /.test(l) ? i : -1)).filter((i) => i >= 0);
+  for (let k = 0; k < heads.length; k++) {
+    const end = k + 1 < heads.length ? heads[k + 1] : lines.length;
+    if (namesRun(lines.slice(heads[k], end).join("\n"), run)) return lines[heads[k]].trim();
+  }
+  return null;
+}
+
+/** Turns on a thread two runs share: only those inside one of this run's open-delegation
+ * windows are this run's; the rest are counted, and labelled, as shared. */
+export function allocateTurns(turns, windows) {
+  const inside = (turn) => {
+    const from = Date.parse(turn.startedAt ?? turn.completedAt ?? "");
+    const to = Date.parse(turn.completedAt ?? turn.startedAt ?? "");
+    if (Number.isNaN(from) && Number.isNaN(to)) return false;
+    return (windows ?? []).some((w) => (Number.isNaN(to) ? from : to) >= w.from && (Number.isNaN(from) ? to : from) <= (w.to ?? Infinity));
+  };
+  const mine = turns.filter(inside);
+  return { mine, shared: turns.length - mine.length };
+}
+
+export function totalsOf(turns) {
+  return turns.reduce((acc, t) => ({ input: acc.input + (t.usage?.input ?? 0), output: acc.output + (t.usage?.output ?? 0), cachedInput: acc.cachedInput + (t.usage?.cachedInput ?? 0) }), { input: 0, output: 0, cachedInput: 0 });
+}
+export const secondsOf = (turns) => turns.reduce((s, t) => s + (t.startedAt && t.completedAt ? (Date.parse(t.completedAt) - Date.parse(t.startedAt)) / 1000 : 0), 0);
 
 /** A Project facts test command may carry a note for the bots, e.g. "npm test (run inside the task's worktree)"; strip it before running. */
 export const bareCommand = (command) => String(command ?? "").replace(/\s*\(run inside the task's worktree\)\s*$/, "").trim();
@@ -212,9 +248,9 @@ export function renderMarkdown(r) {
   const yes = (v) => (v === true ? "yes" : v === false ? "no" : "unknown");
   const lines = [];
   lines.push(`## ${r.date} — ${r.title} (${r.result})`, "");
-  lines.push(`Run ${r.runId}, tag ${r.tag}, OpenMausBot ${r.version ?? "unknown"}, lead ${r.lead} (${r.leadModel ?? "model unknown"}), project ${r.project}, dispatched ${r.sentAt} from ${r.sentSha?.slice(0, 7)}; final state ${r.state}.`, "");
+  lines.push(`Run ${r.runId}, tag ${r.tag}, OpenMausBot ${r.version ?? "unknown"}, lead ${r.lead} (${r.leadModel ?? "model unknown"})${r.implementer ? `, implementer ${r.implementer.name}` : ""}${r.branch ? `, branch ${r.branch}` : ""}, project ${r.project}, dispatched ${r.sentAt} from ${r.sentSha?.slice(0, 7)}; final state ${r.state}${r.openRuns?.length ? `; still open: ${r.openRuns.join(", ")}` : ""}.`, "");
   lines.push("| Thread | Turns | Bot seconds | Input | Cached | Output |", "|---|---|---|---|---|---|");
-  for (const t of r.threads) lines.push(`| ${t.bot} | ${t.turns} | ${Math.round(t.seconds)} | ${t.totals.input} | ${t.totals.cachedInput} | ${t.totals.output} |`);
+  for (const t of r.threads) lines.push(`| ${t.bot}${t.shared ? ` (+${t.shared} shared)` : ""} | ${t.turns} | ${Math.round(t.seconds)} | ${t.totals.input} | ${t.totals.cachedInput} | ${t.totals.output} |`);
   lines.push("", `Outcomes: ${r.outcomes.length}${r.outcomes.length ? ` (${r.outcomes.map((o) => `${o.kind} ${o.name ?? ""}`.trim()).join(", ")})` : ""}. Commits since dispatch: ${r.commits.length}${r.commits.length ? ` (${r.commits.map((c) => `${c.sha.slice(0, 7)} ${c.subject}`).join("; ")})` : ""}.`, "");
   lines.push(`Record step: task log ${yes(r.record.taskLogChanged)}, record commit ${r.record.commit ? r.record.commit.slice(0, 7) : "none"}, ${r.record.bead.detail}. Tests: ${r.tests.ran ? (r.tests.ok ? `passed in ${r.tests.seconds} s` : `FAILED (exit ${r.tests.status})`) : r.tests.detail}. Root: ${r.reconcile.clean ? "clean" : r.reconcile.problems.join("; ")}.`, "");
   if (r.check042) { lines.push("0.4.2 checks:", ""); for (const c of r.check042) lines.push(`- ${c.id}: ${yes(c.ok)} — ${c.detail}`); lines.push(""); }
@@ -253,7 +289,9 @@ export function historicalContext(task, state, dataDirOverride) {
   const roster = saved.team?.bots;
   const ids = roster?.map((b) => b.id);
   const runIds = Object.keys(task.threads ?? {});
-  const matching = ids?.length > 0 && new Set(ids).size === ids.length && ids.length === runIds.length && ids.every((id) => runIds.includes(id));
+  // A later run records a thread only for the bots it uses, so the roster is
+  // the superset: every thread must belong to a roster bot, not the reverse.
+  const matching = ids?.length > 0 && new Set(ids).size === ids.length && runIds.length > 0 && runIds.every((id) => ids.includes(id));
   const identity = saved.team?.environmentId && saved.server?.environmentId && environmentId === saved.team.environmentId && environmentId === saved.server.environmentId;
   const bound = matching && task.leadThreadId && task.threads?.[saved.team?.lead?.id] === task.leadThreadId;
   if (task.context && bound && identity) return { ...saved, dataDir, ok: true, source: "run context" };
