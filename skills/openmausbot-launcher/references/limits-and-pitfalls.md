@@ -215,3 +215,4 @@ historical reports append a reanalysis instead of replacing the original.
 - **Tokens never in argv.** They come from `OMB_TOKEN` or the 0600 file at
   `~/.config/openmausbot-launcher/tokens.json`, so nothing lands in a process
   list or a transcript.
+- `send --bot <specialist> --run <ref>` is refused with exit 3 when another open run records the same specialist thread, unless a complete snapshot attributes that bot to the selected run alone; pass `--thread <id>` to override deliberately. `interrupt` has the same guard.

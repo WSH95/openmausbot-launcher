@@ -232,3 +232,18 @@ The design and regression matrix are in `docs/design.md` and
 `docs/review/2026-09-16-watch-drain-rescue.md`. The change was made by Codex
 (`gpt-6-astra`) under the user's rule for tasks still open after two review
 rounds, on a side branch that `main` then fast-forwarded to (`0492520`).
+
+## 0014 — 2026-09-16 — Sends to a shared specialist need exclusive ownership; a drop chip closes every window
+
+The second Codex rescue (`0c7fcd2`..`cbc5975`, audited in
+`docs/review/2026-09-16-watch-drain-followups.md`) changed two user-visible
+behaviours. `send --bot <specialist> --run <ref>` without `--thread` is
+refused unless a complete snapshot attributes that bot to exactly the
+selected run, because two open runs may record the same specialist thread
+and a message would otherwise land in the other run's delegated
+conversation; `--thread <id>` stays the deliberate override. In the report,
+an anonymous "N queued delegations dropped" chip now closes every open
+delegation window at its timestamp, so later turns on a shared specialist
+read as `shared` rather than being billed to the interrupted run: the
+report under-counts on that side of the error. Both were confirmed by an
+Opus completeness review that watched the regressions fail at `0492520`.

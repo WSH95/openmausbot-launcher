@@ -264,6 +264,8 @@ excluded; a missing recorded bot makes the snapshot incomplete. Shared reads
 reach the earliest open dispatch, but each run's own lead evidence begins at
 its own dispatch boundary.
 
+A `bind` that rewrites the roster while a `watch` is open ends that watch with exit 3 "the server binding changed during the watch" rather than `unverified`: the roster is an attribution input, so the watcher re-reads state on its next call instead of guessing.
+
 Lead-authored text on the lead's thread: `role:"bot"`, `kind:"text"`, and no
 `from` (direct turn text carries none, `index.ts:2731-2736`; only room
 messages and echoes carry `from`). Outcomes on the lead thread, persisted as
