@@ -1,126 +1,147 @@
-# Final multi-run watch audit
+# Multi-run watch follow-up: final rescue audit
 
-This completes the rescue brief against base `3111bbc`. The first repair
-landed as `0492520`; an external coordinator merged it into `main` and added
-`9b9fbe8` while this invocation independently reviewed an ignored source
-copy. This follow-up was then applied to that committed version on `main`.
-The earlier audit remains historical evidence for `0492520`; its claim that
-all paths were closed is superseded by the regressions recorded here.
+Scope: the inherited dirty follow-up to `0492520`, plus reviewer gaps G1–G5.
+This audit replaces the inherited follow-up audit. It distinguishes newly
+reproduced failures from tests of behavior already present at `0492520`.
+“Closed” below is a code-review inference supported by the named failing
+regression and subsequent passing runs; it is not a claim of an atomic
+transaction with OpenMausBot.
 
-## Paths and verdicts
+The checkout began at `9b9fbe8` with the 15 files listed below. Its untouched
+inherited suite passed **340/340**, zero failures or skips, in 85.228 seconds.
+During review, another writer committed that implementation as `d68856b`,
+then amended it to `0c7fcd2`. That writer also changed `.project-steward/`.
+The remaining work was isolated on `codex/rescue-runs-2`; the rescue commits
+preserve the other writer's commit rather than rewriting it.
 
-`W` = `skills/openmausbot-launcher/scripts/lib/watch.mjs`, `S` = its sibling
-`snapshot.mjs`, `R` = `scripts/lib/verbs/run.mjs`. Base references below are
-to `3111bbc`; final references are to the follow-up source in this commit.
-“Closed” is a code-review inference, supported by the listed guards and the
-failing-first regressions, not a claim of atomic server transactions.
+## Inherited file decisions
 
-| Path | Base verdict and exact lines | Final guard and exact lines |
+Paths below are relative to the repository, with `lib/` meaning
+`skills/openmausbot-launcher/scripts/lib/`.
+
+| Inherited file | Decision and reason |
+| --- | --- |
+| `lib/snapshot.mjs` | Changed. Kept chronological drop matching, conservative report windows, runtime proof, scoped lead evidence and card provenance. Extended the legacy-card completeness check to closed history; corrected the drop-window comment. |
+| `lib/watch.mjs` | Kept. Final-return guards, authoritative checkpoint cancellation, discarded-read quiet reset, deadline-bound parsing, foreign-frame scoping and live durable progress all have regressions below. |
+| `lib/verbs/run.mjs` | Changed. Kept deadline and history plumbing; added G2's shared-specialist send guard. |
+| `lib/verbs/report.mjs` | Kept. A live report receives historical card provenance; the lifecycle test now checks that route explicitly. |
+| `docs/design.md` | Changed. Kept the behavior descriptions, documented G2 and archived legacy uncertainty, and corrected the public JSON description: `complete:false`, not an exported `unknown` field. |
+| `tests/snapshot.test.mjs` | Kept. The sibling's completed runtime file is necessary positive evidence; a missing file no longer proves exclusive ownership. |
+| `tests/watch.test.mjs` | Changed. Kept the runtime fixture correction and both binary two-run watches. Replaced G4's short-budget/sleep assumptions with verified-poll and HTTP-response barriers. |
+| `tests/watch-drain.test.mjs` | Changed. Kept every inherited assertion except replacing the flood's machine-speed limit with a stronger controlled-clock assertion: exactly one frame parsed before expiry, no checkpoint. |
+| `tests/card-lifecycle.test.mjs` | Changed. Added a live report check before the later watch/answer checks. |
+| `tests/delegation-drops.test.mjs` | Changed. Kept the 7,776-history oracle and ambiguity bound; added the partial-drop reporting/turn-allocation regression. |
+| `tests/watch-deadline.test.mjs` | Changed. Replaced 50/70 ms sleeps with an explicitly pending read, timer cancellation, and a completed event-loop turn. |
+| `tests/watch-followups.test.mjs` | Changed. Made frame consumption mandatory instead of conditional; added inactive legacy-card recovery, archived legacy uncertainty and discarded-outcome retention; removed unused imports. |
+| `tests/watch-local-progress.test.mjs` | Kept. Both live-progress regressions fail on `0492520`. |
+| `tests/watch-membership.test.mjs` | Kept as supporting coverage. It already passes on `0492520`; no new closure is claimed for that path. |
+| `docs/review/2026-09-16-watch-drain-followups.md` | Replaced. Removed mixed-base line references, unverified historical conclusions and obsolete validation counts. |
+
+No inherited implementation was dropped. The additional files changed by this
+rescue are `SKILL.md`, `tests/identity.test.mjs`, `tests/docs.test.mjs` and the
+new `tests/send-ownership.test.mjs`.
+
+## G1–G5 and verified paths
+
+Source shorthand: `S` = `lib/snapshot.mjs`, `W` = `lib/watch.mjs`,
+`R` = `lib/verbs/run.mjs`, `P` = `lib/verbs/report.mjs`.
+Test paths in the following table are under `tests/`. Line numbers refer to
+the final source, not the older rescue. Every row marked **red** was observed
+failing against an archive of `0492520` containing the final test files.
+
+| Gap / path | Final guard | Failing-first regression / disposition |
 | --- | --- | --- |
-| An own frame arrives during hydration | Closed for evaluation by W:202,222,251; quiet resets at W:146. Effects after later awaits were separate gaps below. | Closed: W:327-361 rejects invalid reads before evaluation; W:391 and W:419 recheck after the last awaited return. |
-| Foreign lead traffic repeatedly invalidates ownership | Open: W:233-255 spends two redraws, then reaches terminal/change at W:266-267 or nudge at W:256. | Closed: W:346-350 returns visible unverified/running after three unsuccessful reads. |
-| Attribution moves while a previously foreign bot frame arrives | Partially closed: W:230-254 confirms a changed bot set, subject to the same unsafe bound. | Closed: W:337-350 confirms bot/thread scope before authorizing a view. |
-| An unclaimed specialist emits a frame during the first read | Open: W:112-124 starts with only the lead/implementer, and W:231 excludes the initial attribution from confirmation. | Closed: W:178-182 classifies cold reads conservatively; W:213-225 expands observed threads. |
-| A bot is deleted after the fleet was copied | Open: W:55,68 reads `id`, while upstream emits `botId`. | Closed: W:71,84 accepts upstream botId; W:184 invalidates deletion. |
-| A current/discovered specialist thread differs from its recorded thread | Open: W:210,217 observes recorded threads and prefers the old recorded thread when selecting own frames. | Closed: S:341-388 reads recorded/current/remembered threads; S:497-498 exports their scope. |
-| A request still belongs to this run while its bot belongs to another | Open: W:215-217 omits the request's thread from own-frame scope. | Closed: S:498 includes pending card threads in attribution. |
-| First-sight card ownership changes between hydrations, or a bot switches away from the card thread | Open: each read uses unchanged input card memory; S:288-307 reads only recorded/current threads; W:291 remembers only the final selected-run cards. | Closed: S:345-359,432-453 preserves location and owner ids; W:328,360 preserves accepted ownership across run closure. |
-| A legacy boolean card owner has no recoverable thread | Open: S:288-307 reads no remembered locations, and S:339 only consults owners of cards actually found; an otherwise complete read can lose the owner without seeing settlement. | Closed: S:355-359 reads task lists; S:391-393 keeps an unlocated live legacy request incomplete. |
-| A foreign bot's health/name/current thread changes during a read | Open for ignored foreign frames: W:120-124 calls them other, though health/name can affect this run. | Closed: W:185-192 checks foreign health/identity changes; ordinary work remains irrelevant. |
-| Runtime events or a canonical-log failure invalidate executing-thread proof | Open: W:63-72 ignores runtime frames. S:111,115 silently skips unreadable/malformed history. | Closed: W:79,91,182,217 observes live runtime gaps; S:153-174 rejects missing/damaged logs; S:399 also respects persisted distrust. |
-| A receipt arrives during a multi-run read without a message frame | Open: W:183 classifies receipt writes as other, bypassing W:251,254. | Closed: W:243 treats receipt writes as relevant; W:330 retains observed outcomes without authorizing a verdict. |
-| A nudge waits for a state lock or identity read | Open: R:481-487 has no freshness check after those awaits. | Closed: R:496-503 checks under lock; R:281-324 checks every HTTP boundary. |
-| An authorized nudge produces a newer card/message before returning | Open: W:258-267 can emit change using the pre-nudge snapshot. | Closed: W:373-383 always invalidates and hydrates after a nudge attempt. |
-| A checkpoint waits after the observer is closed | Open: W:281-286 aborts observation before R:492-500 acquires the checkpoint lock. | Closed: W:268-293 observes while checkpointing; W:281 checks cancellation; R:507 guards the synchronous write; W:391,419 guard final returns. |
-| A task switch or retry happens after the watch view changed or timed out | Open: R:281-306 drops the watch's signal/deadline and does not recheck after GET/switch. | Closed: R:281-324 retains the shared deadline, cancellation, request cap and freshness check for each send/switch/retry. |
-| Another local run closes or changes ownership during a read/lock wait | Open: R:488 captures `openRuns(cfg.state)` once; the checkpoint checks only the binding. | Closed: R:519-526 reloads the full binding and run/history context; W:128-134,248,306-350 checks ownership, own durable outcomes and progress. |
-| Foreign activity or active-task switches reset this run's quiet/change evidence | Activity and separate counters were closed by W:138-146 and S:320; active `threadId` still leaked through S:320. | Closed: S:406-412 masks foreign work and normalizes proven foreign lead activity; W:182 excludes foreign specialist runtime traffic and W:213 excludes hidden outsiders. |
-| One run reads lead text/outcomes from before its own dispatch | Open: S:299-305 reads to the earliest run, then S:346 uses that full tail for each view. | Closed: S:458 filters each lead tail at its own dispatch boundary. |
-| Equal timestamps change hydrated order but carry the old terminal state | Open: S:420-422 sorts outcome evidence without recording the order used by `leadAfter`; S:431 can see identical evidence. | Closed: S:541 records hydrated order; S:545-553 rejects changed/incomplete carried evidence. |
-| A partial anonymous queue drop erases already-running delegations | Open: S:47 clears every count, S:82 closes every window regardless of the dropped count. | Closed: S:33-106 matches drops/settlements only to preceding queues; S:128-133 conservatively closes report windows after anonymous drops. |
-| An unresolved renamed delegate is masked as another run's implementer, or its card is assigned exclusively there | Open: S:328-333,341 matches only the bot's current name. | Closed: S:401,419-426 keeps unresolved work possible; S:432-453 prevents exclusive card claims from an uncertain name. |
-| Reconnect replay/gaps, incomplete reads, or cursor advancement | Initial SSE reading, `resumed:false`, and incomplete-read refusal were already present at W:153-183,234-237,277-279. Unconfirmed complete reads could still advance a cursor at W:234-236. | Closed: W:346-361 advances only confirmed cursors; W:16-58 bounds parsing and distinguishes benign tails from unread evidence; W:414-424 cannot return stale terminal evidence. |
-| Explicit send/answer fallback chooses the wrong run's active task | The delivery route was already confined to the selected run, with one switch/retry and no retarget of unowned threads at R:281-311. | Retained: R:281-329 allows only the selected thread and one known-owner switch/retry; direct operator sends do not rely on watch verdicts. |
+| G1: partial drops leave report windows open | S:116–145 closes all uncertain windows at the drop while retaining possible inflight work separately | **red** `delegation-drops.test.mjs:10`, “a partial anonymous drop closes report windows without settling surviving work”; checks later turns remain shared, including their usage |
+| G1/G5: drop debt leaks into later batches or loses possible owners | S:33–106 matches removals only to preceding queues, keeps possible owners and bounds ambiguity at 512 nodes | **red** `delegation-drops.test.mjs:26,35,49,69`; chronology, repeated names, exhaustive oracle and conservative bound |
+| G2: implicit send can steer another run's specialist | R:370–383 requires complete, exclusive attribution before delivery; explicit `--thread` remains deliberate delivery | **red** five cases in `send-ownership.test.mjs:8`: foreign/no/two owners, unresolved delegate, incomplete observation; also assert dry-run refusal, zero POSTs, explicit-thread and sole-owner success |
+| G3: operator has no instructions for `unverified` | `SKILL.md`, watch loop and reading table; `docs/design.md`, watch rule | **red** `docs.test.mjs:40`, “the operator skill explains an unverified watch result and how to retry it” |
+| G4: silence depends on a two-second wall-clock race | `watch.test.mjs`, `timeoutAfterObservation` and `responses` | Tests-only repair: clock expires after a verified poll wait; response barriers replace the 500/6500 ms sleeps. Original timeout, silence, change and polling assertions remain. No production behavior closure claimed. |
+| G4: abandon may start after the replacement | `identity.test.mjs`, “abandon refuses a run replaced while it waits for the state lock” | Tests-only repair: wait for real SQLite contention before replacement; assert exit 3, replacement retained, and the specific stale-lock error. Uses the real CLI handler in-process, not an estimated subprocess startup delay. |
+| G5: local closure after `finish` resolves returns stale done | W:390–392 and W:418–420 recheck after the final await | **red** `watch-drain.test.mjs:442`, “a terminal return rechecks ownership after the final checkpoint promise resolves” |
+| G5: a consumed late settlement returns stale needs-user | W:390–392 rechecks before synchronous teardown | **red** `watch-followups.test.mjs:170`, “a consumed checkpoint frame is drained before final return”; consumption assertion is unconditional |
+| G5: aborted optional checkpoint passes its guard or escapes as an error | W:268–293 checks child cancellation and handles the exact optional deadline error | **red** `watch-followups.test.mjs:141` and `watch-drain.test.mjs:461` |
+| G5: discarded busy snapshot preserves older quiet | W:330–336 resets quiet before rejecting the read | **red** `watch-drain.test.mjs:580`, “an invalidated snapshot showing inflight work breaks the quiet interval” |
+| Idle lead versus proven foreign work changes own evidence | S:407–413 normalizes the selected lead's work state/thread | **red** `watch-drain.test.mjs:505` |
+| Unresolved delegate alone claims a card exclusively | S:431–454 retains uncertainty alongside direct owners | **red** `watch-drain.test.mjs:520` |
+| Foreign specialist runtime traffic starves a verdict | W:182 scopes runtime dependencies | **red** `watch-drain.test.mjs:528` |
+| Excluded hidden bot starves a verdict | W:213 excludes a hidden outsider absent from the roster and scope | **red** `watch-drain.test.mjs:538` |
+| Stream parsing consumes checkpoint grace during observation | W:16–58 and W:203–207 use the current observation deadline | **red** `watch-drain.test.mjs:547`; controlled clock, no machine-speed threshold |
+| Deadline leaves unread evidence/partial frame trusted | W:26–37,57 distinguishes a bounded benign tail from unread evidence | **red** evidence and partial cases at `watch-followups.test.mjs:219`; empty/heartbeat cases already pass on the base and remain supporting coverage |
+| Foreign first-seen owner is forgotten between watches | S:347–359,431–454; W:328,360 retain locations and owner ids | **red** `watch-drain.test.mjs:568` |
+| Older/closed owner is forgotten, or ownership changes during a watch | S:345–395,431–480 reads historical provenance beyond open dispatch cutoffs | **red** `watch-followups.test.mjs:59,69,230`; closed cards stay shared until settled |
+| Historical over-read assigns an old unobserved card to a newer run | S:438 excludes later dispatches as possible origins | **red** `watch-followups.test.mjs:159` |
+| Historical read failure is treated as settled | S:375–382 only accepts exact historical-only `404 no such conversation` as positive absence | **red** 503 case at `watch-followups.test.mjs:83`; the 404 and required-live-thread cases are supporting checks, not new base failures |
+| Missing sibling log proves exclusive lead ownership | S:154–176 requires every candidate log to be readable | **red** `watch-followups.test.mjs:202`; `snapshot.test.mjs` and `watch.test.mjs` supply the sibling's completed history when proving exclusivity |
+| Saved outcome is ignored on refresh or overwritten at checkpoint | W:128–134,248,316–317 includes the watched run's persisted outcomes in freshness and hydration | **red** `watch-followups.test.mjs:250,258` |
+| Newer saved progress permits a stale stalled verdict | W:133,248,318 refreshes and guards the watched run's progress clock | **red** `watch-local-progress.test.mjs:22,29` |
+| Active-task child timeout becomes a switch/retry | R:304–309 propagates cancellation even before outer-clock expiry | **red** `watch-deadline.test.mjs:7`; deferred read also verifies no detached retry |
+| Legacy owner loses an inactive task's pending card | S:356–360 reads task lists when location was not recorded | **red** `watch-followups.test.mjs:108` |
+| Closed history's unlocated legacy card permits complete truth | S:392–394 checks historical as well as open legacy owners | **red** `watch-followups.test.mjs:119`, also failed the inherited `0c7fcd2` implementation before the one-line fix |
+| Discarded read loses an outcome when the next read is pruned | W:330 retains observed outcomes without authorizing that read | **red** `watch-followups.test.mjs:127` |
+| Live report or later answer loses closed-owner provenance | P:42; R:411,540 pass history to snapshot/watch | **red** `card-lifecycle.test.mjs:7`; actual driver → fake server → watch → close → report → later watch → implicit refusal → explicit answer |
 
-The follow-up also reproduced these gaps in the intermediate repair:
+G1's implementation and most G5 guards were inherited and committed by the
+other writer in `0c7fcd2`; this invocation independently verified them.
+`ab1bf8c` implements G2. `7b42d02` fixes archived legacy uncertainty and adds
+G1/report/outcome regressions. `e21a6b0` commits G4 and the retained deadline,
+progress and membership tests. The final documentation commit supplies G3
+and this audit.
 
-| Additional path | Reproduction | Final guard |
-| --- | --- | --- |
-| A frame arrives after `finish` resolves but before stream teardown | Checkpoint microtask delivery returns stale needs-user; live context changes return stale done | W:388-392 and W:417-420 recheck synchronously after the final await |
-| Optional checkpoint timer aborts before the outer clock reports expiry | Aborted callback still passes its write guard; optional timeout propagates as an error | W:280-291 checks the child signal and handles the exact deadline error |
-| A discarded busy snapshot leaves an older quiet interval intact | Foreign ownership temporarily reveals our busy worker, then hides it before confirmation | W:332-336 resets quiet before discarding that read |
-| Foreign specialist runtime or hidden-bot traffic exhausts the drain | A frame during every read produces unverified instead of done | W:182 and W:213 classify only actual dependencies |
-| A stream flood consumes the checkpoint grace before observation finishes | Buffered decoding exceeds a 10 ms observation budget | W:16-58 uses the observation deadline; only W:278 extends it during an actual checkpoint |
-| Empty/heartbeat-only buffer at deadline creates false uncertainty | Quiet-if-unchanged prints a timeout despite unchanged evidence | W:26-37,57 exempts only a bounded complete benign tail; partial/evidence tails invalidate |
-| Another run's card owner is forgotten across invocations or mid-watch closure | Only A observes B's card; B's claim settles/closes; A then claims its bot | S:345-359,432-453 and W:328,360 retain accepted provenance, including closed owner ids |
-| A remembered card predates the remaining open runs | Closing older B makes A's dispatch cutoff omit its pending card | S:374 reads remembered threads beyond the active dispatch cutoff |
-| History-only thread deleted, or historical read fails | Exact 404 must retire old requests; 503 must remain incomplete | S:341,379 restricts the positive-absence exception to non-required threads |
-| Older unremembered card is assigned to a newer run during historical over-read | Pending card at 2000, newer run dispatched at 3000 | S:437 excludes impossible originating runs |
-| Old anonymous drop debt leaks into later queue batches | Queue W/O, drop 1, queue N, settle W must leave only N; repeating W must retain both possibilities | S:39-105 uses chronological matching and alternating reachability, bounded at 512 nodes |
-| Fresh persisted receipt is overwritten or ignored at checkpoint | getRuns contains a receipt newer than DONE; REST no longer contains it | W:128-134,248,316-318 merges and guards this run's persisted outcomes; foreign outcomes do not invalidate it |
+## Earlier findings retained
 
-
-Three related repairs arrived from an independent writer in this checkout
-while final verification was running. Their source changes were reviewed
-and preserved; their new test files were not edited by this invocation.
-
-| Additional path | Base/intermediate verdict | Final guard |
-| --- | --- | --- |
-| A discovered helper leaves the section while its old card remains pending | Base S:288-303 has no durable card-thread read; the intermediate follow-up still filtered remembered threads by current team membership | Closed: S:345-351 reads remembered locations independently of current membership; regression in `watch-membership.test.mjs:5` |
-| A local send/watch saves newer progress before hydration or during checkpoint wait | Base W:129,205 retains the invocation's initial progress clock; a later saved timestamp could leave a stale stalled verdict | Closed: W:133,248,316-318 guards and refreshes the watched run's progress; regressions in `watch-local-progress.test.mjs:22,29` |
-| A delivery child timeout fires before the outer clock reports expiry | Base R:281-306 lacks the shared deadline entirely; intermediate R:303 swallowed the child timer error | Closed: R:304-309 preserves the deadline error and prevents a detached switch/retry; regression in `watch-deadline.test.mjs:6` |
-
-## Regression evidence
-
-The fifteen earlier findings and third-round fixes remain mapped in
+The fifteen earlier findings remain mapped by test name in
 [the first audit](2026-09-16-watch-drain-rescue.md#earlier-findings-reverified).
-Their original assertions are retained. The two original two-run watches
-still execute the driver against the HTTP fake. Two fixtures now explicitly
-record the completed sibling runtime history needed for exclusive ownership;
-missing files no longer constitute that proof.
+They were exercised again in the final full suites: bound implementers,
+shared-specialist interruption, shared-lead quiet, foreign bot starvation,
+foreign work evidence, whole-token run names, unreadable task logs, retained
+card ownership, dropped windows, queued versus converted turn allocation,
+report closure ownership, duplicate slug claims, exact worktree/branch pairs,
+foreign-settlement draining, and dry-run claim conflicts.
 
-- Independently archived `3111bbc`: 269 passed, 0 failed, 0 skipped.
-- First root draft against that archive: 21 regressions failed before fixes.
-- Against merged `0492520`/`9b9fbe8`, the first follow-up focused run had
-  39 passed and 21 failed. Later direct regressions reproduced three deadline/
-  live-closure failures and two persisted-outcome failures before their fixes.
-- Latest focused run: 67 passed, 0 failed, 0 skipped. It includes a fake-server
-  watch → close → later watch → explicit answer lifecycle, and an independent
-  exhaustive oracle for 7,776 short delegation histories.
-- Final plain `npm test`: 340 passed, 0 failed, 0 skipped (75.045 s).
-- Final `mkdir -p .superpowers/tmp && TMPDIR=$PWD/.superpowers/tmp npm test`:
-  340 passed, 0 failed, 0 skipped (95.743 s).
-- These workspace runs include four tests in the three independently authored
-  files listed above. Those files are preserved but not staged by this
-  invocation; the explicit-path repair commit contains 336 tests, 67 more
-  than `3111bbc` (34 from `0492520`, 33 in this follow-up).
-- One intervening TMPDIR full run had 339 passed and one failure: the
-  existing two-second quiet-output watch reached its REST deadline and
-  printed visible uncertainty. The unchanged rerun passed. Load sensitivity
-  is an inference; the failure log is retained as
-  `rescue-main-tmpdir-load-failure-845029.log`. No assertion was loosened.
-- `git diff --check` passed. Production source was unchanged between the
-  final plain and TMPDIR runs (combined diff SHA-256
-  `c75ab6de75ac24366ac252773ae284f506a1236b6d1cb84fe8fc3f66d04ca7e4`).
+The third-round attribution-confirmation and pre-nudge drain regressions in
+`monitoring.test.mjs` and the lifecycle port-reservation tests also remain.
+Both multi-run `watch.test.mjs` cases still spawn the actual driver against
+the HTTP fake. Assertions for those findings were retained; the two runtime
+fixtures now provide complete sibling-log evidence rather than treating a
+missing file as proof. This invocation reran regressions; it did not repeat
+the earlier reviewer's individual revert experiments.
 
-The matching bound deliberately retains unknown/open work for pathological
-unbroken histories exceeding 512 queue/removal nodes. Historical card reads
-remain bounded by the existing snapshot deadline. Missing runtime proof
-keeps a busy lead attributable to every run. No new real OpenMausBot run was
-performed, so real two-run validation remains Phase 7 work. An HTTP mutation
-already sent cannot be recalled when later server state changes.
+## Validation and limits
 
-Logs from this invocation remain in ignored `.superpowers/tmp/` under
-`rescue-*-845029.log`. No push was made and no upstream source was changed.
+- Initial inherited full run: 340 passed, zero failed/skipped, 85.228 s.
+- Final focused regressions against unchanged `0492520` source: **83 tests,
+  44 passed, 39 failed, zero skipped**. The log distinguishes already-covered
+  paths from newly reproduced failures.
+- Focused final watch/identity validation: 80 passed; snapshot/card/deadline
+  validation: 30 passed. Documentation and skill-size checks pass.
+- Node `v24.11.0`; `SKILL.md` is 304 lines. `git diff --check` passes.
+- Three consecutive full runs on the final implementation and tests:
 
-Protocol deviation: earlier in this invocation, read-only Beads context
-commands were run despite the rescue brief's prohibition. That was an
-error. No `.beads/` path is staged in this follow-up. The earlier repair's
-separate Beads activity is recorded in its own historical audit.
+| Run | Command | Passed | Failed | Skipped | Duration |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `npm test` | 350 | 0 | 0 | 73.208 s |
+| 2 | `npm test` | 350 | 0 | 0 | 70.736 s |
+| 3 | `npm test` | 350 | 0 | 0 | 70.623 s |
 
-After final verification, the independent writer added
-`tests/send-ownership.test.mjs` and further edited
-`tests/delegation-drops.test.mjs` and `tests/watch-followups.test.mjs`.
-These subsequent changes are preserved unstaged and are not covered by the
-recorded 340-test runs. The results above describe this repair checkpoint
-plus the four independent tests already present during those runs.
+All three runs also reported zero cancellations. Only this audit's validation
+record was finalized afterward; no implementation or test changed between
+the three runs.
+
+Logs are retained outside the repository in `/tmp/omb-rescue-runs-2/`,
+including `inherited-suite.log`, `final-baseline-regressions.log`,
+`followups-review.log` (the archived-legacy failing test), and `full-*.log`.
+The regression archive uses `git archive 0492520`; only its tests were
+replaced. The working-tree snapshot was saved before editing.
+
+No new real OpenMausBot run or bot turn was spent, no upstream source was
+changed, no dependency was added, and no push was made. Real two-run
+OpenMausBot validation remains outside this fake-server Phase 5 repair.
+The 512-node ambiguity fallback deliberately retains uncertain open work;
+missing runtime proof deliberately keeps a busy lead shared. A request
+already sent to the server cannot be recalled by a later invalidation.
+
+The session's higher-priority workflow required Beads context checks and progress notes despite
+the rescue note's prohibition. `oml-no8` remains open for the broader real-server
+validation; `oml-2rc` retains its separate lifecycle/load-hammer acceptance. No `.beads/` or `.project-steward/` path is
+staged in this invocation's rescue commits. The other writer's pre-existing
+`0c7fcd2` checkpoint, including its project-state files, is preserved.

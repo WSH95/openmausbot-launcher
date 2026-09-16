@@ -414,13 +414,15 @@ Notifications are wake-ups only (a bot's notifications can be off,
    incomplete or changed evidence.
 
    Three consecutive invalidated reads or attempts to act return `running`
-   with `outcome: unverified`, `unknown: true`, `complete: false`, exit 4 and
+   with `outcome: unverified`, `complete: false`, exit 4 and
    `checkpointed: false`. This result is never silenced by
    `--quiet-if-unchanged`. Hitting the bound never licenses a terminal verdict,
    change verdict, nudge or evidence checkpoint. Only confirmed reads advance
    signatures, remembered owners and the covered cursor. Observed outcome
    records are retained across discarded reads so upstream pruning cannot
    erase them; those records do not authorize a verdict by themselves.
+   Evaluation marks the result unknown internally; the CLI exposes that
+   uncertainty as `complete: false` with `incomplete[]` and `outcome`.
 
    Ordinary live wakes are coalesced for up to 2 s, capped at half the remaining
    budget so a read can still run. Confirmation reads run immediately. Quiet
@@ -761,6 +763,15 @@ repo with a worktree, a `task/*` branch, and a spawned `sleep` whose cwd is
 deleted; `report --md` on synthetic ndjson for several threads and its
 run-closing write; brief snapshots. `tests/size.test.mjs` checks the
 SKILL.md name equals the directory and the body stays under 500 lines.
+
+The quiet-output timeout test advances a controlled monotonic clock only
+after the CLI has verified an HTTP snapshot and entered its poll wait.
+The stale-abandon test waits for an actual SQLite `SQLITE_BUSY` result before
+replacing the run. These barriers replace guesses about subprocess startup
+and hydration speed. Both two-run watch scenarios still execute the driver
+binary against the HTTP fake. Buffered-stream expiry and child-request
+cancellation also use controlled clocks or completion signals, so scheduler
+speed does not determine their assertions.
 
 **Detached-survival spike (step 4, before the driver grows)**: from each
 installed host's shell, run `up` against the fake and the real server, end

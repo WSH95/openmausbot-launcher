@@ -36,3 +36,13 @@ test("every docs/upstream reference points at the dev pack, which owns that dire
     for (const m of read(file).matchAll(/\S*docs\/upstream\//g)) assert.match(m[0], /agent-team-devpack\/docs\/upstream\/$/, `${file}: ${m[0]}`);
   }
 });
+
+test("the operator skill explains an unverified watch result and how to retry it", () => {
+  const skill = read("skills/openmausbot-launcher/SKILL.md");
+  assert.match(skill, /outcome:\s*["`]?unverified/);
+  assert.match(skill, /complete:\s*false/);
+  assert.match(skill, /checkpointed:\s*false/);
+  assert.match(skill, /exit 4/);
+  assert.match(skill, /call\s+`watch` again/);
+  assert.ok(skill.split("\n").length < 500);
+});

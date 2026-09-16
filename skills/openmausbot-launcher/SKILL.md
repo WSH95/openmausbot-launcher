@@ -145,6 +145,21 @@ If `checkpointed:false`, the returned observation was not saved; call
 `watch` again. Observation uses `--max-seconds`, followed by at most one
 second waiting for a checkpoint lock. Quiet starts afresh each invocation.
 
+`outcome: "unverified"` means repeated relevant changes prevented a confirmed
+view: `state: "running"`, exit 4, `complete: false`, `checkpointed: false`.
+Call `watch` again; `--quiet-if-unchanged` never hides this result. The watch
+checks for late events and locally saved progress through its final return.
+Even a discarded read restarts quiet if it sees busy or changed evidence.
+It retains observed outcomes through pruning and uses newer saved progress
+for the stall clock. Ordinary foreign bot/runtime traffic does not reset
+this run's quiet; a busy lead stays shared unless readable runtime history
+proves which run it is executing.
+
+Stream parsing and automatic nudge requests share the observation deadline.
+A nudge cannot switch or retry after its request times out. A canceled
+optional checkpoint cannot write later; `checkpointed:false` also covers
+that timeout even when the returned verdict remains verified.
+
 ## 4. Reading `watch`
 
 | `state` | Meaning | What you do |
@@ -155,7 +170,7 @@ second waiting for a checkpoint lock. Quiet starts afresh each invocation.
 | `stalled` (6) | A teammate's outcome is newer than the lead's last text and the lead stays idle (a dropped wake), or no change for 40 min | `omb send "status?"` wakes the lead; if it stays silent, `interrupt`, then ask the user |
 | `failed` (6) | The lead is dead or its turn failed to dispatch | Read the tail (`status --tail 10`), tell the user |
 | `running` / `timeout` (4) | Working, or the budget ended | Relay new lead text if any, call `watch` again |
-| `running` with `unknown: true` | A snapshot was incomplete (a read failed) | Check `incomplete[]`; run `doctor --server` if it repeats |
+| `running` / `timeout` with `complete: false` | The observation could not be verified | Check `incomplete[]`; call `watch` again, then `doctor --server` if reads keep failing |
 
 `changes[]` lists what moved since the last report; `brief` is the phone
 line. Relay the lead's own words; do not paraphrase decisions.
@@ -187,6 +202,9 @@ line. Relay the lead's own words; do not paraphrase decisions.
   switches tasks or leaves the team. Closed owners' cards remain shared and
   require `--request`. An old card with no recoverable thread keeps the
   snapshot incomplete; closing its owner does not prove it was answered.
+  Remembered card threads are read even before the remaining runs' dispatch
+  times. Only the server's confirmed deletion of a historical-only thread
+  retires its requests; other read failures leave the observation incomplete.
 - The server answers `unavailable` when a card died with the bot's turn;
   a textual answer then falls back to chat automatically, an allow or deny
   does not: tell the bot in chat what you decided.
@@ -205,6 +223,12 @@ line. Relay the lead's own words; do not paraphrase decisions.
 - Keep the user's words. Never answer on the user's behalf.
 
 ## 6. Finish and clean up
+
+An anonymous partial queue drop leaves possible surviving delegations
+in flight. Reports stop attributing later shared-thread turns through the
+dropped batch's windows, so those turns and tokens remain `shared`. A very
+large ambiguous history stays conservatively open instead of inventing
+completion; inspect its delegation evidence before declaring the run done.
 
 ```
 omb report --project <dir> --md [--check-042]   # forensics, record step, tests; closes the run
