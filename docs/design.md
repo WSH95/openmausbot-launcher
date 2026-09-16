@@ -375,8 +375,12 @@ Notifications are wake-ups only (a bot's notifications can be off,
    another open run's **lead thread** is the exception in one direction: its
    chips are where that run's claims are written, so it can hand this run a bot
    that was the other run's a moment ago, and a verdict is not emitted from a
-   view that predates it — re-hydrated at most twice, so a run that never stops
-   talking delays this answer rather than replacing it with silence. With one
+   view that predates it. The same holds after the fact: a frame is classified
+   against the attribution the last snapshot established, so when the set of
+   bots this run counts moves, nothing is decided or sent — no verdict and no
+   nudge — until one more hydration agrees. Both are re-hydrated at most twice,
+   so a run that never stops talking delays this answer rather than replacing
+   it with silence. With one
    run open every frame is that run's, as before. the checkpoint cursor is the `id:` of the last frame actually
    applied, never `hello.cursor` (which is the head before replay,
    `index.ts:8582-8596`). A polling snapshot runs every `--poll` seconds;

@@ -184,7 +184,7 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
     catch (e) { log(`receipts: ${e.message}`); }
   }
 
-  let ownershipRedraws = 0;
+  let ownershipRedraws = 0; let lastAttributed = null;
   let snap = null; let ev = null; let sig = null;
   let lastSnapAt = null; let outcome = "timeout";
   try {
@@ -221,6 +221,16 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
       // its truth stale for this run; another run's traffic leaves it good.
       const hasUnappliedOwn = targetOwn !== ownInvalidations;
       const hasUnappliedOwnership = targetOwnership !== ownershipInvalidations;
+      // A frame is classified against the attribution the LAST snapshot
+      // established, so the one that first hands this run a bot cannot have
+      // classified that bot's frames as its own. Rather than reclassify a
+      // buffer that has already been consumed, the rule is simpler and holds
+      // for anything else the change touched: when the set of bots this run
+      // counts moved, its verdict waits for one more hydration that agrees.
+      const attributed = [...(snap.attributedBots ?? [])].sort().join(",");
+      const attributionChanged = snap.complete && lastAttributed !== null && attributed !== lastAttributed;
+      if (snap.complete) lastAttributed = attributed;
+      const unconfirmed = hasUnappliedOwnership || attributionChanged;
       if (snap.complete && !expired()) {
         if (targetCursor !== null) cursor = targetCursor;
         appliedInvalidations = targetInvalidations;
@@ -239,6 +249,10 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
       // Deadline has priority over draining another frame or acting on a verdict.
       if (expired()) break;
       if (hasUnappliedOwn) continue;
+      // Drain before anything is decided or sent: a nudge is a message to the
+      // lead, and a stall that only a stale view saw is not one to send it for.
+      if (unconfirmed && snap.complete && ownershipRedraws < 2) { ownershipRedraws++; continue; }
+      if (!unconfirmed) ownershipRedraws = 0;
       if (nudge && ev.state === "stalled" && /unacknowledged/.test(ev.hint ?? "") && !nudged) {
         try {
           await withinDeadline((opts) => nudge(opts), deadline, controller.signal);
@@ -249,11 +263,6 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
         sig = signatureOf(snap, ev); lastSig = sig; lastChangeAt = Date.now();
       }
       if (expired()) break;
-      // A frame that may have changed who owns what is drained before a
-      // verdict, but boundedly: the other run talking without pause must delay
-      // this run's answer, not replace it with silence.
-      if (hasUnappliedOwnership && snap.complete && ownershipRedraws < 2) { ownershipRedraws++; continue; }
-      if (!hasUnappliedOwnership) ownershipRedraws = 0;
       if (TERMINAL.has(ev.state)) { outcome = "terminal"; break; }
       if (until === "change" && !sameSig(reported, sig)) { outcome = "change"; break; }
       if (until === "question" && ["needs-user", "attention"].includes(ev.state)) { outcome = "question"; break; }

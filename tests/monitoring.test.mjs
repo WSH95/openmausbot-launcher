@@ -275,3 +275,53 @@ test('a foreign frame that hands this run a busy bot is drained before a verdict
   assert.notEqual(result.outcome, 'terminal', 'no verdict was emitted from the view that predated the settlement');
   assert.ok(reads > 2, 'the other run\'s tail was read again before this run answered');
 });
+
+const chipOn = (name, at) => ({ id: `c${at}`, at, role: 'bot', kind: 'activity', tool: { name } });
+const heldByOther = [chipOn('Delegated to @Worker', 1100)];
+const releasedByOther = [...heldByOther, chipOn('Delegation to @Worker completed without a text reply', 3500)];
+const busyWorkerFleet = team.bots.map((b) => ({ ...b, section: 's', busy: b.id === 'worker', activity: b.id === 'worker' ? 'working' : 'idle', threadId: task.threads[b.id] }));
+const sharing = { runId: 'r2', tag: 'oml:5678', sentAt: 1000, leadThreadId: 'lt2', threads: { lead: 'lt2', worker: 'wt' } };
+
+test('a verdict is confirmed by one more hydration when who owns what changed', async () => {
+  // The card is the other run's while it holds the worker. The read that first
+  // shows the delegation settled also makes the card nobody's — and by the time
+  // this run looks again it has been answered, so it was never this run's to
+  // raise. A verdict from the read where ownership moved is not trusted.
+  const card = { id: 'q', at: 1500, role: 'bot', kind: 'options', card: { requestId: 'rq', title: 'Choice' } };
+  let wtReads = 0; let lt2Reads = 0;
+  const threads = {
+    lt: [user, done],
+    get wt() { wtReads += 1; return wtReads <= 2 ? [card] : []; },
+    get lt2() { lt2Reads += 1; return lt2Reads <= 1 ? heldByOther : releasedByOther; },
+  };
+  const idleFleet = team.bots.map((b) => ({ ...b, section: 's', busy: false, activity: 'idle', threadId: task.threads[b.id] }));
+  const result = await watchRun({ client: scripted({ threads, bots: idleFleet }), team, task, runs: [task, sharing], maxSeconds: 1, quietMs: 5, coalesceMs: 0, pollMs: 10, stallMs: Infinity });
+  assert.notEqual(result.ev.state, 'needs-user', 'the card was the other run\'s, and gone before this run could own it');
+  assert.ok(wtReads > 2, 'the run read again before answering');
+});
+
+test('a nudge is not sent from a view the other run has already moved on from', async (t) => {
+  // The lead delegated and went quiet with an outcome newer than its own text —
+  // the shape that makes `watch --nudge` send "status?". The settlement that
+  // hands this run a busy worker lands while that snapshot is still out, so the
+  // stall is only apparent: the nudge waits for the re-read, which says running.
+  const delegating = { id: 'l1', at: 2000, role: 'bot', kind: 'text', text: 'Delegating.' };
+  const echo = { id: 'e1', at: 3000, role: 'bot', kind: 'text', from: { botId: 'worker', name: 'Worker' }, text: '@Worker replied to the delegated task:\n\nok' };
+  let lt2Reads = 0; let push = null; let frames = 0; let nudges = 0;
+  const threads = {
+    lt: [user, delegating, echo], wt: [],
+    get lt2() { lt2Reads += 1; if (lt2Reads === 2) push?.(); return lt2Reads <= 2 ? heldByOther : releasedByOther; },
+  };
+  const client = scripted({
+    threads, bots: busyWorkerFleet,
+    beforeGet: (route) => (route.includes('lt2') ? undefined : new Promise((r) => setTimeout(r, 25))),
+    stream: async (_url, signal) => ({ status: 200, body: new ReadableStream({ start(c) {
+      push = () => { try { c.enqueue(new TextEncoder().encode(`id: cursor:${++frames}\ndata: ${JSON.stringify({ kind: 'message', threadId: 'lt2' })}\n\n`)); } catch {} };
+      signal.addEventListener('abort', () => { try { c.close(); } catch {} }, { once: true });
+    } }) }),
+  });
+  const result = await watchRun({ client, team, task, runs: [task, sharing], maxSeconds: 1, quietMs: 5, dropMs: 1000, coalesceMs: 0, pollMs: 10, stallMs: Infinity, nudge: async () => { nudges += 1; } });
+  assert.equal(nudges, 0, 'nothing was sent to the lead on the strength of a stale view');
+  assert.equal(result.nudged, false);
+  assert.notEqual(result.ev.state, 'stalled');
+});

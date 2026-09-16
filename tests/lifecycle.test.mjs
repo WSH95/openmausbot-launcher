@@ -170,10 +170,23 @@ test("down refuses stale or reused identities", { skip: !linux && "needs /proc" 
  * race is lost anyway, take another pair instead of asserting through it.
  */
 async function upWithPortTaken(t, { dir, dataDir }) {
+  // A reservation can lose the same race it exists to win: another test process
+  // may take the port between the measurement and the listen, and an unhandled
+  // 'error' there would be an uncaught exception rather than another attempt.
+  const reserve = (p) => new Promise((resolve) => {
+    const s = net.createServer();
+    s.once("error", () => resolve(null));
+    s.listen(p, "127.0.0.1", () => resolve(s));
+  });
   for (let attempt = 1; ; attempt++) {
     const port = await freePortPair();
-    const neighbour = net.createServer(); await new Promise((r) => neighbour.listen(port + 1, "127.0.0.1", r));
-    const blocker = net.createServer(); await new Promise((r) => blocker.listen(port, "127.0.0.1", r));
+    const neighbour = await reserve(port + 1);
+    const blocker = await reserve(port);
+    if (!neighbour || !blocker) {
+      assert.ok(attempt < 5, `could not reserve ${port} and ${port + 1} in five attempts`);
+      neighbour?.close(); blocker?.close();
+      continue;
+    }
     t.after(() => blocker.close());
     await new Promise((r) => neighbour.close(r));
     const r = await runOmb(["up", "--project", dir, "--port", String(port), "--data-dir", dataDir, "--timeout", "10"], { env: { OMB_BIN: FAKE, OMB_TOKEN: "" } });
