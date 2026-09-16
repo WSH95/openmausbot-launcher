@@ -5,7 +5,7 @@ import path from "node:path";
 import { verb, EXIT, Fail, VERBS } from "../cli.mjs";
 import { resolveConfig } from "../config.mjs";
 import { createClient } from "../http.mjs";
-import { snapshot, evaluate, brief, carriedVerdict, withinDeadline } from "../snapshot.mjs";
+import { snapshot, evaluate, brief, carriedVerdict, withinDeadline, outOfBudget } from "../snapshot.mjs";
 
 export function requireTeam(cfg) {
   if (!cfg.state?.team) throw new Fail(EXIT.PRECONDITION, "no team is recorded for this project", { hint: "run import <package.json> or import --adopt <section>" });
@@ -278,9 +278,18 @@ const sendIdFor = (scope, threadId, text) => `send-${createHash("sha1").update(`
  * A thread no run owns is never switched away from, and one switch is all:
  * a second refusal is reported, not answered with another switch.
  */
-export async function deliverToLead(client, { leadId, run, otherRuns = [], text, sendId }) {
+export async function deliverToLead(client, { leadId, run, otherRuns = [], text, sendId, deadline = Infinity, signal, assertCurrent = () => {} }) {
   const t0 = Date.now();
-  const post = () => client.post(`/api/bots/${leadId}/messages`, { text, threadId: run.leadThreadId, sendId });
+  const guard = () => {
+    if (outOfBudget(deadline, signal)) throw new Error("observation deadline reached");
+    assertCurrent();
+  };
+  const request = (fn) => {
+    guard();
+    if (!Number.isFinite(deadline)) return fn({ signal });
+    return withinDeadline((opts) => { guard(); return fn(opts); }, Math.min(deadline, performance.now() + (client.timeoutMs ?? 15_000)), signal);
+  };
+  const post = () => request((opts) => client.post(`/api/bots/${leadId}/messages`, { text, threadId: run.leadThreadId, sendId }, opts));
   const movedAway = (e) => e instanceof HttpError && e.status === 409 && /switched tasks|no longer exists/.test(e.body?.error ?? "");
   const shape = (receipt, switched) => (receipt.dryRun ? { dryRun: true, ...receipt } : {
     threadId: receipt.threadId, messageId: receipt.message?.id ?? null, at: receipt.message?.at ?? null, steered: receipt.steered === true,
@@ -291,12 +300,12 @@ export async function deliverToLead(client, { leadId, run, otherRuns = [], text,
   catch (e) {
     if (!movedAway(e)) throw precondition(e);
     let active = null;
-    try { active = (await client.get("/api/bots?messages=0")).bots?.find((b) => b.id === leadId)?.threadId ?? null; } catch {}
+    try { active = (await request((opts) => client.get("/api/bots?messages=0", opts))).bots?.find((b) => b.id === leadId)?.threadId ?? null; } catch { guard(); }
     const owner = otherRuns.find((r) => r.leadThreadId && r.leadThreadId === active);
     if (!owner) {
       throw new Fail(EXIT.PRECONDITION, `${e.body.error} (target thread ${run.leadThreadId})`, { status: 409, hint: `the lead's active task is ${active ?? "unknown"}; nothing was retargeted: pass --thread ${active ?? "<id>"} to send there on purpose` });
     }
-    try { await client.post(`/api/bots/${leadId}/tasks/${run.leadThreadId}`, {}); }
+    try { await request((opts) => client.post(`/api/bots/${leadId}/tasks/${run.leadThreadId}`, {}, opts)); }
     catch (se) {
       if (se instanceof HttpError && se.status === 409 && /this bot is working/.test(se.body?.error ?? "")) {
         throw new Fail(EXIT.PRECONDITION, `the lead is working on ${runLabel(owner)}; retry when it is idle`, { status: 409, hint: `watch --run ${owner.slug ?? owner.runId} until it settles, or interrupt it` });
@@ -479,28 +488,35 @@ verb("watch", {
       return { code: EXIT.TIMEOUT, result: { state: "timeout", checkpointed: false, complete: false, pending: [], cursor: task.lastEval?.cursor ?? null, reasons: ["watch deadline reached before server identity was verified"] }, brief: "watch · timed out before server identity was verified" };
     }
     const nudge = flags.nudge && !cfg.dryRun ? async (opts) => withLock(cfg.paths, async () => {
+      opts.assertCurrent();
       const doc = loadState(cfg.paths); const live = assertOpenRun(doc, task.runId);
       if (live.nudgedAt) return;
       await requireSameEnvironment({ ...cfg, state: doc }, client, opts);
-      await deliverToLead(client, { leadId: team.lead.id, run: task, otherRuns: openRuns(doc).filter((x) => x.runId !== task.runId), text: "status?", sendId: `nudge-${task.runId}` });
+      await deliverToLead(client, { leadId: team.lead.id, run: task, otherRuns: openRuns(doc).filter((x) => x.runId !== task.runId), text: "status?", sendId: `nudge-${task.runId}`, ...opts });
       live.nudgedAt = new Date().toISOString(); commitState(cfg.paths, doc);
     }, { waitMs: Math.min(1000, opts.timeoutMs) }) : null;
-    const r = await watchRun({ client, team, task, runs: openRuns(cfg.state), dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null, maxSeconds, deadline, until, pollMs: num(flags.poll, 30) * 1000, stallMs: num(flags["stall-minutes"], 40) * 60_000, quietMs: num(flags["quiet-seconds"], 30) * 1000, dropMs: num(flags["drop-seconds"], 120) * 1000, nudge, log });
-    let checkpointed = false;
-    if (!cfg.dryRun) {
+    const checkpoint = !cfg.dryRun ? async (r, opts) => {
       try {
-        await withLock(cfg.paths, () => {
+        return await withLock(cfg.paths, () => {
+          opts.assertCurrent();
           const doc = loadState(cfg.paths);
           const live = doc?.runs?.[task.runId];
-          if (!live || live.status === "closed") return;
+          if (!live || live.status === "closed") return false;
           if (JSON.stringify(doc.server) !== JSON.stringify(cfg.state.server) || doc.team?.lead?.id !== team.lead.id) throw new Fail(EXIT.PRECONDITION, "the server binding changed before the watch checkpoint", { hint: "re-read the state" });
           live.lastEval = mergeCheckpoint(live.lastEval, r.watermarks);
           live.cards = mergeCards(live.cards, r.cards, r.snap.complete);
           if (r.nudged && !live.nudgedAt) live.nudgedAt = new Date().toISOString();
-          commitState(cfg.paths, doc); checkpointed = true;
-        }, { waitMs: 1000 });
-      } catch (e) { if (!(e instanceof LockTimeout)) throw e; }
-    }
+          commitState(cfg.paths, doc); return true;
+        }, { waitMs: Math.min(1000, opts.timeoutMs) });
+      } catch (e) { if (!(e instanceof LockTimeout)) throw e; return false; }
+    } : null;
+    const getRuns = () => {
+      const doc = loadState(cfg.paths);
+      if (JSON.stringify(doc?.server) !== JSON.stringify(cfg.state.server) || doc?.team?.lead?.id !== team.lead.id) throw new Fail(EXIT.PRECONDITION, "the server binding changed during the watch", { hint: "re-read the state" });
+      return openRuns(doc);
+    };
+    const r = await watchRun({ client, team, task, runs: openRuns(cfg.state), getRuns, dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null, maxSeconds, deadline, until, pollMs: num(flags.poll, 30) * 1000, stallMs: num(flags["stall-minutes"], 40) * 60_000, quietMs: num(flags["quiet-seconds"], 30) * 1000, dropMs: num(flags["drop-seconds"], 120) * 1000, nudge, checkpoint, log });
+    const checkpointed = r.checkpointed;
     const state = r.timedOut && !TERMINAL_STATES.has(r.ev.state) ? "timeout" : r.ev.state;
     const code = state === "timeout" ? EXIT.TIMEOUT : r.outcome === "change" || r.outcome === "question" ? (TERMINAL_STATES.has(r.ev.state) ? EXIT_FOR[r.ev.state] : EXIT.OK) : EXIT_FOR[r.ev.state] ?? EXIT.OK;
     const line = briefLine(r.ev, r.snap, task);

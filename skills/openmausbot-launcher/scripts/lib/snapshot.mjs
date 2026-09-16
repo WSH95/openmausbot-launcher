@@ -19,7 +19,7 @@ const SETTLED_RE = /^Delegation to @(.+?) (?:completed without a text reply|fail
 const RETRY_RE = /^Delegation to @(.+?) waiting — /; // delegations.ts:491 — a retry; the delegation is still open
 const START_FAILED_RE = /^error: delegation to @(.+?) could not start — /; // index.ts:3499
 const FAILED_UNNAMED_RE = /^error: delegation failed — /; // delegations.ts:381
-const DROPPED_RE = /^\d+ queued delegations? dropped — the turn did not finish$/; // delegations.ts:441
+const DROPPED_RE = /^(\d+) queued delegations? dropped — the turn did not finish$/; // delegations.ts:441
 const REPLIED_RE = /^@(.+?) replied to the delegated task/s; // index.ts:3387
 
 /**
@@ -44,7 +44,12 @@ export function openDelegations(leadTail, sinceAt = null) {
       let x;
       if ((x = QUEUED_RE.exec(chip)) || (x = ASK_CONVERTED_RE.exec(chip))) open(x[1]);
       else if ((x = SETTLED_RE.exec(chip)) || (x = START_FAILED_RE.exec(chip))) settle(x[1]);
-      else if (DROPPED_RE.test(chip)) counts.clear(); // the queue itself is gone
+      else if ((x = DROPPED_RE.exec(chip))) {
+        // Only pending handoffs are dropped (delegations.ts:418-441). The
+        // anonymous count cannot identify a subset of our outstanding work.
+        if (Number(x[1]) === [...counts.values()].reduce((a, b) => a + b, 0)) counts.clear();
+        else unknown = true;
+      }
       else if (FAILED_UNNAMED_RE.test(chip)) unknown = true;
       else if (RETRY_RE.test(chip)) continue;
     } else if (m.role === "bot" && m.kind === "text" && m.from) {
@@ -76,10 +81,11 @@ export function delegationWindows(leadTail, sinceAt = null) {
       if ((x = QUEUED_RE.exec(chip))) name = x[1];
       else if ((x = ASK_CONVERTED_RE.exec(chip))) { name = x[1]; kind = "converted"; }
       else if ((x = SETTLED_RE.exec(chip)) || (x = START_FAILED_RE.exec(chip))) { name = x[1]; settles = true; }
-      else if (DROPPED_RE.test(chip)) {
+      else if ((x = DROPPED_RE.exec(chip))) {
         // The queueing turn was interrupted: nothing queued is still this
         // run's, so no later turn on a shared thread may be attributed to it.
-        for (const list of Object.values(out)) for (const w of list) if (w.to === null) w.to = m.at;
+        const windows = Object.values(out).flat().filter((w) => w.to === null);
+        if (Number(x[1]) === windows.length) for (const w of windows) w.to = m.at;
         continue;
       }
     } else if (m.role === "bot" && m.kind === "text" && m.from) {
@@ -108,11 +114,14 @@ export async function executingThread(dataDir, threadIds, { deadline = performan
     if (!threadId || outOfBudget(deadline, signal)) return null;
     let text;
     try { text = await withinDeadline((opts) => fs.readFile(path.join(dataDir, "events", `${threadId}.ndjson`), { encoding: "utf8", signal: opts.signal }), deadline, signal); }
-    catch { continue; }
+    catch (e) { if (e.code === "ENOENT") continue; return null; }
     const live = new Set();
     for (const line of text.split("\n")) {
       if (!line.trim()) continue;
-      let e; try { e = JSON.parse(line); } catch { continue; }
+      let e; try { e = JSON.parse(line); } catch { return null; }
+      // A lost canonical event defeats the claim of one unfinished turn.
+      // S: server/harness/bus.ts:14-15.
+      if (e.type === "runtime.error" && /Canonical event history is incomplete/.test(e.message ?? "")) return null;
       if (!e.turnId) continue;
       if (e.type === "turn.started") live.add(e.turnId);
       else if (e.type === "turn.completed") live.delete(e.turnId);
@@ -254,7 +263,7 @@ export function pendingMessage(m, { threadId, botId, botName }) {
  * thread, outcomes, busy bots, delegations and cards that belong to that run.
  * Failed or deadline-cutoff reads produce incomplete truth for every view.
  */
-export async function snapshot(client, state, { dataDir = null, now = Date.now(), deadline = performance.now() + 15_000, signal } = {}) {
+export async function snapshot(client, state, { dataDir = null, runtimeTrusted = true, now = Date.now(), deadline = performance.now() + 15_000, signal } = {}) {
   const team = state.team; const leadId = team.lead.id;
   const single = state.task ?? null;
   const runs = [...(state.runs ?? (single ? [single] : []))].filter(Boolean);
@@ -287,6 +296,9 @@ export async function snapshot(client, state, { dataDir = null, now = Date.now()
   // the bots no run pins. Ownership is decided per view, from one set of reads.
   const threadOwners = new Map();
   for (const run of runs) for (const [botId, threadId] of Object.entries(run.threads ?? {})) if (threadId) threadOwners.set(threadId, botId);
+  for (const run of runs) for (const card of Object.values(run.cards ?? {})) {
+    if (card?.threadId) threadOwners.set(card.threadId, card.botId);
+  }
   for (const bot of bots) if (bot.threadId && !threadOwners.has(bot.threadId)) threadOwners.set(bot.threadId, bot.id);
   for (const run of runs) {
     if (run.leadThreadId) threadOwners.set(run.leadThreadId, leadId);
@@ -298,26 +310,38 @@ export async function snapshot(client, state, { dataDir = null, now = Date.now()
   }
   const stamps = runs.map((r) => r.sentAt).filter((v) => typeof v === "number");
   const sentAt = stamps.length ? Math.min(...stamps) : null;
-  const pendingAll = []; const tails = new Map(); let failedTails = 0;
+  const pendingAll = []; const tails = new Map(); const seenCards = new Set(); let failedTails = 0;
   await Promise.all([...threadOwners].map(async ([threadId, botId]) => {
     const tail = await get(`thread ${threadId}`, () => readTail(client, threadId, { sentAt, deadline, signal }));
     if (!tail) { failedTails++; return; }
     tails.set(threadId, tail);
     const botName = bots.find((b) => b.id === botId)?.name ?? null;
-    for (const m of tail) if (messageNeedsInput(m)) pendingAll.push(pendingMessage(m, { threadId, botId, botName }));
+    for (const m of tail) {
+      if (m.card || m.connector || m.secret) seenCards.add(cardKeyOf(pendingMessage(m, { threadId, botId, botName })));
+      if (messageNeedsInput(m)) pendingAll.push(pendingMessage(m, { threadId, botId, botName }));
+    }
   }));
+  for (const run of runs) for (const [key, card] of Object.entries(run.cards ?? {})) {
+    if (card === true && !seenCards.has(key) && !bots.some((bot) => key === `waiting:${bot.id}`)) incomplete.push(`remembered request ${key} has no recorded thread and was not observed`);
+  }
   for (const b of bots) if (b.activity === "waiting-on-you" && !pendingAll.some((p) => p.botId === b.id)) pendingAll.push({ threadId: b.threadId, botId: b.id, botName: b.name, kind: "waiting", requestId: null, cardKind: null, text: `${b.name} is waiting on you` });
   const receipts = await get("receipts", () => readReceipts(dataDir, { deadline, signal }));
   // Optional evidence: a missing or unreadable runtime log is not incomplete
   // truth, it only means the busy lead cannot be placed on one run's thread.
   let executing = null;
-  if (runs.length > 1) { try { executing = await executingThread(dataDir, runs.map((r) => r.leadThreadId), { deadline, signal }); } catch { executing = null; } }
+  if (runs.length > 1 && runtimeTrusted && !runs.some((r) => r.lastEval?.runtimeUntrusted)) { try { executing = await executingThread(dataDir, runs.map((r) => r.leadThreadId), { deadline, signal }); } catch { executing = null; } }
   const dels = new Map(runs.map((r) => [r.runId, openDelegations(tails.get(r.leadThreadId) ?? [], r.sentAt ?? null)]));
+  const unresolved = (run) => Object.keys(dels.get(run.runId)?.byName ?? {}).some((name) => !bots.some((b) => b.name === name));
 
   // A bot this run cannot claim contributes no work state to its evidence: its
   // turns starting and finishing are the other run's business. Only the
   // fleet-wide health states stay, because a dead or silent bot is everyone's.
-  const scopedState = (bot, run) => (attributable(bot, run) ? bot : { ...bot, busy: false, activity: HEALTH.has(bot.activity) ? bot.activity : null });
+  const scopedState = (bot, run) => {
+    if (!attributable(bot, run)) return { ...bot, busy: false, activity: HEALTH.has(bot.activity) ? bot.activity : null, threadId: null };
+    // The lead's active task can be another run's even while our turn is
+    // pinned here. Switching that active task is not progress on this run.
+    return run && bot.id === leadId ? { ...bot, threadId: run.leadThreadId } : bot;
+  };
 
   /** Might this run be waiting on this bot? Ours when a chip or the dispatch says
    * so; another run's when only its chips or its claim say so; otherwise every
@@ -327,6 +351,7 @@ export async function snapshot(client, state, { dataDir = null, now = Date.now()
     if (!bot) return false;
     if (!run || runs.length < 2) return true;
     if (bot.id === leadId) return executing === null || executing === run.leadThreadId;
+    if (unresolved(run)) return true;
     if ((dels.get(run.runId)?.byName[bot.name] ?? 0) > 0 || run.implementer?.id === bot.id) return true;
     const others = runs.filter((r) => r.runId !== run.runId);
     const elsewhere = others.some((r) => (dels.get(r.runId)?.byName[bot.name] ?? 0) > 0 || r.implementer?.id === bot.id);
@@ -338,12 +363,18 @@ export async function snapshot(client, state, { dataDir = null, now = Date.now()
     const key = cardKeyOf(p);
     const remembered = runs.filter((r) => r.cards?.[key]);
     if (remembered.length) return remembered;
-    return runs.filter((r) => p.threadId === r.leadThreadId || (dels.get(r.runId)?.byName[p.botName] ?? 0) > 0 || r.implementer?.id === p.botId);
+    return runs.filter((r) => p.threadId === r.leadThreadId || (p.botId !== leadId && unresolved(r)) || (dels.get(r.runId)?.byName[p.botName] ?? 0) > 0 || r.implementer?.id === p.botId);
   };
+  const pendingOwners = new Map(pendingAll.map((p) => [cardKeyOf(p), ownersOf(p)]));
+  const cardsByRun = Object.fromEntries(runs.map((r) => [r.runId, {}]));
+  for (const p of pendingAll) {
+    const key = cardKeyOf(p); const owners = pendingOwners.get(key);
+    if (owners.length === 1) cardsByRun[owners[0].runId][key] = { threadId: p.threadId, botId: p.botId };
+  }
 
   const view = (run) => {
     const leadThreadId = run?.leadThreadId ?? lead?.threadId ?? null;
-    const msgs = (leadThreadId ? tails.get(leadThreadId) : null) ?? [];
+    const msgs = ((leadThreadId ? tails.get(leadThreadId) : null) ?? []).filter((m) => run?.sentAt == null || typeof m.at !== "number" || m.at >= run.sentAt);
     const leadTexts = msgs.filter((m) => isLeadText(m, leadId));
     const lastLead = leadTexts.at(-1); const latestUser = msgs.findLast((m) => m.role === "user");
     const observedOutcomes = [];
@@ -360,7 +391,7 @@ export async function snapshot(client, state, { dataDir = null, now = Date.now()
     const scoped = bots.map((b) => scopedState(b, run));
     const pending = []; const claims = [];
     for (const p of pendingAll) {
-      const owners = run ? ownersOf(p) : [null];
+      const owners = run ? pendingOwners.get(cardKeyOf(p)) : [null];
       if (!run) { pending.push(p); continue; }
       if (owners.length !== 1) { pending.push({ ...p, shared: true }); continue; }
       if (owners[0].runId !== run.runId) continue;
@@ -378,6 +409,13 @@ export async function snapshot(client, state, { dataDir = null, now = Date.now()
       // Whose work counts for this run right now, by the same rule the busy
       // flags above were masked with. A watch needs the set, not the reasons.
       attributedBots: bots.filter((b) => attributable(b, run)).map((b) => b.id),
+      // The stream must also cover current/discovered threads and remembered
+      // cards on bots whose work now belongs to another run. These observation
+      // inputs are separate from run evidence: foreign task switches are not
+      // this run's progress.
+      observedBots: bots, observedThreads: [...threadOwners.keys()],
+      attributedThreads: [...new Set([leadThreadId, ...[...threadOwners].filter(([, botId]) => botId !== leadId && attributable(bots.find((b) => b.id === botId), run)).map(([id]) => id), ...pending.map((p) => p.threadId)].filter(Boolean))],
+      cardsByRun,
       leadText: lastLead ? { id: lastLead.id, at: lastLead.at, text: lastLead.text } : null,
       lastUser: latestUser ? { id: latestUser.id, at: latestUser.at, text: latestUser.text } : null,
       outcomes: mergeOutcomes(run?.lastEval?.outcomes, observedOutcomes),
@@ -419,6 +457,7 @@ const ordered = (list) => [...(list ?? [])].map(canonical).sort((a, b) => stable
 /** Persist all evidence needed to conservatively carry a terminal verdict. */
 export function evidenceOf(snap) {
   return canonical({ version: 2, complete: snap.complete, leadThreadId: snap.leadThreadId, lead: snap.lead, leadText: snap.leadText, lastUser: snap.lastUser, markerSeen: snap.markerSeen, openDelegations: snap.openDelegations ?? null,
+    leadOrder: (snap.leadTail ?? []).filter((m) => m.id === snap.leadText?.id || m.id === snap.lastUser?.id || snap.outcomes.some((o) => o.id === m.id)).map((m) => m.id),
     outcomes: ordered(mergeOutcomes(snap.outcomes)), pending: ordered(snap.pending), bots: ordered(snap.bots), teamMap: { queued: ordered(snap.teamMap.queued), running: ordered(snap.teamMap.running) }, dispatchFailed: snap.dispatchFailed });
 }
 

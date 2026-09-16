@@ -2,7 +2,7 @@
 // snapshots are the truth, quiet evidence lives inside one invocation, and
 // the cursor checkpoint is the id of the last frame actually applied.
 import fs from "node:fs";
-import { snapshot, evaluate, evidenceOf, mergeOutcomes, withinDeadline, outOfBudget, cardKeyOf, TERMINAL, DEFAULTS } from "./snapshot.mjs";
+import { snapshot, evaluate, evidenceOf, mergeOutcomes, withinDeadline, outOfBudget, TERMINAL, DEFAULTS } from "./snapshot.mjs";
 
 const pause = (ms, signal) => new Promise((resolve) => {
   if (signal?.aborted || ms <= 0) return resolve();
@@ -52,7 +52,7 @@ export function ownFrame(frame, { botIds, threadIds }) {
   if (!d) return false;
   switch (d.kind) {
     case "hello": return d.resumed === false;
-    case "bot": case "bot.deleted": return botIds.has(d.bot?.id ?? d.id);
+    case "bot": case "bot.deleted": return botIds.has(d.bot?.id ?? d.botId ?? d.id);
     case "message": case "message.patch": case "thread": return threadIds.has(d.threadId);
     case "notify": return botIds.has(d.notification?.botId) || threadIds.has(d.notification?.threadId);
     default: return false;
@@ -60,14 +60,19 @@ export function ownFrame(frame, { botIds, threadIds }) {
 }
 
 /** Is this frame about the team or the run? */
+const runtimeLogGap = (d) => d?.kind === "runtime" && d.event?.type === "runtime.error" && /Canonical event history is incomplete/.test(d.event.message ?? "");
+
 export function relevantFrame(frame, { teamIds, threadIds, section }) {
   const d = frame.data;
   if (!d) return false;
   switch (d.kind) {
     case "hello": return d.resumed === false; // a gap: re-hydrate
-    case "bot": case "bot.deleted": return teamIds.has(d.bot?.id ?? d.id) || Boolean(section && d.bot?.section === section);
+    case "bot": case "bot.deleted": return teamIds.has(d.bot?.id ?? d.botId ?? d.id) || Boolean(section && d.bot?.section === section);
     case "message": case "message.patch": case "thread": return threadIds.has(d.threadId);
     case "notify": return teamIds.has(d.notification?.botId) || threadIds.has(d.notification?.threadId);
+    // These are the runtime-log events used to place a busy lead. S:
+    // server/index.ts:2724 broadcasts {kind: "runtime", event}.
+    case "runtime": return (["turn.started", "turn.completed"].includes(d.event?.type) || runtimeLogGap(d)) && threadIds.has(d.event?.threadId);
     default: return false;
   }
 }
@@ -98,31 +103,30 @@ export function mergeCards(prior, cards, complete) {
   return complete ? { ...cards } : { ...(prior ?? {}), ...cards };
 }
 
-/** Watch uses one monotonic observation deadline, including every invalidation
- * drain. Only complete snapshots advance the cursor covered by REST truth. */
-export async function watchRun({ client, team, task, runs = [], dataDir = null, maxSeconds = 100, until = "settled", pollMs = 30_000, quietMs = DEFAULTS.quietMs, dropMs = DEFAULTS.dropMs, stallMs = DEFAULTS.stallMs, idleMs = 45_000, coalesceMs = 2_000, nudge = null, log = () => {}, deadline = performance.now() + maxSeconds * 1000 }) {
+export class StaleObservation extends Error {
+  constructor(message = "watch observation was invalidated") { super(message); }
+}
+
+// Only inputs that determine attribution, not other watches' watermarks.
+const runInputs = (runs) => JSON.stringify([...runs].sort((a, b) => a.runId.localeCompare(b.runId)).map((r) => ({
+  runId: r.runId, status: r.status, sentAt: r.sentAt, tag: r.tag, leadThreadId: r.leadThreadId, implementer: r.implementer,
+  threads: Object.entries(r.threads ?? {}).sort(), cards: Object.entries(r.cards ?? {}).sort(),
+  runtimeUntrusted: Boolean(r.lastEval?.runtimeUntrusted),
+})));
+
+/** A read may authorize a decision only when its relevant generation stayed
+ * unchanged. Scope changes require a confirming read. Three unsuccessful reads
+ * return running/unknown; exhausting a drain never authorizes a stale verdict. */
+export async function watchRun({ client, team, task, runs = [], getRuns = null, dataDir = null, maxSeconds = 100, until = "settled", pollMs = 30_000, quietMs = DEFAULTS.quietMs, dropMs = DEFAULTS.dropMs, stallMs = DEFAULTS.stallMs, idleMs = 45_000, coalesceMs = 2_000, nudge = null, checkpoint = null, log = () => {}, deadline = performance.now() + maxSeconds * 1000 }) {
   const start = performance.now();
   const teamIds = new Set([...team.bots.map((b) => b.id), team.lead.id]);
-  const threadIds = new Set(Object.values(task.threads ?? {}).concat(task.leadThreadId ? [task.leadThreadId] : []));
-  // With another run open, the team's traffic is not all this run's: a frame
-  // that is not this run's may be worth a fresh snapshot, but it must not
-  // restart the quiet window this run's verdict depends on. With one run open
-  // every frame is that run's, as it always was.
-  const scoped = runs.some((r) => r.runId !== task.runId);
-  let ownBotIds = new Set([team.lead.id, task.implementer?.id].filter(Boolean));
-  let ownThreadIds = new Set([task.leadThreadId, ...(task.implementer?.id ? [task.threads?.[task.implementer.id]] : [])].filter(Boolean));
-  // The other runs' lead threads are where their claims are written: a frame
-  // there settles or opens one of their delegations, which changes which bots
-  // count for THIS run. It never resets this run's quiet window, but a verdict
-  // is not emitted from a view that predates it.
-  const foreignLeadThreads = new Set(runs.filter((r) => r.runId !== task.runId).map((r) => r.leadThreadId).filter(Boolean));
-  for (const id of foreignLeadThreads) threadIds.add(id);
-  const classify = (frame) => {
-    if (!scoped) return "own";
-    if (ownFrame(frame, { botIds: ownBotIds, threadIds: ownThreadIds })) return "own";
-    const d = frame.data;
-    return ["message", "message.patch", "thread"].includes(d?.kind) && foreignLeadThreads.has(d.threadId) ? "ownership" : "other";
-  };
+  let allRuns = runs.some((r) => r.runId === task.runId) ? runs : [task, ...runs];
+  let inputKey = runInputs(allRuns);
+  const threadIds = new Set(allRuns.flatMap((r) => [...Object.values(r.threads ?? {}), r.leadThreadId]).filter(Boolean));
+  let foreignLeadThreads = new Set(allRuns.filter((r) => r.runId !== task.runId).map((r) => r.leadThreadId));
+  let scoped = allRuns.length > 1;
+  let scope = null; let scopeKey = null;
+  let cardsByRun = Object.fromEntries(allRuns.map((r) => [r.runId, { ...r.cards }]));
   let cursor = task.lastEval?.cursor ?? null;
   let receivedCursor = cursor;
   let quietSince = null;
@@ -132,19 +136,41 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
   const changes = [];
   let outcomes = mergeOutcomes(task.lastEval?.outcomes);
   let nudged = Boolean(task.nudgedAt);
-  // Two counters, because a frame can be worth a fresh snapshot without being
-  // worth a restarted quiet window: `invalidations` drives hydration, and only
-  // this run's own frames advance `ownInvalidations`.
-  let invalidations = 0; let appliedInvalidations = -1; let ownInvalidations = 0; let ownershipInvalidations = 0;
+  let runtimeTrusted = !allRuns.some((r) => r.lastEval?.runtimeUntrusted);
+  // All traffic wakes hydration. Only relevant traffic invalidates its truth;
+  // only our own traffic resets quiet. Classification happens at arrival.
+  let invalidations = 0; let appliedInvalidations = -1; let relevant = 0;
+  let verifiedGeneration = -1;
   let streamFailures = 0; let pollingOnly = false;
   let waiter = null;
   const wake = () => waiter?.();
   const controller = new AbortController();
-  const deadlineTimer = setTimeout(() => { controller.abort(); wake(); }, Math.max(0, deadline - performance.now()));
-  // The same question withinDeadline asks, so a budget it refuses is one this loop calls expired.
   const expired = () => outOfBudget(deadline, controller.signal);
-  const invalidate = (kind = "own") => { invalidations++; if (kind === "own") { ownInvalidations++; quietSince = null; } else if (kind === "ownership") ownershipInvalidations++; wake(); };
-
+  const deadlineTimer = setTimeout(wake, Math.max(0, deadline - performance.now()));
+  const invalidate = (kind) => {
+    invalidations++;
+    if (kind !== "other") relevant++;
+    if (kind === "own") quietSince = null;
+    wake();
+  };
+  const classify = (frame) => {
+    if (!scoped || !scope) return "own"; // no ownership proof on a cold read
+    if (ownFrame(frame, scope)) return "own";
+    const d = frame.data;
+    if (d.kind === "runtime") return d.event.threadId === task.leadThreadId ? "own" : "ownership";
+    if (foreignLeadThreads.has(d.threadId ?? d.notification?.threadId)) return "ownership";
+    if (d.kind === "bot.deleted") return "ownership";
+    if (d.kind === "bot") {
+      const before = scope.bots.get(d.bot?.id);
+      if (!before) return "ownership";
+      // Foreign work flags can be ignored, but health and identity changes can
+      // alter our evidence or the name-based delegation claims.
+      const health = (v) => ["dead", "no-signal"].includes(v) ? v : null;
+      if ((d.bot.activity !== undefined && health(before.activity) !== health(d.bot.activity)) ||
+          d.bot.hidden === true || ["name", "threadId"].some((key) => d.bot[key] !== undefined && d.bot[key] !== before[key])) return "ownership";
+    }
+    return "other";
+  };
   let markStreamReady;
   const streamReady = new Promise((resolve) => { markStreamReady = resolve; });
   const runStream = async () => {
@@ -153,17 +179,27 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
         const res = await withinDeadline(({ signal }) => client.stream(`/api/events?screens=off${cursor ? `&since=${encodeURIComponent(cursor)}` : ""}`, signal), deadline, controller.signal);
         if (res.status !== 200) throw new Error(`event stream ${res.status}`);
         const reading = readEventStream(res, {
-          signal: controller.signal, idleMs, deadline,
+          // Stay subscribed during the final bounded checkpoint lock wait.
+          signal: controller.signal, idleMs,
           onFrame: (frame) => {
-            if (expired()) return;
+            if (controller.signal.aborted) return;
             streamFailures = 0;
             if (frame.data?.kind === "ping") return;
             if (frame.id) receivedCursor = frame.id;
-            if (relevantFrame(frame, { teamIds, threadIds, section: team.section })) invalidate(classify(frame));
+            const d = frame.data;
+            if (!relevantFrame(frame, { teamIds, threadIds, section: team.section }) &&
+                !(scope === null && ["message", "message.patch", "thread"].includes(d.kind))) return;
+            const kind = classify(frame);
+            if (runtimeLogGap(d)) runtimeTrusted = false;
+            // A newly created/switched bot can publish on its current thread
+            // before the next fleet hydration has finished reading it.
+            if (d.kind === "bot") {
+              teamIds.add(d.bot.id);
+              if (d.bot.threadId) threadIds.add(d.bot.threadId);
+            }
+            invalidate(kind);
           },
         });
-        // Start reading buffered hello/replay frames before hydration can
-        // establish quiet. Connection setup itself cannot count as quiet.
         markStreamReady();
         await reading;
       } catch (e) {
@@ -178,118 +214,163 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
   const streamTask = runStream();
   let receiptsWatcher = null;
   if (dataDir) {
-    // The receipts file is the whole server's. A write to it is worth a fresh
-    // snapshot; whether it carried one of this run's receipts, that snapshot says.
-    try { receiptsWatcher = fs.watch(dataDir, (_ev, name) => { if (name === "delegation-receipts.json" && !expired()) invalidate(scoped ? "other" : "own"); }); }
+    // A receipt has no SSE equivalent. Its owner is unknown until it is read,
+    // so a file write invalidates truth without claiming another run's quiet.
+    try { receiptsWatcher = fs.watch(dataDir, (_ev, name) => { if (name === "delegation-receipts.json" && !controller.signal.aborted) invalidate(scoped ? "ownership" : "own"); }); }
     catch (e) { log(`receipts: ${e.message}`); }
   }
-
-  let ownershipRedraws = 0; let lastAttributed = null;
   let snap = null; let ev = null; let sig = null;
-  let lastSnapAt = null; let outcome = "timeout";
+  let lastSnapAt = null; let redraws = 0; let immediate = false;
+  const sameInputs = () => !getRuns || inputKey === runInputs(getRuns());
+  const current = () => snap?.complete && verifiedGeneration === relevant && sameInputs();
+  const assertCurrent = () => {
+    if (!current()) throw new StaleObservation();
+    if (expired()) throw new Error("observation deadline reached");
+  };
+  const resultOf = (outcome) => ({
+    outcome, ev, snap, sig, changes, cursor, nudged, timedOut: outcome === "timeout", elapsedSec: Math.round((performance.now() - start) / 1000), checkpointed: false,
+    cards: { ...cardsByRun[task.runId] },
+    changedSinceReport: !current() || !sameSig(reported, sig), pollingOnly, receiptsWatched: receiptsWatcher !== null, lastChangeAt,
+    watermarks: current() ? { state: ev.state, cursor, lastLeadMessageId: snap.leadText?.id ?? null, lastChangeAt, quietSince: null, outcomes: mergeOutcomes(snap.outcomes), evidence: evidenceOf(snap), lastReported: sig, runtimeUntrusted: !runtimeTrusted }
+      : { state: "running", cursor, lastChangeAt, quietSince: null, outcomes: mergeOutcomes(outcomes) },
+  });
+  const unverified = (outcome, reason) => {
+    snap = { ...snap, complete: false, incomplete: [...(snap?.incomplete ?? []), reason] };
+    // Keep the last observed busy list for the operator, but no settled claim.
+    ev = { ...(ev ?? evaluate(snap, task)), state: "running", unknown: true, quiet: false, quietFor: 0, reasons: [reason] };
+    sig = signatureOf(snap, ev);
+    return resultOf(outcome);
+  };
+  const finish = async (outcome) => {
+    const r = resultOf(outcome);
+    if (checkpoint && current()) {
+      // Timeout observations may checkpoint their last complete running view,
+      // but the stream and generation guard remain live throughout that wait.
+      const checkpointDeadline = Math.min(deadline + 1000, performance.now() + 1000);
+      const guard = () => {
+        if (!current()) throw new StaleObservation();
+        if (outOfBudget(checkpointDeadline, controller.signal) || (outcome !== "timeout" && expired())) throw new Error("observation deadline reached");
+      };
+      r.checkpointed = await withinDeadline((opts) => checkpoint(r, { ...opts, assertCurrent: guard }), checkpointDeadline, controller.signal);
+      // The checkpoint may have persisted this watch's own card memory. No
+      // other ownership change is exempt from the final guard.
+      if (r.checkpointed && getRuns) inputKey = runInputs(allRuns.map((run) => run.runId === task.runId ? { ...run, cards: r.cards, lastEval: { ...run.lastEval, runtimeUntrusted: !runtimeTrusted } } : run));
+      guard();
+    }
+    return r;
+  };
   try {
     try { await withinDeadline(() => streamReady, deadline, controller.signal); }
     catch (e) { if (!expired()) throw e; }
     while (!expired()) {
-      const pending = appliedInvalidations !== invalidations;
-      // Coalescing applies to frame traffic. A quiet-threshold verification
-      // must not wait for either the next poll or the coalescing interval.
-      if (pending && lastSnapAt !== null) {
-        await pause(Math.min(Math.max(0, lastSnapAt + coalesceMs - performance.now()), Math.max(0, deadline - performance.now())), controller.signal);
+      if (!immediate && appliedInvalidations !== invalidations && lastSnapAt !== null) {
+        // Leave time for the read: batching must not spend the entire budget
+        // with an already invalidated view still waiting for hydration.
+        await pause(Math.min(Math.max(0, lastSnapAt + coalesceMs - performance.now()), Math.max(0, (deadline - performance.now()) / 2)), controller.signal);
+      }
+      immediate = false;
+      if (expired()) break;
+      if (getRuns) {
+        const liveRuns = getRuns();
+        if (!liveRuns.some((r) => r.runId === task.runId)) {
+          if (!snap) snap = await snapshot(client, { team, task, runs: allRuns }, { dataDir, deadline, signal: controller.signal });
+          return unverified("unverified", "the watched run is no longer open; re-read the project state");
+        }
+        const nextInputs = runInputs(liveRuns);
+        if (nextInputs !== inputKey) { scope = null; scopeKey = null; quietSince = null; }
+        allRuns = liveRuns; inputKey = nextInputs; scoped = allRuns.length > 1;
+        runtimeTrusted &&= !allRuns.some((r) => r.lastEval?.runtimeUntrusted);
+        foreignLeadThreads = new Set(allRuns.filter((r) => r.runId !== task.runId).map((r) => r.leadThreadId));
+        for (const run of allRuns) {
+          cardsByRun[run.runId] = { ...cardsByRun[run.runId], ...run.cards };
+          for (const id of [...Object.values(run.threads ?? {}), run.leadThreadId].filter(Boolean)) threadIds.add(id);
+        }
+      }
+      const targetAll = invalidations; const targetRelevant = relevant; const targetCursor = receivedCursor;
+      verifiedGeneration = -1;
+      const readRuns = allRuns.map((r) => ({ ...r, cards: cardsByRun[r.runId], ...(r.runId === task.runId ? { lastEval: { ...task.lastEval, outcomes } } : {}) }));
+      snap = await snapshot(client, { team, task: readRuns.find((r) => r.runId === task.runId), runs: readRuns }, { dataDir, runtimeTrusted, deadline, signal: controller.signal });
+      lastSnapAt = performance.now();
+      for (const bot of snap.observedBots) teamIds.add(bot.id);
+      for (const id of snap.observedThreads) threadIds.add(id);
+      const nextScope = { botIds: new Set(snap.attributedBots), threadIds: new Set(snap.attributedThreads), bots: new Map(snap.observedBots.map((b) => [b.id, b])) };
+      const nextKey = JSON.stringify([[...nextScope.botIds].sort(), [...nextScope.threadIds].sort(), [...threadIds].sort()]);
+      const moved = snap.complete && scopeKey !== null && nextKey !== scopeKey;
+      if (snap.complete) { scope = nextScope; scopeKey = nextKey; }
+      // No evaluation, signature, cursor or card ownership from an invalidated
+      // read can escape. Confirmation also covers frames classified under the
+      // previous ownership, including a newly attributed bot's busy frame.
+      if (targetRelevant !== relevant || moved || !sameInputs()) {
+        if (++redraws >= 3) return unverified("unverified", "relevant traffic prevented a verified observation; call watch again");
+        immediate = true;
+        continue;
       }
       if (expired()) break;
-      const targetInvalidations = invalidations;
-      const targetOwn = ownInvalidations;
-      const targetOwnership = ownershipInvalidations;
-      const targetCursor = receivedCursor;
-      snap = await snapshot(client, { team, task: { ...task, lastEval: { ...task.lastEval, outcomes } }, runs: runs.map((r) => (r.runId === task.runId ? { ...r, lastEval: { ...task.lastEval, outcomes } } : r)) }, { dataDir, deadline, signal: controller.signal });
-      outcomes = mergeOutcomes(outcomes, snap.outcomes); snap.outcomes = outcomes;
-      lastSnapAt = performance.now();
       const now = Date.now();
-      for (const bot of snap.bots) teamIds.add(bot.id);
-      for (const thread of snap.runThreads) threadIds.add(thread.threadId);
-      // Whose frames may reset this run's quiet window: exactly the bots whose
-      // work the snapshot counted for it — its lead while the lead's turn is
-      // not another run's, its implementer, the bots it has an open delegation
-      // to, and any bot no run can claim, which is every run's to wait for.
-      ownBotIds = new Set(snap.attributedBots ?? []);
-      for (const bot of snap.bots) if ((snap.openDelegations?.byName[bot.name] ?? 0) > 0) ownBotIds.add(bot.id);
-      ownThreadIds = new Set([task.leadThreadId, ...[...ownBotIds].filter((id) => id !== team.lead.id).map((id) => task.threads?.[id] ?? snap.bots.find((b) => b.id === id)?.threadId)].filter(Boolean));
-      const busyNow = snap.bots.some((b) => b.busy) || snap.teamMap.queued.length > 0 || snap.teamMap.running.length > 0;
-      const hasUnappliedFrames = targetInvalidations !== invalidations;
-      // Only an own frame that arrived while this snapshot was in flight makes
-      // its truth stale for this run; another run's traffic leaves it good.
-      const hasUnappliedOwn = targetOwn !== ownInvalidations;
-      const hasUnappliedOwnership = targetOwnership !== ownershipInvalidations;
-      // A frame is classified against the attribution the LAST snapshot
-      // established, so the one that first hands this run a bot cannot have
-      // classified that bot's frames as its own. Rather than reclassify a
-      // buffer that has already been consumed, the rule is simpler and holds
-      // for anything else the change touched: when the set of bots this run
-      // counts moved, its verdict waits for one more hydration that agrees.
-      const attributed = [...(snap.attributedBots ?? [])].sort().join(",");
-      const attributionChanged = snap.complete && lastAttributed !== null && attributed !== lastAttributed;
-      if (snap.complete) lastAttributed = attributed;
-      const unconfirmed = hasUnappliedOwnership || attributionChanged;
-      if (snap.complete && !expired()) {
+      if (snap.complete) {
+        verifiedGeneration = targetRelevant;
+        appliedInvalidations = targetAll;
         if (targetCursor !== null) cursor = targetCursor;
-        appliedInvalidations = targetInvalidations;
+        outcomes = mergeOutcomes(outcomes, snap.outcomes); snap.outcomes = outcomes;
+        for (const run of allRuns) cardsByRun[run.runId] = mergeCards(cardsByRun[run.runId], snap.cardsByRun[run.runId], true);
       }
       const evidenceChanged = lastSig && !sameEvidence(lastSig, { evidence: evidenceOf(snap) });
-      if (!snap.complete || busyNow || hasUnappliedOwn) quietSince = null;
+      const busyNow = snap.bots.some((b) => b.busy) || snap.teamMap.queued.length || snap.teamMap.running.length || snap.openDelegations.total;
+      if (!snap.complete || busyNow) quietSince = null;
       else if (quietSince === null || evidenceChanged) quietSince = lastSnapAt;
       if (evidenceChanged) lastChangeAt = now;
-      const quiet = { since: quietSince === null ? null : now - (lastSnapAt - quietSince) };
-      ev = evaluate(snap, task, { now, quiet, lastChangeAt, quietMs, dropMs, stallMs });
+      ev = evaluate(snap, task, { now, quiet: { since: quietSince === null ? null : now - (lastSnapAt - quietSince) }, lastChangeAt, quietMs, dropMs, stallMs });
       sig = signatureOf(snap, ev);
-      if (!sameSig(lastSig, sig)) {
+      if (snap.complete && !sameSig(lastSig, sig)) {
         if (lastSig) changes.push({ at: now, from: lastSig.state, to: sig.state, lead: !sameEvidence(lastSig, sig) ? snap.leadText?.text ?? null : undefined, pending: sig.pending || undefined });
         lastSig = sig; lastChangeAt = now;
       }
-      // Deadline has priority over draining another frame or acting on a verdict.
-      if (expired()) break;
-      if (hasUnappliedOwn) continue;
-      // Drain before anything is decided or sent: a nudge is a message to the
-      // lead, and a stall that only a stale view saw is not one to send it for.
-      if (unconfirmed && snap.complete && ownershipRedraws < 2) { ownershipRedraws++; continue; }
-      if (!unconfirmed) ownershipRedraws = 0;
       if (nudge && ev.state === "stalled" && /unacknowledged/.test(ev.hint ?? "") && !nudged) {
         try {
-          await withinDeadline((opts) => nudge(opts), deadline, controller.signal);
+          await withinDeadline((opts) => { assertCurrent(); return nudge({ ...opts, deadline, assertCurrent }); }, deadline, controller.signal);
           nudged = true; changes.push({ at: Date.now(), nudged: true }); log("nudged the lead");
-        } catch (e) { log(`nudge failed: ${e.message}`); }
-        quietSince = null;
-        ev = { ...ev, state: "running", reasons: ["nudged the lead; waiting for its wake", ...ev.reasons], nudged };
-        sig = signatureOf(snap, ev); lastSig = sig; lastChangeAt = Date.now();
+        } catch (e) { if (!(e instanceof StaleObservation)) log(`nudge failed: ${e.message}`); }
+        // Sending (or waiting to send) is an asynchronous observation boundary.
+        // Even without a frame yet, the pre-send snapshot cannot be reported.
+        invalidate("own");
+        if (++redraws >= 3 && !expired()) return unverified("unverified", "nudge activity requires a fresh observation; call watch again");
+        immediate = true;
+        continue;
       }
       if (expired()) break;
-      if (TERMINAL.has(ev.state)) { outcome = "terminal"; break; }
-      if (until === "change" && !sameSig(reported, sig)) { outcome = "change"; break; }
-      if (until === "question" && ["needs-user", "attention"].includes(ev.state)) { outcome = "question"; break; }
+      const outcome = TERMINAL.has(ev.state) ? "terminal" : current() && until === "change" && !sameSig(reported, sig) ? "change" : null;
+      if (outcome) {
+        try { assertCurrent(); return await finish(outcome); }
+        catch (e) {
+          if (expired()) break;
+          if (!(e instanceof StaleObservation)) throw e;
+          if (++redraws >= 3) return unverified("unverified", e.message);
+          immediate = true;
+          continue;
+        }
+      }
+      redraws = 0;
       const quietRemaining = quietSince === null || ev.quiet ? Infinity : Math.max(0, quietSince + quietMs - performance.now());
       const waitMs = Math.min(pollMs, quietRemaining, Math.max(0, deadline - performance.now()));
+      // A foreign wake received during the read is already scheduled. Do not
+      // lose it by installing the waiter only after it has called wake().
+      if (appliedInvalidations !== invalidations && snap.complete) continue;
       await new Promise((resolve) => {
         let timer;
         const done = () => { clearTimeout(timer); if (waiter === done) waiter = null; resolve(); };
         timer = setTimeout(done, waitMs); waiter = done;
       });
     }
-    if (!snap) snap = await snapshot(client, { team, task, runs }, { dataDir, deadline, signal: controller.signal });
-    if (!ev) ev = evaluate(snap, task);
-    if (outcome === "timeout" && (TERMINAL.has(ev.state) || appliedInvalidations !== invalidations)) ev = { ...ev, state: "running", unknown: true, quiet: false, reasons: ["observation deadline reached before verification"] };
+    if (!snap) snap = await snapshot(client, { team, task, runs: allRuns }, { dataDir, deadline, signal: controller.signal });
+    if (!current() || !ev || TERMINAL.has(ev.state)) return unverified("timeout", "observation deadline reached before verification");
     sig = signatureOf(snap, ev);
+    try { return await finish("timeout"); }
+    catch (e) {
+      if (!(e instanceof StaleObservation) && !/observation deadline/.test(e.message)) throw e;
+      return unverified("timeout", "observation deadline reached before checkpoint verification");
+    }
   } finally {
     clearTimeout(deadlineTimer); controller.abort(); wake(); receiptsWatcher?.close();
-    // The stream and backoff share this abort signal; never add a cleanup grace
-    // period to the observation budget for a server that ignores cancellation.
     void streamTask.catch(() => {});
   }
-  return {
-    outcome, ev, snap, sig, changes, cursor, nudged, timedOut: outcome === "timeout", elapsedSec: Math.round((performance.now() - start) / 1000),
-    // What this run owns of what is pending now: a card keeps the run that saw
-    // it first, and one that has been answered stops being remembered.
-    cards: Object.fromEntries(snap.pending.filter((p) => p.shared !== true).map((p) => [cardKeyOf(p), true])),
-    changedSinceReport: !sameSig(reported, sig), pollingOnly, receiptsWatched: receiptsWatcher !== null, lastChangeAt,
-    watermarks: { state: ev.state, cursor, lastLeadMessageId: snap.leadText?.id ?? null, lastChangeAt, quietSince: null, outcomes: mergeOutcomes(snap.outcomes), evidence: evidenceOf(snap), lastReported: sig },
-  };
 }

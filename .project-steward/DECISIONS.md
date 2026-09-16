@@ -213,3 +213,21 @@ Recorded in `docs/design.md` (Task lifecycle, Snapshot and evaluation, the
 `watch` loop, the state file), `SKILL.md` sections 3-6, and
 `references/api.md`, `limits-and-pitfalls.md` and `dev-team.md`; bead
 `oml-no8`.
+
+## 0013 — 2026-09-16 — An exhausted watch drain returns uncertainty
+
+The two-redraw ownership exception could authorize terminal results and
+nudges from an invalidated snapshot. Watch now classifies frames at arrival,
+confirms changed attribution, and checks the relevant generation and current
+run ownership before decisions and effects. After three unsuccessful reads
+or attempts to act, it returns visible running/unknown without checkpointing
+the unconfirmed evidence. Ordinary foreign work does not reset quiet.
+
+The stream remains open through the final bounded checkpoint wait. Nudge
+delivery carries the same freshness guard and observation deadline through
+its lock, identity read, task switch and retry. First-sight card owners are
+retained in memory between reads, with locations saved for the selected run.
+
+The design and regression matrix are in `docs/design.md` and
+`docs/review/2026-09-16-watch-drain-rescue.md`. This checkpoint is on
+`codex/rescue-watch-drain`, isolated from an independent writer in `main`.

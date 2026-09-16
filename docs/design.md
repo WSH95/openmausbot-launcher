@@ -285,25 +285,36 @@ delegation` (`index.ts:7915`) open one; the reply echo and the settlement
 chips (`index.ts:3396-3400`, `delegations.ts:506,535`, and
 `error: delegation to @X could not start`) close one; the busy retry
 (`delegations.ts:491`) closes nothing; the queue-drop chip
-(`delegations.ts:441`) empties the queue and closes every window it left
-open, so no later turn on a shared thread is attributed to a run whose
-queueing turn was interrupted. A settlement whose target was never
+(`delegations.ts:418-441`) drops only pending handoffs. When its count matches
+the outstanding delegations, their counts and windows close; an anonymous
+partial drop cannot identify which targets settled, so counts stay open and
+`unknown` is set. A settlement whose target was never
 seen queued — a renamed bot, a chip older than the window — leaves the count
 where it is and sets `unknown`: ambiguity never settles anything.
 
 A busy bot is this run's when one of its chips or its implementer claim says
 so, another run's when only that run's chips or claim say so, and **every**
 open run's when nothing can place it. A bot a run cannot claim contributes no
-work state to that run's evidence at all — neither `busy` nor `activity` —
+work state to that run's evidence at all — neither `busy`, `activity`, nor
+its active `threadId` —
 because its turns starting and finishing are the other run's progress, not
 this one's; only the fleet-wide health states (`dead`, `no-signal`) stay
 visible to every run. The lead is the same rule with one
 extra source: a busy lead counts for every open run unless the runtime log
 (`events/<thread>.ndjson`) shows exactly one run's lead thread with a
-`turn.started` and no `turn.completed`. A pending request keeps the run that
-saw it first (`runs[runId].cards`, written at the watch checkpoint); one no
-run can claim is listed under every open run as `shared` and needs
-`--request`.
+`turn.started` and no `turn.completed`. Unreadable, malformed or explicitly
+incomplete logs cannot prove exclusivity. A live canonical-log failure also
+disables that proof; a confirmed watch checkpoint preserves this uncertainty.
+An open delegation whose name no longer matches a fleet bot keeps that run
+waiting and leaves specialist requests shared where ownership is ambiguous.
+
+A pending request keeps the run that saw it first. Watch remembers owners for
+all observed runs across its hydrations and checkpoints only the selected
+run's `cards`, including each request's `threadId` and `botId`. That thread
+remains an input after the bot switches tasks. Legacy boolean owners still
+work when the request or its settlement is visible; an unlocated legacy
+request makes the observation incomplete. A request no run can claim is
+listed under every open run as `shared` and needs `--request`.
 
 Timestamp ties use current hydrated message order only. Receipt ties or
 unavailable order remain unknown; an old sequence index cannot prove a new
@@ -358,32 +369,36 @@ Notifications are wake-ups only (a bot's notifications can be off,
    is explicitly selected; connection setup consumes the same deadline.
 2. Take a complete REST snapshot (always, including cold start:
    `hello.resumed` is false then too).
-3. Drain the buffered frames as invalidations (`bot` for team bots,
-   `message`/`message.patch` for run threads, `notify`, `resumed:false`); if
-   any was relevant, snapshot again; only then evaluate and emit what
-   changed against `lastReported`. No terminal result is emitted with
-   unapplied frames in the buffer.
-4. Live frames trigger coalesced re-snapshots (at most one per 2 s); REST is
-   the truth. With another run open, only a frame on **this** run's threads or
-   about a bot it holds — its implementer, a delegate it is waiting on, and
-   the lead unless the runtime log says the turn it is running is another
-   run's, and any bot no run can claim — resets its quiet window; the rest
-   still cause a fresh snapshot, which notices anything that did change this
-   run's evidence. The three kinds are counted separately. A frame that is not
-   this run's never makes the snapshot it arrived during stale, so sustained
-   traffic from the other run cannot starve this one's verdict. A frame on
-   another open run's **lead thread** is the exception in one direction: its
-   chips are where that run's claims are written, so it can hand this run a bot
-   that was the other run's a moment ago, and a verdict is not emitted from a
-   view that predates it. The same holds after the fact: a frame is classified
-   against the attribution the last snapshot established, so when the set of
-   bots this run counts moves, nothing is decided or sent — no verdict and no
-   nudge — until one more hydration agrees. Both are re-hydrated at most twice,
-   so a run that never stops talking delays this answer rather than replacing
-   it with silence. With one
-   run open every frame is that run's, as before. the checkpoint cursor is the `id:` of the last frame actually
-   applied, never `hello.cursor` (which is the head before replay,
-   `index.ts:8582-8596`). A polling snapshot runs every `--poll` seconds;
+3. Classify each frame at arrival against the most recently hydrated scope.
+   On a cold read, ownership is unproven and classification is conservative.
+   Own frames reset quiet and invalidate the view. Ownership inputs invalidate
+   it without resetting quiet: other runs' lead threads, runtime turn or log
+   failure frames, fleet health and identity changes, deletions, and receipt
+   writes. Ordinary work frames for a bot owned only by another run wake
+   hydration but do neither. Recorded, current, discovered and remembered-card
+   threads are covered. `bot.deleted` identifies its bot with `botId`
+   (`index.ts:1915`); runtime events use `event.threadId` (`index.ts:2724`).
+4. A complete snapshot may authorize a verdict, `--until change`, nudge or
+   checkpoint only if no relevant frame arrived during its own read. A moved
+   attribution or observed-thread scope needs another confirming read, covering
+   frames that were classified under the previous scope. The open runs'
+   ownership inputs are read again before hydration and checked before any
+   decision or effect, since local run closure has no SSE frame.
+
+   Three consecutive invalidated reads or attempts to act return `running`
+   with `outcome: unverified`, `unknown: true`, `complete: false`, exit 4 and
+   `checkpointed: false`. This result is never silenced by
+   `--quiet-if-unchanged`. Hitting the bound never licenses a terminal verdict,
+   change verdict, nudge or evidence checkpoint. Only confirmed reads advance
+   signatures, remembered owners, outcomes and the covered cursor.
+
+   Ordinary live wakes are coalesced for up to 2 s, capped at half the remaining
+   budget so a read can still run. Confirmation reads run immediately. Quiet
+   wakes and polling remain independent. Only own frames reset quiet; another
+   run's traffic can delay a verdict but cannot suppress the bounded reply.
+   The checkpoint cursor is the `id:` received before the confirmed read,
+   never `hello.cursor` (the head before replay, `index.ts:8582-8596`).
+   A polling snapshot runs every `--poll` seconds;
    the receipts file is `fs.watch`ed best effort (`receiptsWatched: false` in the result, plus a `--verbose` line, when the directory cannot be watched). On a stream drop or idle
    watchdog: 2 s backoff, reconnect with the cursor, polling-only after
    three failures; a reconnect that reports `resumed:false` resets quiet
@@ -391,15 +406,20 @@ Notifications are wake-ups only (a bot's notifications can be off,
 5. Return on a terminal state, on `--until change` when the state, the
    lead's last own message id, the outcome list, or the pending set changed,
    or at the deadline with `timeout` (exit 4).
-6. Each non-dry return attempts a checkpoint with at most a one-second
-   lock wait. It merges `runs[runId].lastEval {state, cursor,
+6. A verified non-dry return attempts a checkpoint with at most a one-second
+   lock wait, while the stream and receipt watcher remain subscribed. A
+   freshness guard runs under the lock before writing and again before return.
+   If invalidated, watch rehydrates within the observation budget, or returns
+   unknown without writing when the budget is spent. A timeout can checkpoint
+   its last complete running view only while that view remains current.
+   It merges `runs[runId].lastEval {state, cursor,
    lastLeadMessageId, lastChangeAt, outcomes, evidence, lastReported}` over
    the existing record, keeping the newer `lastChangeAt` when a `send`
    advanced it during the watch, and writes `runs[runId].cards` (the pending
    requests this run owns) — replacing them only when the observation was
    complete, since an incomplete one may just have failed to read the thread
    the card is on — only for that run and only for the same binding.
-   No other run's record is read or written. Lock timeout or a replaced run
+   Only the selected run's record is written. Lock timeout or a replaced run
    returns `checkpointed:false`; other state errors propagate. `watch` never
    changes a run's `status`.
 
@@ -407,16 +427,20 @@ One expiry test is shared by the budget guard and the observation loop
 (`outOfBudget`): a millisecond timeout is a whole number, so less than a
 millisecond left is already spent, and a request the guard would refuse is
 one the loop calls expired. One monotonic deadline bounds identity, SSE
-setup/read/replay, coalescing, pagination, polling, reconnects and optional
-nudges. Continuous events
-cannot extend it. Every relevant frame resets quiet, including unchanged
-REST signatures. Quiet has its own wake deadline instead of waiting for the
+setup, coalescing, pagination, polling, reconnects and optional nudges.
+Continuous events cannot extend observation. Only the final checkpoint can
+use its additional one-second lock budget, with the stream still subscribed.
+Every own frame resets quiet, including unchanged REST signatures.
+Quiet has its own wake deadline instead of waiting for the
 next poll. The received cursor advances on frames; the covered cursor
 advances only after their complete snapshot and alone is persisted.
 
 `--quiet-if-unchanged` prints nothing when nothing changed; `--nudge` sends
 `status?` once per run on the stalled signal (persisted watermark, fixed
-`sendId`), for unattended automations.
+`sendId`), for unattended automations. Its guard runs after the lock wait,
+after identity reads, and before each POST, including a task switch and the
+single retry. All delivery steps share the observation deadline and abort
+signal. After a send attempt, watch hydrates again before reporting a change.
 
 `--brief` lines, phone-sized:
 
@@ -517,7 +541,7 @@ literally ending in ` (deleted)` is preserved.
                "implementer": { "id": "…", "name": "Nova" }, "leadThreadsOnly": false,
                "sendId": "task-…", "sentAt": 0, "sentSha": "aa16067", "sendReceipt": { "steered": false, "queued": false },
                "leadThreadId": "…", "threads": { "<botId>": "<threadId>" }, "nudgedAt": null,
-               "cards": { "<requestId>": true },
+               "cards": { "<requestId>": { "threadId": "…", "botId": "…" } },
                "lastEval": { "state": "running", "cursor": "ab12cd34:4419", "lastLeadMessageId": "…", "lastChangeAt": 0,
                              "outcomes": [ { "id": "…", "at": 0, "kind": "echo" } ],
                              "lastReported": { "leadMessageId": "…", "pending": [], "state": "running" } } } },

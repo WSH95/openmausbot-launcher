@@ -3,6 +3,21 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-16T22:50:08Z — Phase 5 watch rescue, isolated verified checkpoint
+
+Replaced the two-redraw exception with a generation, scope and ownership
+guard for watch decisions, nudge delivery and checkpoints. Bounded invalidation
+returns visible running/unknown. Fixed card location/owner retention, per-run
+dispatch boundaries, ordering evidence, and ambiguous runtime/delegation
+attribution. The baseline passed 269 tests; the final suite passed 303 with
+0 failures and 0 skipped. All original assertions remain unchanged.
+
+An independent writer changed the primary checkout during this session, so
+the checkpoint is on `codex/rescue-watch-drain` in the ignored rescue worktree.
+The review matrix and exact evidence are in
+`docs/review/2026-09-16-watch-drain-rescue.md`. Parent issue `oml-no8` remains
+in progress for integration and broader validation. No real bot run or push.
+
 ### 2026-09-16 — v2 pass, phase 4: the `pair` verb and the Tailscale remote run (2 bot turns)
 Seventeen verbs now: `pair` exchanges a pairing code into the 0600 token file
 under a lock held across the exchange (Codex review finding), never prints the
