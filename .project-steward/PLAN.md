@@ -45,11 +45,9 @@ SSE inside Codex's sandbox (`oml-u1j`); macOS lifecycle only if a Mac turns
 up (`oml-hou`). Defect found on the way: `oml-60s`. The plan and its Codex
 review live in the session plan file; progress in `PROGRESS.md`.
 
-Phase 5 watch-contract repairs for `oml-no8` are implemented on the isolated
-branch `codex/rescue-watch-drain`; the primary checkout has a concurrent
-writer. Validation and the earlier findings matrix are recorded in
-`docs/review/2026-09-16-watch-drain-rescue.md`. The parent issue remains in
-progress; this checkpoint does not claim a real two-run OpenMausBot exercise.
+Phase 5 (several runs per team, `oml-no8`) is merged on `main` at `0492520`;
+the watch-contract audit is `docs/review/2026-09-16-watch-drain-rescue.md`.
+The bead stays open until the real two-run exercise (Phase 7).
 
 ## Later
 

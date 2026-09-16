@@ -3,20 +3,21 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
-### 2026-09-16T22:50:08Z — Phase 5 watch rescue, isolated verified checkpoint
-
-Replaced the two-redraw exception with a generation, scope and ownership
-guard for watch decisions, nudge delivery and checkpoints. Bounded invalidation
-returns visible running/unknown. Fixed card location/owner retention, per-run
-dispatch boundaries, ordering evidence, and ambiguous runtime/delegation
-attribution. The baseline passed 269 tests; the final suite passed 303 with
-0 failures and 0 skipped. All original assertions remain unchanged.
-
-An independent writer changed the primary checkout during this session, so
-the checkpoint is on `codex/rescue-watch-drain` in the ignored rescue worktree.
-The review matrix and exact evidence are in
-`docs/review/2026-09-16-watch-drain-rescue.md`. Parent issue `oml-no8` remains
-in progress for integration and broader validation. No real bot run or push.
+### 2026-09-16 — v2 pass, phase 5: several runs per team (code, no bot turns)
+The state document is version 2 and holds `runs`: each run owns its worktree
+and branch from dispatch, claims an implementer the launcher bound, is
+addressed with `--run`, is observed through a per-run view, and is reported
+and closed on its own. One delivery path switches the lead's active task and
+never retargets a message. The Codex review (thirteen findings, then two,
+then three) hardened attribution, watch quiet scoping, report matching and
+worktree ownership; under the new rule for tasks still open after two rounds,
+Codex (`gpt-6-astra`) then rewrote the watch drain: frames are classified at
+arrival, a changed attribution must be confirmed, and an exhausted drain
+returns visible `running`/`unknown` instead of a verdict (commit `0492520`,
+audit `docs/review/2026-09-16-watch-drain-rescue.md`). Commits
+`4d853c8`..`0492520`; `npm test` 303/303. Not yet a real run: Phase 7 owes the
+two-run validation. Flaky-test bead `oml-2rc` filed (one of the two flakes
+fixed on the way).
 
 ### 2026-09-16 — v2 pass, phase 4: the `pair` verb and the Tailscale remote run (2 bot turns)
 Seventeen verbs now: `pair` exchanges a pairing code into the 0600 token file

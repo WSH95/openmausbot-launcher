@@ -8,24 +8,17 @@ Run the relevant checks before marking work as verified in `HANDOFF.md`.
 | Tests | `npm test` | all pass |
 | Lint | `none` | clean |
 
-## Phase 5 watch rescue (2026-09-16)
+## v2 pass, phase 5 (2026-09-16)
 
-Last verified on Node `v24.11.0`, branch `codex/rescue-watch-drain`.
-The baseline `3111bbc` passed 269 tests. The first 33 rescue regressions
-failed against the unchanged baseline; a 34th test caught a foreign-frame
-classification error in the draft and passed after its repair.
-
-`mkdir -p .superpowers/tmp && TMPDIR=$PWD/.superpowers/tmp npm test`:
-**303 passed, 0 failed, 0 skipped**, 70.050 s. Documentation/metadata checks
-after the design edit passed 4/4. `git diff --check` is clean. Original test
-files are unchanged, including both actual two-run watches against the fake.
-The earlier fifteen findings and the third review's regressions all pass;
-the mapping is in `docs/review/2026-09-16-watch-drain-rescue.md`.
-
-This is fake-server and scripted-race validation, with no real bot turns.
-The isolated branch has not been merged over the primary checkout's
-independently edited files. Logs remain under the primary checkout's ignored
-`.superpowers/tmp/rescue-*.log`.
+Worktree clean at `0492520` on `main` (the Codex rescue commit, fast-forwarded
+from its side branch). `npm test`: **303 passed, 0 failed, 0 skipped**
+(221 before the phase; the rescue added 34 regressions in
+`tests/watch-drain.test.mjs`). `git diff --check` clean. Review trail: Codex
+`gpt-5.6-sol` rounds on `3eacb89..1da4a24` (13 findings), the fixes (2), the
+fixes of the fixes (3); Codex `gpt-6-astra` rescue over the watch contract
+with its path matrix in `docs/review/2026-09-16-watch-drain-rescue.md`; an
+Opus completeness review recorded in `PROGRESS.md` once it lands. No real run
+yet.
 
 ## v2 pass, phase 4 (2026-09-16)
 

@@ -229,5 +229,6 @@ its lock, identity read, task switch and retry. First-sight card owners are
 retained in memory between reads, with locations saved for the selected run.
 
 The design and regression matrix are in `docs/design.md` and
-`docs/review/2026-09-16-watch-drain-rescue.md`. This checkpoint is on
-`codex/rescue-watch-drain`, isolated from an independent writer in `main`.
+`docs/review/2026-09-16-watch-drain-rescue.md`. The change was made by Codex
+(`gpt-6-astra`) under the user's rule for tasks still open after two review
+rounds, on a side branch that `main` then fast-forwarded to (`0492520`).
