@@ -16,6 +16,16 @@ const openCodes = async (f) => (await (await fetch(`${f.url}/api/auth/pairing`))
 const sessionsOf = async (f) => (await (await fetch(`${f.url}/api/auth/sessions`)).json()).sessions;
 /** A token file the verb must create itself, inside a directory it must create too. */
 const freshFile = () => path.join(tmpDir("oml-pair-"), "openmausbot-launcher", "tokens.json");
+/** Wait for a condition instead of guessing an interval; a timeout fails the test loudly rather than racing on. */
+async function until(check, what, ms = 5000) {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (check()) return;
+    await sleep(10);
+  }
+  assert.fail(`timed out after ${ms} ms waiting for ${what}`);
+}
+
 /** Every non-control POST the fake saw, so a refusal can be shown to spend nothing. */
 function watchPosts(f) {
   const posts = [];
@@ -345,7 +355,12 @@ test("a slow exchange for one server does not refuse a pair for another sharing 
   const codeB = b.apply({ op: "pairing", scopes: ["client"] }).pairing.code;
   a.apply({ op: "delay", count: 1, ms: 3000 }); // longer than the lock used to wait
   const pa = runOmb(["pair", "--code", codeA, "--url", a.url, "--project", dir], { env });
-  await sleep(400); // long enough that A holds the lock across its slow exchange
+  // B must not start until A really holds the lock. Sleeping a guessed interval
+  // races on a loaded runner: if B took the lock first, A would do the waiting
+  // and the test would pass against the old two-second wait too, which is the
+  // regression it exists to catch. `pair` takes the lock before it posts, so a
+  // lock file here means A is inside its slow exchange and still holding it.
+  await until(() => fs.existsSync(`${file}.lock`), `the first pair to take ${path.basename(file)}.lock`);
   const pb = runOmb(["pair", "--code", codeB, "--url", b.url, "--project", dir], { env });
   const [ra, rb] = await Promise.all([pa, pb]);
   assert.equal(ra.code, 0, ra.stdout + ra.stderr);
