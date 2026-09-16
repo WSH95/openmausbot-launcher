@@ -64,7 +64,11 @@ export async function serverIdentity(cfg, client, opts = {}) {
     // public (index.ts:7315), so a server that is perfectly fine looks
     // unverifiable when the only thing missing is this device's token.
     if (!isLoopback(client.url) && !cfg.token) {
-      throw new Fail(EXIT.PRECONDITION, `no token for ${client.url}: pair this device first`, { hint: `pair --code XXXX-XXXX-XXXX --url ${client.url}` });
+      // The hint has to be a command that runs: a plain-http endpoint was
+      // reached with --allow-insecure-http, and pair needs the same flag or it
+      // refuses in createClient before it ever spends the code.
+      const insecure = cfg.allowInsecureHttp ? " --allow-insecure-http" : "";
+      throw new Fail(EXIT.PRECONDITION, `no token for ${client.url}: pair this device first`, { hint: `pair --code XXXX-XXXX-XXXX --url ${client.url}${insecure}` });
     }
     throw new Fail(EXIT.PRECONDITION, "the server identity could not be verified", { hint: "check the URL and server, then import --adopt or re-import" });
   }

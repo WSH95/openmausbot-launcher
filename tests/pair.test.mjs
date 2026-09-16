@@ -5,9 +5,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { startFake, makeRepo, runOmb, tmpDir } from "./helpers.mjs";
+import { startFake, makeRepo, runOmb, tmpDir, sleep } from "./helpers.mjs";
 import { statePaths, updateState } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
-import { exchangeRefusal } from "../skills/openmausbot-launcher/scripts/lib/verbs/pair.mjs";
+import { exchangeRefusal, lockWaitMs } from "../skills/openmausbot-launcher/scripts/lib/verbs/pair.mjs";
 import { HttpError } from "../skills/openmausbot-launcher/scripts/lib/http.mjs";
 
 const mode = (p) => (fs.statSync(p).mode & 0o777).toString(8);
@@ -143,7 +143,7 @@ test("the pair route's refusals are reported in the server's own words, exit 3",
   const wrong = await runOmb(["pair", "--code", "AAAA-BBBB-CCCC", "--url", f.url, "--project", dir], { env });
   assert.equal(wrong.code, 3, wrong.stdout);
   assert.equal(wrong.json.error, "pairing code is wrong or has expired; create a new one on the server");
-  assert.equal(wrong.json.hint, `mint a new code on the server: openmausbot pair --port ${new URL(f.url).port} [--client]`);
+  assert.equal(wrong.json.hint, "mint a new code on the server: openmausbot pair --port <the server's loopback port> [--client]");
   assert.equal(fs.existsSync(file), false, "a refused exchange writes no table");
 
   // That was the first failure from this source; nine more lock it out (S: sessions.ts:29).
@@ -164,10 +164,15 @@ test("415, 401 and 429 carry the server's text; every other status stays an ordi
   assert.match(unsupported.hint, /rewrote the request's content type/);
   const stale = refusal(401, "pairing code is wrong or has expired; create a new one on the server");
   assert.equal(stale.code, 3);
-  assert.equal(stale.hint, "mint a new code on the server: openmausbot pair --port <the server's loopback port> [--client]",
-    "a bare https host says nothing about the loopback port the CLI mints on, so ask rather than guess 8799");
-  assert.equal(refusal(401, "x", "https://maus.example.com:8899").hint, "mint a new code on the server: openmausbot pair --port 8899 [--client]");
-  assert.equal(refusal(401, "x", "http://127.0.0.1:8899").hint, "mint a new code on the server: openmausbot pair --port 8899 [--client]");
+  // The endpoint's port is the endpoint's, never the server's: an SSH tunnel
+  // maps localhost:9999 onto a server serving 8799, and a reverse proxy's 443
+  // is nobody's loopback port. `openmausbot pair` runs on the server, so the
+  // hint asks for that port instead of inferring one that would not work.
+  const ask = "mint a new code on the server: openmausbot pair --port <the server's loopback port> [--client]";
+  assert.equal(stale.hint, ask);
+  for (const url of ["https://maus.example.com", "https://maus.example.com:8899", "http://127.0.0.1:8899", "http://localhost:9999"]) {
+    assert.equal(refusal(401, "x", url).hint, ask, url);
+  }
   const locked = refusal(429, "too many failed pairing attempts from your address; try again in 42s");
   assert.equal(locked.code, 3);
   assert.equal(locked.message, "too many failed pairing attempts from your address; try again in 42s");
@@ -255,7 +260,8 @@ test("a tokenless remote command names the missing token instead of an unverifia
   const tokenless = await runOmb(args, { env });
   assert.equal(tokenless.code, 3, tokenless.stdout);
   assert.equal(tokenless.json.error, `no token for ${origin}: pair this device first`);
-  assert.equal(tokenless.json.hint, `pair --code XXXX-XXXX-XXXX --url ${origin}`);
+  assert.equal(tokenless.json.hint, `pair --code XXXX-XXXX-XXXX --url ${origin} --allow-insecure-http`,
+    "following the hint must not fail in createClient for the reason we are already past");
 
   const { pairing } = await f.apply({ op: "pairing", label: "laptop", scopes: ["admin", "client"] });
   const paired = await runOmb(["pair", "--code", pairing.code, "--url", origin, "--allow-insecure-http", "--project", dir], { env });
@@ -272,10 +278,10 @@ test("a held token-file lock refuses before the code is exchanged", async (t) =>
   fs.writeFileSync(`${file}.lock`, "");
   const { pairing } = await f.control({ op: "pairing", scopes: ["client"] });
   const posts = watchPosts(f);
-  const r = await runOmb(["pair", "--code", pairing.code, "--url", f.url, "--project", dir], { env: { OMB_TOKEN: "", OMB_TOKEN_FILE: file } });
+  const r = await runOmb(["pair", "--code", pairing.code, "--url", f.url, "--project", dir], { env: { OMB_TOKEN: "", OMB_TOKEN_FILE: file, OMB_PAIR_LOCK_WAIT_MS: "150" } });
   assert.equal(r.code, 3, r.stdout);
   assert.equal(r.json.error, `another pair is writing ${file}`);
-  assert.match(r.json.hint, /stale/);
+  assert.match(r.json.hint, /^waited 150 ms for .*\.lock; .*stale/);
   assert.deepEqual(posts, [], "a destination that cannot be reserved is refused before the exchange");
   assert.equal((await openCodes(f)).length, 1, "the code is still open");
   assert.deepEqual(await sessionsOf(f), [], "and no session was created");
@@ -315,4 +321,34 @@ test("two pairs for one origin cannot both write: the loser is refused and spend
   assert.equal((await openCodes(f)).length, 1, "the loser's code is still open");
   assert.deepEqual(Object.keys(tableIn(file)), [f.url]);
   assert.equal(fs.existsSync(`${file}.lock`), false);
+});
+
+test("the token-file lock waits out a whole exchange; only the tests shorten it", () => {
+  // The lock is held across the exchange, which is two attempts at the
+  // client's timeout, so a shorter wait would refuse a pair that holds a
+  // perfectly good code just because another origin's server was slow.
+  assert.equal(lockWaitMs({ timeoutMs: 15_000 }, {}), 35_000);
+  assert.equal(lockWaitMs({ timeoutMs: 2_000 }, {}), 9_000);
+  assert.equal(lockWaitMs({}, {}), 35_000, "the client's own default timeout");
+  assert.equal(lockWaitMs({ timeoutMs: 15_000 }, { OMB_PAIR_LOCK_WAIT_MS: "150" }), 150);
+  assert.equal(lockWaitMs({ timeoutMs: 15_000 }, { OMB_PAIR_LOCK_WAIT_MS: "" }), 35_000, "an empty setting is not a zero wait");
+  assert.equal(lockWaitMs({ timeoutMs: 15_000 }, { OMB_PAIR_LOCK_WAIT_MS: "soon" }), 35_000);
+});
+
+test("a slow exchange for one server does not refuse a pair for another sharing the table", async (t) => {
+  const a = await startFake(); t.after(() => a.close());
+  const b = await startFake(); t.after(() => b.close());
+  const { dir } = makeRepo();
+  const file = freshFile();
+  const env = { OMB_TOKEN: "", OMB_TOKEN_FILE: file };
+  const codeA = a.apply({ op: "pairing", scopes: ["client"] }).pairing.code;
+  const codeB = b.apply({ op: "pairing", scopes: ["client"] }).pairing.code;
+  a.apply({ op: "delay", count: 1, ms: 3000 }); // longer than the lock used to wait
+  const pa = runOmb(["pair", "--code", codeA, "--url", a.url, "--project", dir], { env });
+  await sleep(400); // long enough that A holds the lock across its slow exchange
+  const pb = runOmb(["pair", "--code", codeB, "--url", b.url, "--project", dir], { env });
+  const [ra, rb] = await Promise.all([pa, pb]);
+  assert.equal(ra.code, 0, ra.stdout + ra.stderr);
+  assert.equal(rb.code, 0, rb.stdout + rb.stderr, "B held a valid code for a free origin and only had to wait");
+  assert.deepEqual(Object.keys(tableIn(file)).sort(), [a.url, b.url].sort());
 });

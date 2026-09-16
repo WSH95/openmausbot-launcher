@@ -11,12 +11,32 @@ import { resolveConfig, tokenFilePath, readTokenTable, withTokenFile } from "../
 import { createClient, HttpError } from "../http.mjs";
 
 /**
- * The CLI mints codes on the port it serves (cli.ts:223-229). An explicit port
- * in the URL is that port, reached through a tunnel or on the LAN; a bare
- * `https://host` says nothing about the loopback port the CLI wants, so ask
- * for it by name rather than guess its 8799 default (cli.ts:73-74).
+ * `openmausbot pair` runs on the server and mints on the port it serves
+ * (cli.ts:223-229), which is a loopback port the endpoint URL does not know:
+ * an SSH tunnel maps `localhost:9999` onto a server serving 8799, a reverse
+ * proxy answers on 443, and a bare `https://host` names no port at all. The
+ * URL's port is the endpoint's, so the hint asks for the server's rather than
+ * print a number that would not work.
  */
-const mintPort = (url) => new URL(url).port || "<the server's loopback port>";
+const MINT_PORT = "<the server's loopback port>";
+
+/**
+ * How long a second `pair` waits for the token table's lock.
+ *
+ * That lock is held across the exchange, so the wait has to outlast one:
+ * `exchange()` allows two attempts at the client's timeout. A shorter wait
+ * would refuse a pair that holds a valid code for a free origin merely
+ * because another origin's server was slow, so no flag shortens it.
+ * `OMB_PAIR_LOCK_WAIT_MS` is read only by the tests that need contention to
+ * resolve in milliseconds rather than half a minute; it is deliberately
+ * undocumented outside this comment.
+ */
+export function lockWaitMs(client, env = process.env) {
+  const raw = env.OMB_PAIR_LOCK_WAIT_MS;
+  const override = raw === undefined || raw === "" ? NaN : Number(raw);
+  if (Number.isFinite(override) && override >= 0) return override;
+  return 2 * (client.timeoutMs ?? 15_000) + 5_000;
+}
 
 /**
  * The three answers the pair route refuses with are the operator's problem,
@@ -28,7 +48,7 @@ export function exchangeRefusal(e, url) {
   if (!(e instanceof HttpError) || ![415, 401, 429].includes(e.status)) return e;
   const text = e.body?.error ?? e.message;
   const seconds = /try again in (\d+)s/.exec(text)?.[1];
-  const hint = e.status === 401 ? `mint a new code on the server: openmausbot pair --port ${mintPort(url)} [--client]`
+  const hint = e.status === 401 ? `mint a new code on the server: openmausbot pair --port ${MINT_PORT} [--client]`
     : e.status === 429 ? `wait ${seconds ?? "as long as the server says"} s and pair again; the server counts failed codes per source address`
     : `something between this launcher and ${url} rewrote the request's content type`;
   return new Fail(EXIT.PRECONDITION, text, { status: e.status, hint });
@@ -77,7 +97,7 @@ verb("pair", {
       const got = await exchange(client, { code: flags.code, ...(flags.label ? { label: flags.label } : {}), attemptId });
       write(origin, got.token);
       return { answer: got, replaced: held };
-    });
+    }, { waitMs: lockWaitMs(client, cfg.env) });
     const session = answer.session ?? {};
     const scopes = session.scopes ?? [];
     return {

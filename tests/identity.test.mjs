@@ -198,3 +198,20 @@ test("a run opened locally is watchable and interruptible through the remote obs
   assert.equal(i.code, 0, i.stdout);
   assert.equal(i.json.threadId, task.leadThreadId);
 });
+
+test("the tokenless hint is a command that will actually run, flag included", async () => {
+  // `/api/health` without a pid is the public reachability probe an untrusted
+  // caller gets (index.ts:7351-7357); the environment route stays public.
+  const client = (url) => ({ url, timeoutMs: 15000, get: async (p) => (p === "/api/health" ? { app: "openmausbot" } : { environmentId: "env" }) });
+  const hintFor = async (cfg, url) => {
+    const e = await serverIdentity(cfg, client(url)).then(() => null, (err) => err);
+    assert.ok(e instanceof Fail, `expected a refusal for ${url}`);
+    assert.equal(e.code, 3);
+    assert.equal(e.message, `no token for ${url}: pair this device first`);
+    return e.hint;
+  };
+  assert.equal(await hintFor({ mode: "remote", token: null }, "https://maus.example.com"), "pair --code XXXX-XXXX-XXXX --url https://maus.example.com");
+  assert.equal(await hintFor({ mode: "remote", token: null, allowInsecureHttp: true }, "http://10.0.0.5:8899"),
+    "pair --code XXXX-XXXX-XXXX --url http://10.0.0.5:8899 --allow-insecure-http",
+    "the flag that got us to this endpoint is the flag pair needs to reach it");
+});
