@@ -7,7 +7,7 @@
 // (index.ts:7318-7341): JSON only, single use, five-minute codes.
 import { randomBytes } from "node:crypto";
 import { verb, EXIT, Fail } from "../cli.mjs";
-import { resolveConfig, tokenFilePath, readTokenTable, storeToken } from "../config.mjs";
+import { resolveConfig, tokenFilePath, readTokenTable, withTokenFile } from "../config.mjs";
 import { createClient, HttpError } from "../http.mjs";
 
 /**
@@ -34,6 +34,9 @@ export function exchangeRefusal(e, url) {
   return new Fail(EXIT.PRECONDITION, text, { status: e.status, hint });
 }
 
+/** One origin, one token: replacing it is a deliberate act, because the session it replaces stays alive on the server until it is revoked. */
+const alreadyHeld = (file, origin) => new Fail(EXIT.PRECONDITION, `${file} already holds a token for ${origin}`, { hint: "pass --replace to overwrite it, after revoking the old session with openmausbot sessions" });
+
 /**
  * One exchange, retried exactly once when the answer never arrives. The server
  * replays its own result for the same attempt id within EXCHANGE_REPLAY_MS
@@ -58,18 +61,24 @@ verb("pair", {
     const tokenFile = tokenFilePath(cfg.env);
     // The whole preflight runs before any request, so a refusal never spends
     // the code: a five-minute single-use code is expensive to replace.
-    const { table } = readTokenTable(tokenFile);
-    const replaced = Object.hasOwn(table, origin);
-    if (replaced && !flags.replace) {
-      throw new Fail(EXIT.PRECONDITION, `${tokenFile} already holds a token for ${origin}`, { hint: "pass --replace to overwrite it, after revoking the old session with openmausbot sessions" });
-    }
+    if (Object.hasOwn(readTokenTable(tokenFile).table, origin) && !flags.replace) throw alreadyHeld(tokenFile, origin);
     const client = createClient({ url: origin, allowInsecureHttp: cfg.allowInsecureHttp });
     if (cfg.dryRun) return { result: { dryRun: true, url: origin, tokenFile, label: flags.label ?? null }, brief: `pair · dry run · ${origin} · ${tokenFile}` };
 
+    // The lock is a reservation taken before the code is spent and held
+    // through the write, so an unwritable destination or a concurrent pair
+    // costs a round trip instead of a code and a 30-day session with nowhere
+    // to live. The preflight above was not serialized against another pair,
+    // so the decision is made again here, on the table under the lock.
     const attemptId = randomBytes(8).toString("hex"); // 16 hex chars: /^[\w-]{8,64}$/ (sessions.ts:273)
-    const answer = await exchange(client, { code: flags.code, ...(flags.label ? { label: flags.label } : {}), attemptId });
+    const { answer, replaced } = await withTokenFile(tokenFile, async ({ table, write }) => {
+      const held = Object.hasOwn(table, origin);
+      if (held && !flags.replace) throw alreadyHeld(tokenFile, origin);
+      const got = await exchange(client, { code: flags.code, ...(flags.label ? { label: flags.label } : {}), attemptId });
+      write(origin, got.token);
+      return { answer: got, replaced: held };
+    });
     const session = answer.session ?? {};
-    await storeToken(tokenFile, origin, answer.token);
     const scopes = session.scopes ?? [];
     return {
       result: {

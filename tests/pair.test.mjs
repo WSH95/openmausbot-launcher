@@ -263,3 +263,56 @@ test("a tokenless remote command names the missing token instead of an unverifia
   const withToken = await runOmb(args, { env });
   assert.equal(withToken.code, 0, withToken.stdout, "the same command works once the device is paired");
 });
+
+test("a held token-file lock refuses before the code is exchanged", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const { dir } = makeRepo();
+  const file = freshFile();
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(`${file}.lock`, "");
+  const { pairing } = await f.control({ op: "pairing", scopes: ["client"] });
+  const posts = watchPosts(f);
+  const r = await runOmb(["pair", "--code", pairing.code, "--url", f.url, "--project", dir], { env: { OMB_TOKEN: "", OMB_TOKEN_FILE: file } });
+  assert.equal(r.code, 3, r.stdout);
+  assert.equal(r.json.error, `another pair is writing ${file}`);
+  assert.match(r.json.hint, /stale/);
+  assert.deepEqual(posts, [], "a destination that cannot be reserved is refused before the exchange");
+  assert.equal((await openCodes(f)).length, 1, "the code is still open");
+  assert.deepEqual(await sessionsOf(f), [], "and no session was created");
+  assert.equal(fs.existsSync(file), false);
+});
+
+test("a token file that cannot be created refuses before the code is exchanged", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const { dir } = makeRepo();
+  const base = tmpDir("oml-pair-");
+  fs.writeFileSync(path.join(base, "notadir"), "");
+  const file = path.join(base, "notadir", "tokens.json"); // its parent is a file
+  const { pairing } = await f.control({ op: "pairing", scopes: ["client"] });
+  const posts = watchPosts(f);
+  const r = await runOmb(["pair", "--code", pairing.code, "--url", f.url, "--project", dir], { env: { OMB_TOKEN: "", OMB_TOKEN_FILE: file } });
+  assert.equal(r.code, 3, r.stdout);
+  assert.equal(r.json.error, `cannot write the token file at ${file}: EEXIST`);
+  assert.match(r.json.hint, /OMB_TOKEN_FILE/);
+  assert.deepEqual(posts, [], "an unwritable destination is refused before the exchange");
+  assert.equal((await openCodes(f)).length, 1);
+  assert.deepEqual(await sessionsOf(f), []);
+});
+
+test("two pairs for one origin cannot both write: the loser is refused and spends no code", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const { dir } = makeRepo();
+  const file = freshFile();
+  const env = { OMB_TOKEN: "", OMB_TOKEN_FILE: file };
+  const codes = [await f.control({ op: "pairing", scopes: ["client"] }), await f.control({ op: "pairing", scopes: ["client"] })];
+  const both = await Promise.all(codes.map((c) => runOmb(["pair", "--code", c.pairing.code, "--url", f.url, "--project", dir], { env })));
+  const won = both.filter((r) => r.code === 0);
+  const lost = both.filter((r) => r.code !== 0);
+  assert.equal(won.length, 1, both.map((r) => r.stdout).join(""));
+  assert.equal(lost[0].code, 3, lost[0].stdout);
+  assert.equal(lost[0].json.error, `${file} already holds a token for ${f.url}`, "the second writer never replaces the first without --replace");
+  assert.equal((await sessionsOf(f)).length, 1, "only the winner spent a code");
+  assert.equal((await openCodes(f)).length, 1, "the loser's code is still open");
+  assert.deepEqual(Object.keys(tableIn(file)), [f.url]);
+  assert.equal(fs.existsSync(`${file}.lock`), false);
+});
