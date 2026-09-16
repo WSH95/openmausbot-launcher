@@ -163,15 +163,32 @@ test("down refuses stale or reused identities", { skip: !linux && "needs /proc" 
 
 test("up reports a server that dies at startup with the log tail and a sandbox hint", { skip: !linux && "needs /proc" }, async (t) => {
   const { dir } = makeRepo();
-  const port = await freePortPair();
-  const blocker = net.createServer(); await new Promise((r) => blocker.listen(port, "127.0.0.1", r)); t.after(() => blocker.close());
-  const dataDir = path.join(tmpDir("oml-dead-"), "data");
-  const r = await runOmb(["up", "--project", dir, "--port", String(port), "--data-dir", dataDir, "--timeout", "10"], { env: { OMB_BIN: FAKE, OMB_TOKEN: "" } });
-  assert.equal(r.code, 1, r.stdout);
-  assert.match(r.json.error, /exited during startup/);
-  assert.match(r.json.log, /EADDRINUSE/);
-  assert.match(r.json.hint, /see .*serve\.log/);
-  assert.equal(loadState(statePaths(dir)), null, "nothing is recorded for a server that never answered");
+  // This test needs the API port taken and its neighbour free at the moment
+  // `up` runs. The rest of the suite is opening and closing servers in
+  // parallel, so the neighbour this test just measured as free can be taken
+  // between the two — and `up` then refuses the pair before it ever spawns the
+  // server whose death this test is about. Hold the neighbour until the last
+  // moment, and when the race is lost anyway, say so and take another pair.
+  for (let attempt = 1; ; attempt++) {
+    const port = await freePortPair();
+    const neighbour = net.createServer(); await new Promise((r) => neighbour.listen(port + 1, "127.0.0.1", r));
+    const blocker = net.createServer(); await new Promise((r) => blocker.listen(port, "127.0.0.1", r));
+    t.after(() => blocker.close());
+    await new Promise((r) => neighbour.close(r));
+    const dataDir = path.join(tmpDir("oml-dead-"), "data");
+    const r = await runOmb(["up", "--project", dir, "--port", String(port), "--data-dir", dataDir, "--timeout", "10"], { env: { OMB_BIN: FAKE, OMB_TOKEN: "" } });
+    if (/is in use; OpenMausBot binds/.test(r.json?.error ?? "")) {
+      assert.ok(attempt < 5, `the neighbour of ${port} was taken on every attempt: ${r.stdout}`);
+      blocker.close();
+      continue;
+    }
+    assert.equal(r.code, 1, r.stdout);
+    assert.match(r.json.error, /exited during startup/);
+    assert.match(r.json.log, /EADDRINUSE/);
+    assert.match(r.json.hint, /see .*serve\.log/);
+    assert.equal(loadState(statePaths(dir)), null, "nothing is recorded for a server that never answered");
+    break;
+  }
 });
 
 test("up names the sandbox cause from anywhere in serve.log, not only its 12-line tail", { skip: !linux && "needs /proc" }, async (t) => {
