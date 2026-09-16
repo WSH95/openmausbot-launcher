@@ -1214,13 +1214,17 @@ shared from the fixture:
 
 Two things to read carefully. A client-scope session is refused only where the
 driver touches an admin route — `doctor --server` reads `/api/instances`; the
-same session's `status`, `watch` and `interrupt` all worked. And a
-tokenless call does **not** say "no token": an unauthenticated `/api/health`
-through the tunnel answers 200 without a pid (`index.ts:7352-7354`), so the
-driver cannot tell a missing credential from a different server and reports the
-identity failure instead. A revoked bearer reads the same way, for the same
-reason (see Cleanup). `0a55d39` improved the hint to name the token file and the
-real port; the health route's shape is upstream and unchanged.
+same session's `status`, `watch` and `interrupt` all worked. And on the day of
+the run a tokenless call did **not** say "no token": an unauthenticated
+`/api/health` through the tunnel answers 200 without a pid
+(`index.ts:7352-7354`), so the driver could not tell a missing credential from a
+different server and reported the identity failure above. `0a55d39` made a
+missing token say so, naming the origin and the `pair` command to run;
+`3b6dce0` stopped the pair hint inferring a port from the endpoint, which is why
+the capture above shows `--port 8799` against a server on 8899. A revoked bearer
+still reads as an identity failure, for the reason above (see Cleanup): the
+token is present, it simply no longer works. The health route's shape is
+upstream and unchanged.
 
 ### The binding gap (bead `oml-9kp`)
 

@@ -357,7 +357,7 @@
    "exitCode": 3,
    "output": "{\"ok\":false,\"verb\":\"pair\",\"error\":\"pairing code is wrong or has expired; create a new one on the server\",\"status\":401,\"hint\":\"mint a new code on the server: openmausbot pair --port 8799 [--client]\"}",
    "source": "scratchpad/remote-run-1.txt",
-   "note": "a replay of the owner code already spent above. The record does not say which token file it targeted or whether --replace was passed; the answer is the server's own 401, so the preflight admitted the attempt. The exit code 3 is the one named in the section label, not a captured exit line. Server log: \"pairing refused from 100.88.158.53: pairing code is wrong or has expired; create a new one on the server\". The hint names --port 8799, the CLI default, not the port in use (8899)"
+   "note": "a replay of the owner code already spent above. The record does not say which token file it targeted or whether --replace was passed; the answer is the server's own 401, so the preflight admitted the attempt. The exit code 3 is the one named in the section label, not a captured exit line. Server log: \"pairing refused from 100.88.158.53: pairing code is wrong or has expired; create a new one on the server\". The hint names --port 8799, the CLI default, not the port in use (8899); fixed in 3b6dce0, which stopped inferring a port from the endpoint at all"
   },
   {
    "label": "sessions on the server",
@@ -1019,14 +1019,15 @@
    "description": "A tokenless or revoked bearer through the tunnel reads \"the server identity could not be verified\", not \"no token\": an unauthenticated /api/health answers 200 without a pid (index.ts:7352-7354), so the driver cannot tell a missing credential from a different server.",
    "source": "scratchpad/remote-run-2.txt, remote-run-7.txt",
    "resolved": "partly",
-   "resolution": "commit 0a55d39 names the missing token file and the real port in the pair and status hints; the health route's own shape is upstream and unchanged"
+   "resolution": "commit 0a55d39 names a missing token for what it is, giving the origin and the pair command to run, so only a revoked bearer now reads as an identity failure; 3b6dce0 then stopped the pair hint inferring a port from the endpoint, and carried --allow-insecure-http into the recovery command. The health route's own shape is upstream and unchanged"
   },
   {
    "id": 3,
    "description": "The pair refusal hint named --port 8799, the CLI default, while the server was on 8899.",
    "source": "scratchpad/remote-run-1.txt",
    "resolved": true,
-   "fixCommit": "0a55d39"
+   "fixCommit": "0a55d39, completed by 3b6dce0",
+   "resolution": "0a55d39 stopped guessing the CLI default for a URL with no port; 3b6dce0 stopped inferring a port from the endpoint at all, since an endpoint port is the endpoint's (an SSH tunnel maps localhost:9999 onto a server serving 8799) and openmausbot pair runs on the server"
   },
   {
    "id": 4,

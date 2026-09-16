@@ -279,11 +279,13 @@ models. The admin route behind `doctor --server` refuses it with `GET
 `status`, `watch` and `interrupt` all work. A bearer token beats loopback trust,
 so `doctor` warns when `OMB_TOKEN` is set on a loopback URL.
 
-**A missing or revoked token reads as an identity failure**, not as a missing
-credential: both produce `the server identity could not be verified`, because an
-unauthenticated `/api/health` through the tunnel answers 200 without a pid. Check
-the token file before doubting the URL. `doctor --remote` still passes 4/4
-without any token, since it only checks what it can reach.
+**A revoked token reads as an identity failure**, not as a dead credential: an
+unauthenticated `/api/health` through the tunnel answers 200 without a pid, so
+the driver cannot tell a rejected bearer from a different server. A *missing*
+token is named for what it is — `no token for <origin>: pair this device first`
+— so an identity failure with a token in the table means that token no longer
+works. Check the token file before doubting the URL. `doctor --remote` still
+passes 4/4 without any token, since it only checks what it can reach.
 
 **Revoke the device when you are done** rather than leaving a thirty-day session
 alive:
