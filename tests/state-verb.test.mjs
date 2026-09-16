@@ -23,6 +23,12 @@ test("state --show prints the document as read, without a lock or a request, and
   assert.equal(fs.existsSync(paths.lockDb), false, "a read never initializes the lock database");
   r = await runOmb(["state", "--show", "--project", dir, "--brief"], { env });
   assert.equal(r.stdout, `state · ${paths.file} · rev 1 · server http://127.0.0.1:8899 (owned) · team Dev team · runs T10 dispatched\n`);
+  const doc = loadState(paths);
+  doc.runs.r2 = { runId: "r2", title: "T11", status: "preparing", createdAt: "2026-09-16T02:00:00.000Z" };
+  doc.runs.r1.createdAt = "2026-09-16T01:00:00.000Z";
+  commitState(paths, doc);
+  r = await runOmb(["state", "--show", "--project", dir, "--brief"], { env });
+  assert.equal(r.stdout, `state · ${paths.file} · rev 2 · server http://127.0.0.1:8899 (owned) · team Dev team · runs T10 dispatched, T11 preparing\n`);
 });
 
 test("usage names seventeen verbs, state among them", async () => {

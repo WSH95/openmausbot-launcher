@@ -339,3 +339,35 @@ test("a card no run can claim is shared, and a busy lead blocks every run until 
   views = (await snapshotRuns(client, { team: st.team, runs }, { dataDir: f.dataDir })).views;
   for (const runId of [a.json.runId, b.json.runId]) assert.deepEqual(views[runId].bots.filter((x) => x.busy).map((x) => x.name), ["Sudo"], "a finished turn identifies nothing, so both wait again");
 });
+
+test("status evaluates every open run, and still reads as one run when only one is open", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const env = { OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir };
+  const { dir } = makeRepo();
+  assert.equal((await runOmb(["import", PKG, "--project", dir, "--url", f.url], { env })).code, 0);
+  assert.equal((await runOmb(["bind", "--project", dir, "--default", "claude/claude-sonnet-5"], { env })).code, 0);
+  const a = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  assert.equal(a.code, 0, a.stdout);
+  let r = await runOmb(["status", "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout);
+  assert.equal(r.json.run.runId, a.json.runId, "one run keeps the shape it always had");
+  assert.equal(r.json.runs.length, 1); assert.equal(r.json.runs[0].slug, "t10"); assert.equal(r.json.runs[0].state, r.json.state);
+  await f.control({ op: "bot", name: "Vex", title: "Implementer", section: "Dev team" });
+  const b = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
+  assert.equal(b.code, 0, b.stdout);
+  await f.control({ op: "delegated", threadId: a.json.leadThreadId, name: "Nova", reason: "implement T10" });
+  await f.control({ op: "leadSay", threadId: b.json.leadThreadId, text: `All done.\n\nDONE ${b.json.tag}` });
+  r = await runOmb(["status", "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout);
+  assert.equal(r.json.run, undefined, "two runs: no single run to speak for");
+  assert.equal(r.json.state, undefined);
+  assert.deepEqual(r.json.runs.map((x) => x.slug).sort(), ["t10", "t11"]);
+  const ra = r.json.runs.find((x) => x.slug === "t10"); const rb = r.json.runs.find((x) => x.slug === "t11");
+  assert.equal(ra.state, "running"); assert.match(ra.reasons.join(" "), /1 delegation\(s\) open: Nova/);
+  assert.equal(ra.implementer.name, "Nova"); assert.equal(ra.branch, "task/t10");
+  assert.equal(rb.lead.text, `All done.\n\nDONE ${b.json.tag}`, "each run reports its own thread");
+  assert.equal(rb.marker.id, rb.lead.id);
+  const brief = await runOmb(["status", "--project", dir, "--brief"], { env });
+  assert.equal(brief.stdout.trim().split("\n").length, 2, brief.stdout);
+  assert.match(brief.stdout, /t10 · running/); assert.match(brief.stdout, /t11 ·/);
+});

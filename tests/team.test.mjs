@@ -44,7 +44,10 @@ test("import maps package keys to returned bots, records the chief as lead, room
   assert.equal(bad.code, 2);
   await updateState(statePaths(dir), (d) => { d.runs.r = { runId: "r", status: "dispatched", title: "T1" }; return d; });
   const busy = await runOmb(["import", PKG, "--project", dir, "--url", f.url], { env });
-  assert.equal(busy.code, 3); assert.match(busy.json.error, /a run is dispatched/);
+  assert.equal(busy.code, 3); assert.match(busy.json.error, /a run is dispatched/); assert.match(busy.json.hint, /finish it with report/);
+  await updateState(statePaths(dir), (d) => { d.runs.r2 = { runId: "r2", status: "dispatched", title: "T2", slug: "t2", createdAt: "2026-09-16T02:00:00.000Z" }; d.runs.r.createdAt = "2026-09-16T01:00:00.000Z"; return d; });
+  const busier = await runOmb(["import", PKG, "--project", dir, "--url", f.url], { env });
+  assert.equal(busier.code, 3); assert.match(busier.json.hint, /2 runs are open: .*t2 \(r2, dispatched\)/);
 });
 
 test("import --lead when the package names no chief; --adopt recovers a team by section or lead name", async (t) => {

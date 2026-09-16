@@ -49,6 +49,7 @@ test("doctor: bootstrap checks on a plain repository", async () => {
   assert.equal(r.json.checks.find((c) => c.id === "binary").ok, true);
   assert.equal(r.json.mode, "local");
   assert.equal(r.json.state.server, null);
+  assert.deepEqual(r.json.state.runs, [], "the state summary counts runs, not one task");
   const b = await runOmb(["doctor", "--project", dir, "--brief"], { env: { OMB_BIN: FAKE, OMB_TOKEN: "" } });
   assert.match(b.stdout, /^doctor · local · 5 checks, 0 failed/);
 });
