@@ -189,11 +189,29 @@ historical reports append a reanalysis instead of replacing the original.
 - **Settled needs 30 s of quiet inside one invocation.** Quiet evidence never
   crosses invocations, and it resets on `resumed:false`, on an incomplete
   snapshot, and on any progress.
-- **One run per team.** A second dispatch is refused; finish with `report`,
-  or close the run with `task --abandon`. There is no `--force`.
+- **Several runs, one lead.** A second dispatch is allowed while the first
+  run is open, but the lead still runs one turn at a time
+  (`index.ts:3775-3777`): two runs mean two open tasks whose implementers
+  work at once, never two lead turns. Each run owns its own worktree, branch
+  and implementer, and every run-scoped verb takes `--run <ref>` rather than
+  guessing. Finish each with `report --run <ref>`, or close it with
+  `task --abandon --run <ref>`. There is no `--force`.
+- **A busy lead belongs to every open run** unless the runtime log names the
+  thread its turn is on, and a pending request nobody can place is `shared`
+  and needs `--request`. The driver would rather keep both runs waiting than
+  hand one of them the other's work.
 - **Never retarget a stale thread.** A 409 `the bot switched tasks…` is
   reported with the bot's active thread in the hint; the driver does not
-  resend somewhere else on its own.
+  resend somewhere else on its own. The one exception is not a retarget: when
+  the lead's active task is **another open run's**, `send` makes this run's
+  own task active again (`POST /api/bots/:id/tasks/:threadId`) and posts the
+  same text to the same thread it always meant. It does that once; a second
+  refusal is reported.
+- **An interrupt reaches only the active task.** A turn pinned to another
+  thread — a delegation wake drained after the bot switched tasks
+  (`index.ts:3225-3233`) — answers 409 `the bot switched tasks before it
+  could be interrupted` (`index.ts:11077-11084`). There is no way to stop it
+  from here: wait for the lead to go idle.
 - **Tokens never in argv.** They come from `OMB_TOKEN` or the 0600 file at
   `~/.config/openmausbot-launcher/tokens.json`, so nothing lands in a process
   list or a transcript.

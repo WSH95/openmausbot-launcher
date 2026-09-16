@@ -170,3 +170,46 @@ where another loopback port is another server. A remote observer shares the
 machine-local state file and passes `--remote --url`; `import --adopt` is not
 used to change a bound state's URL. Recorded in `docs/design.md` (Modes) and
 `references/hosts.md` (Remote variant); commit `01901f9`, bead `oml-9kp`.
+
+## 0012 — 2026-09-16 — Several runs per team, attributed conservatively
+
+One task per team was a v1 simplification that the state file enforced by
+holding a single `task`. The user wants two tasks open at once with distinct
+implementers (bead `oml-no8`), so the state is now version 2 and holds `runs`
+keyed by run id. A version 1 document is migrated on read; an older launcher
+refuses a version 2 file, so every copy and automation has to be stopped and
+updated before the first version 2 write. That rollout rule is in
+`docs/design.md` ("Version 2 and its rollout").
+
+What the server allows decided the rest. A bot runs one turn at a time
+(`index.ts:3775`), so "parallel" means two open tasks whose implementers work
+at once, never two lead turns; each run claims an idle Implementer that no
+other open run holds, and `--share-implementer` is the deliberate exception.
+A delegated turn lands on the target's **active** thread (`index.ts:3466`),
+so only the lead gets a fresh thread per run: a second set of specialist
+threads would hijack the first run's delegations. A message reaches only the
+bot's active task (`index.ts:10790-10797`), so `send`, the dispatch,
+`answer`'s chat fallback and `--nudge` share one delivery helper that
+switches the lead's active task back to the run's own thread
+(`index.ts:11120-11140`) and posts once more — once, and never to another
+thread.
+
+Attribution is conservative because the server offers no direct answer: a bot
+is busy as a whole, team-map edges carry no source thread, and the delegation
+chips carry names rather than ids. A busy bot nothing can place counts as
+in flight for every open run, a busy lead likewise unless the runtime log
+names the thread its turn is on, a pending request no run can claim is
+`shared` and must be answered with `--request`, and an unmatched settlement
+chip leaves a delegation counted as open. Ambiguity never gives one run
+exclusive ownership and never lets another call itself finished.
+
+One limit has no workaround and is documented as such: a turn pinned to a
+thread that is not the bot's active task — a delegation wake drained after a
+switch — cannot be interrupted at all (`index.ts:11077-11084`). The driver
+reports the server's words and says to wait for the lead to go idle, then
+`task --abandon --run <ref>`.
+
+Recorded in `docs/design.md` (Task lifecycle, Snapshot and evaluation, the
+`watch` loop, the state file), `SKILL.md` sections 3-6, and
+`references/api.md`, `limits-and-pitfalls.md` and `dev-team.md`; bead
+`oml-no8`.

@@ -77,8 +77,9 @@ conventions in a reference file; driver = dependency-free Node ESM `.mjs`
 where OMB runs, since OMB itself requires it); headless-only (the desktop
 build refuses outside writes, dev pack
 `~/Documents/agent-team-devpack/docs/upstream/0004`); config by env and
-flags; a locked per-project state file so fresh sessions resume; **one task
-at a time per team in v1**; **server lifecycle management (`up`, `down`,
+flags; a locked per-project state file so fresh sessions resume; **several
+runs per team from v2** (state version 2; one task at a time was the v1
+rule, and is still what one open run behaves like); **server lifecycle management (`up`, `down`,
 `cleanup --kill`) is Linux-only in v1** (macOS gets `attached` and reports);
 the skill lives under `skills/` in the repo like `agent-team-cli` and the
 devpack, so the installed unit carries no steward or beads files.
@@ -169,15 +170,15 @@ is needed; 6 stalled or failed.
 | `import` | `<package.json> [--lead NAME]` or `--adopt <section-or-lead>` | `POST /api/teams/import?mode=add`; keeps the returned ids; maps package keys to returned bots by input order and name with numbered-suffix tolerance ("Sudo 2"); lead = the returned bot with `chiefOfStaff: true`, else `--lead` required; zero or many rooms; `--adopt` is the read-only attach for an existing team (also remote); records the server `environmentId`; a local `--adopt` in a git checkout also adds `.worktrees/` and `.omb/` to the repository's `info/exclude` and reports `exclude` | `/api/teams/import`, `/api/bots` |
 | `bind` | `[--default eng/model[/effort]] [--reviewers eng/model/effort] [--model "<bot>=…"]… [--approval auto\|ask] [--approval-for "<bot>=ask\|auto"]… [--peer-approval "<bot>=on\|off"]… [--no-room]` | launcher-level idle check first; room `cwd` only when it differs (a pinned room rejects even an equal `cwd`, `index.ts:9566`); bot `cwd`; model only when it differs (equal selections pass while busy, `index.ts:1050-1057`, but a pending approval grant rejects any model PATCH, `index.ts:9930`); approval mode, team-wide from `--approval` or per bot from `--approval-for` (a grok bot under `auto` is skipped with a note and set to `ask` when its field is absent, `store.ts:1303-1335`); `--peer-approval` PATCHes `approvePeerComms` only when it differs (boolean only, `index.ts:10212-10217`), the gate behind the `@X wants to contact @Y` card on `ask_bot`, `post_to_room` and `delegate_bot` (`index.ts:7842`, `8113`; `delegations.ts:514`; `peer-approval.ts:95-119`); `.worktrees/` and `.omb/` into `.git/info/exclude`; re-reads the roster; reports partial results per bot; exit 3 on any 409 | `PATCH /api/groups/:id`, `/api/bots/:id` (`cwd`, `approvalMode`, `approvePeerComms`), `/api/bots/:id/model` |
 | `facts` | `--default-branch --test --setup --merge --task-log --tracker --plan-review` or `--text` | replaces the lead description from the exact marker `Project facts` to the end (error when absent unless `--append`), asserts `< 4000`, infers the default branch from git | `PATCH /api/bots/:id {description}` |
-| `task` | `"<brief>"` or `--todo T10 [--bead ID]`, `[--title] [--resume] [--abandon]` | see "Task lifecycle" | `POST /api/bots/:id/tasks`, `/api/bots/:id/messages`, `/api/team-map` |
-| `send` | `"<text>" [--bot] [--thread] [--again]` | message to the lead's run thread with a deterministic `sendId`; a retry resends the identical thread, text, and `sendId`; a match returns the original message, so the driver reports `duplicate: true` when the receipt's `message.at` predates the request (`index.ts:10765-10777`, `send-idempotency.ts:21-40`); `--again` salts the `sendId` to deliver once more; a 409 "the bot switched tasks" is reported with the active thread in the hint and **never retargeted** (`index.ts:10751-10798`); a late-steer 409 after settlement is reported as undelivered; a 202 `queued` or `steered` receipt is recorded | `POST /api/bots/:id/messages` |
-| `answer` | `--allow\|--deny\|--message "<text>" [--request ID]` or `"<text>"` | typed requests: ordinary question and approval cards (`card.requestId`, unanswered, undismissed) are answered on the owning thread with outcomes `allowed-once\|rejected\|answered\|unavailable` reported as is; an `unavailable` **textual** answer on the lead's run thread falls back to `send`; an unavailable allow or deny is never turned into chat; `--request` required when more than one card is pending; connector, credential, skill (reviewed-hash) and routine requests are **reported with their type and route, exit 5, unsupported in v1**; bare text = `send` | `POST /api/threads/:id/respond` |
-| `status` | `[--bots] [--tail N]` | one snapshot plus the evaluation; without an open task, returns `run: null`, roster, latest leader/user messages and the requested tail without a task verdict; never blocks; `carried: true` marks a verdict carried from the last watch rather than settled by this snapshot | snapshot routes |
-| `watch` | `--max-seconds N` (default 100) `--until settled\|change\|question` `[--poll 30] [--stall-minutes 40] [--nudge] [--quiet-if-unchanged]` | see below | `/api/events`, snapshot routes, receipts file |
-| `interrupt` | `[--bot]` | stops the run's turn only: always sends `{threadId: <run thread>}`; a 409 (the bot is busy in a room or routine, `index.ts:11044`) is reported, never overridden; takes no state lock, since it writes nothing | `POST /api/bots/:id/interrupt` |
-| `reconcile` | `[--remove <slug>]…` | exactly one worktree, no `task/*` branch, clean `git status --porcelain --untracked-files=normal`, on the default branch; `--remove` = `git worktree remove` then `git branch -D`, explicit slugs only; reports `defaultBranchSource` (`facts`, `origin`, `main`, `master`, `current`) and hints to record the branch with `facts --default-branch` when only the current branch supplied it | git |
+| `task` | `"<brief>"` or `--todo T10 [--bead ID]`, `[--title] [--implementer <bot>] [--share-implementer] [--resume] [--abandon] [--run <ref>]` | see "Task lifecycle" | `POST /api/bots/:id/tasks`, `/api/bots/:id/messages`, `/api/team-map` |
+| `send` | `"<text>" [--bot] [--thread] [--again] [--run <ref>]` | message to the named run's lead thread with a deterministic `sendId`; when the lead's active task is **another open run's**, the run's task is made active again (`POST /api/bots/:id/tasks/:threadId`, `index.ts:11120-11140`) and the message posted once more, reported as `switched: true`; a switch refused with `this bot is working` is exit 3 naming the run the lead is on; a second "switched tasks" after that switch is reported, never switched again; a retry resends the identical thread, text, and `sendId`; a match returns the original message, so the driver reports `duplicate: true` when the receipt's `message.at` predates the request (`index.ts:10765-10777`, `send-idempotency.ts:21-40`); `--again` salts the `sendId` to deliver once more; a 409 "the bot switched tasks" is reported with the active thread in the hint and **never retargeted** (`index.ts:10751-10798`); a late-steer 409 after settlement is reported as undelivered; a 202 `queued` or `steered` receipt is recorded | `POST /api/bots/:id/messages` |
+| `answer` | `--allow\|--deny\|--message "<text>" [--request ID] [--run <ref>]` | typed requests: ordinary question and approval cards (`card.requestId`, unanswered, undismissed) are answered on the owning thread with outcomes `allowed-once\|rejected\|answered\|unavailable` reported as is; an `unavailable` **textual** answer on the lead's run thread falls back to `send`; an unavailable allow or deny is never turned into chat; `--request` required when more than one card is pending, and when the one pending card belongs to no open run (`shared`); connector, credential, skill (reviewed-hash) and routine requests are **reported with their type and route, exit 5, unsupported in v1**; bare text = `send` | `POST /api/threads/:id/respond` |
+| `status` | `[--bots] [--tail N]` | one snapshot, one evaluation per open run in `runs[]` (with the single run's fields also at the top level when exactly one is open); without an open task, returns `run: null`, roster, latest leader/user messages and the requested tail without a task verdict; never blocks; `carried: true` marks a verdict carried from the last watch rather than settled by this snapshot | snapshot routes |
+| `watch` | `--max-seconds N` (default 100) `--until settled\|change\|question` `[--poll 30] [--stall-minutes 40] [--nudge] [--quiet-if-unchanged] [--run <ref>]` | one run at a time, see below | `/api/events`, snapshot routes, receipts file |
+| `interrupt` | `[--bot] [--run <ref>]` | stops the run's turn only: always sends `{threadId: <run thread>}`; a 409 (the bot is busy in a room or routine, `index.ts:11044`) is reported, never overridden; a turn pinned to a thread that is not the bot's active task — a drained delegation wake — cannot be reached at all (409 `the bot switched tasks before it could be interrupted`, `index.ts:11077-11084`), and the hint says to wait for the lead to go idle and then `task --abandon --run <ref>`; takes no state lock, since it writes nothing | `POST /api/bots/:id/interrupt` |
+| `reconcile` | `[--remove <slug>]… [--claim <slug> --run <ref>]…` | one `.worktrees/<slug>` on `task/<slug>` per open run matched by name, no other worktree and no other `task/*` branch, clean `git status --porcelain --untracked-files=normal`, on the default branch; reports `openRuns[]` and each worktree's owning `run`; `--claim` records a leftover slug on an open run (`claimedSlugs`) so the lead's own differently named worktree stops blocking the next dispatch; `--remove` = `git worktree remove` then `git branch -D`, explicit slugs only; reports `defaultBranchSource` (`facts`, `origin`, `main`, `master`, `current`) and hints to record the branch with `facts --default-branch` when only the current branch supplied it | git |
 | `cleanup` | `[--kill] [--pattern codex-linux-sandbox] [--down]` | processes matching the pattern whose cwd is under `<project>/.worktrees/` and deleted; never a pid recorded as the owned server; identity (pid, start time, cwd) rechecked before SIGTERM and again before SIGKILL (5 s later); Linux only, macOS reports | `/proc`, `pgrep` |
-| `report` | `[--md] [--check-042] [--run last\|ID] [--no-tests] [--close\|--no-close]` | turns and tokens from **every run thread's** `events/<thread>.ndjson`, outcomes for the run, lead text, decisions, `git log <sentSha>..HEAD`, worktree list; verifies the record step; runs the project test command independently; `--check-042` adds the pack-validation checks (below); `--md` renders the evidence section; **closes the run**: moves `task` to `history` by `runId` with a result of `passed`, `incomplete`, or `failed` | data dir, git, `bd show` |
+| `report` | `[--md] [--check-042] [--run <ref>\|last] [--no-tests] [--close\|--no-close]` | one run: `--run` resolves an open run first, then the history; turns and tokens from **every run thread's** `events/<thread>.ndjson`, with the turns on a thread another run also records allocated by this run's open-delegation windows and the rest counted as `shared`; outcomes for the run, lead text, decisions, `git log <sentSha>..HEAD`, worktree list; verifies the record step; runs the project test command independently; `--check-042` adds the pack-validation checks (below); `--md` renders the evidence section; the record commit and the task-log entry must name the run (its slug, title or bead) and fall inside its window; the root check ignores the other open runs' worktrees and branches, and checks the whole repository again when the last run closes; **closes the run**: moves it out of `runs` into `history` by `runId` with a result of `passed`, `incomplete`, or `failed` | data dir, git, `bd show` |
 | `state` | `--show` | read the state | file |
 | `pair` | `--code XXXX-XXXX-XXXX [--label NAME] [--replace]` | exchanges a pairing code minted on the server (`openmausbot pair [--label NAME] [--client]`) for this launcher's session token. The whole preflight runs before any request, so a refusal never spends a single-use five-minute code: `--code` required, the token file 0600 and a JSON object, and no entry for this origin unless `--replace`. `tokens.json.lock` (`O_EXCL`, waited out for as long as an exchange can take: two attempts at the client's 15 s timeout, plus a margin) is then taken **before** the code is spent and held through the write, so an unwritable destination or a concurrent `pair` costs a round trip instead of a consumed code and a 30-day session with nowhere to live; the destination and `--replace` decisions are made again on the table read under that lock, so a second `pair` for one origin is refused rather than silently replacing the first. The exchange carries a random 16-hex `attemptId`, and a lost answer is retried exactly once with that same id, which the server replays within 60 s rather than spending a second code (`sessions.ts:31-35`). 415, 401 and 429 are reported in the server's own words, exit 3. The token is written to a temp file, fsynced and renamed 0600 in a 0700 directory. It is never printed, logged, passed in argv, or put in the state file | `POST /api/auth/pair` (`index.ts:7318-7341`, `sessions.ts:269-303`) |
 
@@ -188,27 +189,49 @@ routine requests in `answer`. `pair` was deferred in v1 and landed on
 
 ### Task lifecycle (`task`)
 
-1. Inside the command transaction, check state and server identity;
-   no run in `preparing` or `dispatched` (else exit 3 with the hint to
-   `task --resume` or `task --abandon`); no team bot busy and nothing queued
-   or running in team-map for team bots; `reconcile` passes.
-2. Under the state lock, persist the intent: `runId`, `status: preparing`,
-   the brief, `sendId = task-<runId>`, and the run's thread title
-   `<title> [oml:<runId8>]` (task creation has no idempotency key and titles
-   may repeat, `store.ts:1607`, `index.ts:11105`; the tag is what makes a
-   thread attributable to this run).
-3. Still holding the lock (writers wait up to 60 s), for each team bot:
-   look for tasks whose title carries the tag in `GET /api/bots` `tasks[]`;
-   exactly one → adopt; more than one → stop, exit 3 `ambiguous`; none →
-   `POST /api/bots/:id/tasks`, and checkpoint the returned thread id into
-   state before the next bot.
-4. Send the brief to the lead's run thread with the run's `sendId`; the
-   brief ends with the run marker instruction (below); record the 202
-   receipt; `status: dispatched`; release the lock.
-5. `--resume` re-enters at step 3 with the same `runId`, `sendId`, brief,
-   and tag (a repeated send with the same `sendId` returns the canonical
+1. Inside the command transaction, check state and server identity; no run
+   in `preparing` (an unfinished dispatch: exit 3 with the hint to
+   `task --resume --run <ref>` or `task --abandon --run <ref>`). With no run
+   open, the v1 preconditions still hold: no team bot busy and nothing queued
+   or running in team-map for team bots. With a run already open, only the
+   lead has to be idle — the other run's bots are expected to be working.
+2. Choose what this run owns. The slug comes from the title as before;
+   `branch = task/<slug>`. Exit 3 when an open run already has that slug, or
+   when `.worktrees/<slug>` or `task/<slug>` already exists in the repository
+   (remove it, claim it with `reconcile --claim`, or pass `--title`). The
+   repository check then ignores the worktrees and branches the other open
+   runs own, and refuses on a dirty root, the wrong branch, or a worktree or
+   `task/*` branch with no owner.
+3. Claim an implementer when the team has bots titled Implementer: the idle
+   one no open run has claimed. `--implementer <bot>` names one, and a bot
+   another run claimed is refused unless `--share-implementer` — a bot runs
+   one turn at a time (`index.ts:3775`), so a second task on it only queues.
+   When every implementer is claimed the hint is the pack's own answer: ask
+   the lead to create another. A team with no implementers claims nothing.
+4. Under the state lock, persist the intent: `runId`, `status: preparing`,
+   the brief, `sendId = task-<runId>`, the slug, branch and implementer, and
+   the run's thread title `<title> [oml:<runId8>]` (task creation has no
+   idempotency key and titles may repeat, `store.ts:1607`, `index.ts:11105`;
+   the tag is what makes a thread attributable to this run).
+5. Still holding the lock (writers wait up to 60 s): the lead always gets its
+   own fresh tagged task — look for tasks whose title carries the tag in
+   `GET /api/bots` `tasks[]`; exactly one → adopt; more than one → stop,
+   exit 3 `ambiguous`; none → `POST /api/bots/:id/tasks` — and each thread id
+   is checkpointed into state before the next bot. The specialists get fresh
+   tagged threads only when this is the only open run. A later run records
+   their **live active** thread ids instead, because a delegated turn lands on
+   the target's active thread (`index.ts:3466`) and a fresh specialist thread
+   per run would hijack the first run's delegations.
+6. Send the brief to the run's own lead thread with the run's `sendId`,
+   switching the lead's active task back to it when it sits on another run's
+   (see `send`); the brief names the worktree and, when claimed, the
+   implementer, and ends with the run marker instruction (below); record the
+   202 receipt; `status: dispatched`; release the lock.
+7. `--resume` re-enters at step 5 with the same `runId`, `sendId`, brief,
+   slug and tag (a repeated send with the same `sendId` returns the canonical
    receipt). `--abandon` marks the run `closed` with result `abandoned`
-   without touching the server. There is no `--force`.
+   without touching the server. Both take `--run <ref>` and refuse to guess
+   when several runs are open. There is no `--force`.
 
 The brief's last paragraph, from `dev-team.md`'s template: "When the task
 is finished, end your closing report with a line containing only
@@ -219,7 +242,11 @@ sentence "I'll send a closing report after your answer" cannot match.
 ### Snapshot and evaluation (pure functions, table-tested)
 
 `snapshot()` gathers `GET /api/bots?messages=0`, `GET /api/team-map`, and
-messages from **every run thread**, including idle specialists. Each thread
+messages from **every run thread**, including idle specialists, once for the
+whole team, and then cuts that truth into one **view per open run**. Every
+view has the shape a single run always had — a caller that names one run gets
+that view back — so `status`, `watch`, `answer` and `report` read run-scoped
+truth without asking differently. Each thread
 pages backward through dispatch (timestamp ties included), with no arbitrary
 page cap. A shared deadline bounds all reads; receipts are read only from a
 verified local data directory. Unresolved requests are kept across pages. A
@@ -242,6 +269,30 @@ deduplicated, capped at 100 and pruned after 48 h,
 `delegations.ts:98-129`, so ids are accumulated in state). Counts are
 informational only.
 
+**Attribution.** The server offers no direct answer to "whose work is this":
+a bot is busy as a whole (`store.ts:407-409`), team-map edges carry no source
+thread (`index.ts:8422-8433`), and the delegation chips name bots, never ids.
+So each view decides from its own lead thread. `openDelegations(leadTail,
+sentAt)` counts this run's open delegations by name: `Delegated to @X`
+(`delegations.ts:302`) and `@X is still working — ask converted to a
+delegation` (`index.ts:7915`) open one; the reply echo and the settlement
+chips (`index.ts:3396-3400`, `delegations.ts:506,535`, and
+`error: delegation to @X could not start`) close one; the busy retry
+(`delegations.ts:491`) closes nothing; the queue-drop chip
+(`delegations.ts:441`) empties the queue. A settlement whose target was never
+seen queued — a renamed bot, a chip older than the window — leaves the count
+where it is and sets `unknown`: ambiguity never settles anything.
+
+A busy bot is this run's when one of its chips or its implementer claim says
+so, another run's when only that run's chips or claim say so, and **every**
+open run's when nothing can place it. The lead is the same rule with one
+extra source: a busy lead counts for every open run unless the runtime log
+(`events/<thread>.ndjson`) shows exactly one run's lead thread with a
+`turn.started` and no `turn.completed`. A pending request keeps the run that
+saw it first (`runs[runId].cards`, written at the watch checkpoint); one no
+run can claim is listed under every open run as `shared` and needs
+`--request`.
+
 Timestamp ties use current hydrated message order only. Receipt ties or
 unavailable order remain unknown; an old sequence index cannot prove a new
 ordering. `evidenceOf` captures all evaluation inputs, including content,
@@ -257,8 +308,8 @@ payload metadata; only the brief is shortened. Skill and routine answers
 exit 5 before any POST; their real upstream protocols remain in the fake.
 
 ```
-busy     = team bots with busy, or activity in {working, waiting-on-you, no-signal}
-inflight = busy.length || queued(team).length || running(team).length
+busy     = team bots with busy, or activity in {working, waiting-on-you, no-signal}, attributed to THIS run
+inflight = busy.length || queued(run).length || running(run).length || openDelegations(run).total
 quiet    = !inflight for ≥ 30 s across two consecutive complete snapshots inside this invocation,
            with no relevant frame in between (a held wake between a delegate settling and the lead
            waking is invisible to team-map, index.ts:3253-3259); quiet evidence never persists
@@ -301,7 +352,11 @@ Notifications are wake-ups only (a bot's notifications can be off,
    changed against `lastReported`. No terminal result is emitted with
    unapplied frames in the buffer.
 4. Live frames trigger coalesced re-snapshots (at most one per 2 s); REST is
-   the truth; the checkpoint cursor is the `id:` of the last frame actually
+   the truth. With another run open, only a frame on **this** run's threads or
+   about a bot it holds — its lead thread, its implementer, a delegate it is
+   waiting on — resets its quiet window; the rest still cause a fresh
+   snapshot, which notices anything that did change this run's evidence. With
+   one run open every frame is that run's, as before. the checkpoint cursor is the `id:` of the last frame actually
    applied, never `hello.cursor` (which is the head before replay,
    `index.ts:8582-8596`). A polling snapshot runs every `--poll` seconds;
    the receipts file is `fs.watch`ed best effort (`receiptsWatched: false` in the result, plus a `--verbose` line, when the directory cannot be watched). On a stream drop or idle
@@ -312,12 +367,14 @@ Notifications are wake-ups only (a bot's notifications can be off,
    lead's last own message id, the outcome list, or the pending set changed,
    or at the deadline with `timeout` (exit 4).
 6. Each non-dry return attempts a checkpoint with at most a one-second
-   lock wait. It merges `task.lastEval {state, cursor, lastLeadMessageId,
-   lastChangeAt, outcomes, evidence, lastReported}` over the existing
-   record, keeping the newer `lastChangeAt` when a `send` advanced it during
-   the watch, only for the same open run and binding. Lock timeout or a replaced run returns
-   `checkpointed:false`; other state errors propagate. `watch` never
-   changes `task.status`.
+   lock wait. It merges `runs[runId].lastEval {state, cursor,
+   lastLeadMessageId, lastChangeAt, outcomes, evidence, lastReported}` over
+   the existing record, keeping the newer `lastChangeAt` when a `send`
+   advanced it during the watch, and writes `runs[runId].cards` (the pending
+   requests this run owns), only for that run and only for the same binding.
+   No other run's record is read or written. Lock timeout or a replaced run
+   returns `checkpointed:false`; other state errors propagate. `watch` never
+   changes a run's `status`.
 
 One expiry test is shared by the budget guard and the observation loop
 (`outOfBudget`): a millisecond timeout is a whole number, so less than a
@@ -376,7 +433,7 @@ only, never tokens. Chosen over `~/.config` because sandboxed hosts can
 write inside the workspace but often not to the home directory, and over the
 data dir because `--fresh` rotates it.
 
-**Concurrency.** `state.json` remains authoritative and version 1, written
+**Concurrency.** `state.json` remains authoritative and is **version 2**, written
 through a temp file that is fsynced and atomically renamed, the directory
 fsynced after; a failed rename removes the temp. A persistent private (0600) `.omb/lock.sqlite` database is
 used solely as a mutex. Node's built-in SQLite is loaded only for a write.
@@ -388,7 +445,18 @@ releases the SQLite lock. Corruption and permission errors propagate.
 
 Any legacy `.omb/lock` file or directory is refused. Migration requires all
 commands and automations stopped and all installed copies updated before
-removing only that legacy path. No automatic reclaim or state-format bump.
+removing only that legacy path. No automatic reclaim.
+
+**Version 2 and its rollout.** Version 1 held one `task`; version 2 holds
+`runs` keyed by run id, so two tasks can be open at once. A version 1
+document is migrated on read — an open `task` becomes `runs[task.runId]`, a
+closed one is dropped because closing it already appended it to `history` —
+and reaches the file in the new shape on the next write. The migration is
+one-way: a launcher that predates it refuses a version 2 file (`state file
+version 2 is not 1`, exit 3) rather than reading it as a document with no
+run. So before the first version 2 write, stop every older launcher copy and
+every automation that runs one, and update them all; a mixed pair would
+otherwise leave one of them unable to read the project at all.
 
 Mutating commands acquire the mutex before preflights and hold it through
 their associated effects. They re-read and reject a changed `rev`; run
@@ -407,7 +475,7 @@ and current protected server pids before each signal; a live directory
 literally ending in ` (deleted)` is preserved.
 
 ```jsonc
-{ "version": 1, "rev": 17,
+{ "version": 2, "rev": 17,
   "project": { "dir": "/home/wsh/Documents/proj", "defaultBranch": "main" },
   "server":  { "url": "http://127.0.0.1:8899", "owned": true, "supervisorPid": 264330, "supervisorStart": 12345678,
                "healthPid": 264336, "healthStart": 12345690, "environmentId": "…", "dataDir": "…/openmausbot-data-6",
@@ -417,12 +485,15 @@ literally ending in ` (deleted)` is preserved.
                "rooms": [ { "id": "…", "name": "Dev Room", "threadId": "…" } ],
                "bots": [ { "id": "…", "name": "Sage", "key": "sage", "title": "Planner", "model": "claude/claude-sonnet-5", "approvalMode": "auto" } ] },
   "facts":   { "defaultBranch": "main", "test": "…", "setup": "none", "merge": "auto", "taskLog": "…", "tracker": "beads", "planReview": "ask" },
-  "task":    { "runId": "…", "status": "dispatched", "slug": "t10", "title": "slugkit T10", "tag": "oml:1a2b3c4d", "brief": "…", "bead": "slg-a9x",
+  "runs":    { "<runId>": { "runId": "…", "status": "dispatched", "slug": "t10", "branch": "task/t10", "claimedSlugs": [],
+               "title": "slugkit T10", "tag": "oml:1a2b3c4d", "brief": "…", "bead": "slg-a9x",
+               "implementer": { "id": "…", "name": "Nova" }, "leadThreadsOnly": false,
                "sendId": "task-…", "sentAt": 0, "sentSha": "aa16067", "sendReceipt": { "steered": false, "queued": false },
                "leadThreadId": "…", "threads": { "<botId>": "<threadId>" }, "nudgedAt": null,
+               "cards": { "<requestId>": true },
                "lastEval": { "state": "running", "cursor": "ab12cd34:4419", "lastLeadMessageId": "…", "lastChangeAt": 0,
                              "outcomes": [ { "id": "…", "at": 0, "kind": "echo" } ],
-                             "lastReported": { "leadMessageId": "…", "pending": [], "state": "running" } } },
+                             "lastReported": { "leadMessageId": "…", "pending": [], "state": "running" } } } },
   "history": [ { "runId": "…", "slug": "t9", "title": "T9", "tag": "oml:…", "bead": "slg-…", "status": "closed", "result": "passed",
                  "brief": "…", "sendId": "task-…", "sentAt": 0, "sentSha": "…", "sendReceipt": { "steered": false, "queued": false },
                  "leadThreadId": "…", "threads": { "<botId>": "<threadId>" }, "freshThreads": true, "nudgedAt": null,
@@ -435,13 +506,16 @@ literally ending in ` (deleted)` is preserved.
                  "reanalysis": [ { "at": "…", "report": { … } } ] } ] }
 ```
 
-Task status values: `preparing` → `dispatched` → `closed` (by `report`
-with a result, or by `task --abandon`). Writers: `up`/`down` → `server`;
-`import` → `team`; `bind` → `project`, `team.bots[]`; `facts` → `facts`;
-`task` → `task` and its thread checkpoints; `watch` → `task.lastEval`,
-`task.nudgedAt`; `report` → moves `task` to `history` by `runId`;
-`report --run <id>` → appends one `reanalysis` entry to that history item and
-never changes its `result`.
+Run status values: `preparing` → `dispatched` → `closed` (by `report` with a
+result, or by `task --abandon`). Writers, each touching one run at a time:
+`up`/`down` → `server`; `import` → `team`, and only while no run is open;
+`bind` → `project`, `team.bots[]`; `facts` → `facts`; `task` → one
+`runs[runId]` and its thread checkpoints; `send` → that run's
+`lastEval.lastChangeAt`; `watch` → that run's `lastEval`, `cards` and
+`nudgedAt`; `reconcile --claim` → that run's `claimedSlugs`; `report` → moves
+one run out of `runs` into `history` by `runId`; `report --run <id>` on a
+closed run → appends one `reanalysis` entry to that history item and never
+changes its `result`.
 
 ## SKILL.md
 

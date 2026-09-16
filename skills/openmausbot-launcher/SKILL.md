@@ -89,24 +89,38 @@ another server; `up --fresh` reserves a unique directory.
 
 ## 3. Per task
 
-One run per team at a time. Start it in the lead's own chat, never in a
-room:
+Start it in the lead's own chat, never in a room:
 
 ```
 omb task --project <dir> --todo T10 --bead slg-a9x      # or: omb task --project <dir> "<free brief>"
 ```
 
-`task` checks that the team is idle, nothing is queued, and the root is
-reconciled; opens one fresh task thread per bot tagged with the run id;
-sends the brief once, ending with the instruction to close with a line
-containing only `DONE oml:<run id>`; and records the run. If it stops
-half way, `omb task --resume` continues the same run; `omb task --abandon`
-closes it. The driver has no force option.
+`task` checks the root is reconciled; picks the run's own worktree
+`.worktrees/<slug>` on `task/<slug>` and refuses a name that already exists;
+claims an idle Implementer the team has and names both in the brief; opens
+the lead's fresh task thread tagged with the run id; sends the brief once,
+ending with the instruction to close with a line containing only
+`DONE oml:<run id>`; and records the run. If it stops half way,
+`omb task --resume` continues the same run; `omb task --abandon` closes it.
+The driver has no force option.
+
+**A second run** is allowed while the first is open, when the user asks for
+parallel work: the lead must be idle at that moment, the new run needs its
+own name, and it needs an implementer no open run has claimed — ask the lead
+to create one ("Sudo, create a second implementer") when they are all taken.
+The lead still runs one turn at a time, so "parallel" means two open tasks
+whose implementers work at once, not two lead turns. Later runs keep the
+specialists' existing threads: only the lead gets a thread per run.
+
+From then on every run-scoped verb takes `--run <ref>` — a slug, a title, a
+tag, or a run id — and with two runs open it refuses to guess: `send`,
+`answer`, `interrupt`, `watch`, `report`, `task --resume`, `task --abandon`.
+`status` reports all of them in `runs[]`.
 
 Then loop on the watch until a terminal state:
 
 ```
-omb watch --project <dir> --max-seconds 100 [--brief]
+omb watch --project <dir> [--run t10] --max-seconds 100 [--brief]
 ```
 
 `watch` returns as soon as the run settles, the user is needed, or the
@@ -114,7 +128,8 @@ budget ends (exit 4, run still going: call it again; the state file
 carries the cursor). Never declare a run finished from `status` alone: a
 single snapshot cannot see the 30 s of quiet that settlement needs.
 `status` and `report` say `carried: true` when their verdict is the last
-watch's, not their own.
+watch's, not their own. A run settles on its own evidence: the other run's
+bots working, or its threads moving, neither delay it nor settle it.
 If `checkpointed:false`, the returned observation was not saved; call
 `watch` again. Observation uses `--max-seconds`, followed by at most one
 second waiting for a checkpoint lock. Quiet starts afresh each invocation.
@@ -137,7 +152,11 @@ line. Relay the lead's own words; do not paraphrase decisions.
 ## 5. Answering
 
 - A plain-text question or decision: `omb send "no new dependency, use a
-  table"`. It goes to the lead's run thread with a deduplicating send id.
+  table"`. It goes to that run's lead thread with a deduplicating send id.
+  A message reaches only the bot's active task, so when the lead is sitting
+  on the other run's task the driver makes this run's task active again and
+  posts once more (`switched: true`). It cannot do that while the lead is
+  working: exit 3, "the lead is working on <run>; retry when it is idle".
   With no open run, it uses the lead's current thread; `omb status --tail 10`
   shows that conversation without declaring a task complete. The reply's
   `duplicate: true` means the server matched an earlier identical send in
@@ -145,7 +164,9 @@ line. Relay the lead's own words; do not paraphrase decisions.
   purpose.
 - An approval card (a bot wants to contact a peer): `omb answer --allow
   --request <id>` or `--deny`. A question card: `omb answer --message
-  "…" --request <id>`. With one pending card `--request` may be omitted.
+  "…" --request <id>`. With one pending card `--request` may be omitted —
+  unless no open run owns it, which is the driver saying it cannot tell whose
+  it is; name it with `--request` then.
 - The server answers `unavailable` when a card died with the bot's turn;
   a textual answer then falls back to chat automatically, an allow or deny
   does not: tell the bot in chat what you decided.
@@ -154,7 +175,10 @@ line. Relay the lead's own words; do not paraphrase decisions.
   routine cards never receive a response POST from this driver. Read
   `pending[].cardKind`, full `text`, `options`, and payload metadata;
   upstream options messages have no `card.kind`. The brief is a summary.
-- `omb interrupt` stops the run's current turn; nothing else.
+- `omb interrupt [--run <ref>]` stops that run's current turn; nothing else.
+  A turn the lead is running on another run's thread cannot be reached from
+  here at all ("the bot switched tasks before it could be interrupted"): wait
+  for the lead to go idle, then `task --abandon --run <ref>`.
 - Keep the user's words. Never answer on the user's behalf.
 
 ## 6. Finish and clean up
@@ -166,9 +190,10 @@ omb cleanup --project <dir> --kill              # sandbox processes left in dele
 omb down --project <dir>
 ```
 
-`report` runs the project's test command itself, checks the root afterward,
-verifies requested record evidence, and closes a settled run as passed,
-incomplete, or failed; append its markdown to the evidence file. Missing or
+`report --run <ref>` reports one run: it runs the project's test command
+itself, checks the root afterward — another open run's worktree is that run's,
+not a leftover — verifies the record evidence that names this run, and closes
+it as passed, incomplete, or failed, leaving any other open run alone; append its markdown to the evidence file. Missing or
 skipped required evidence stays unknown and cannot pass; inspect `unknown`
 and `failedChecks`. `--check-042` requires all nine pack checks.
 

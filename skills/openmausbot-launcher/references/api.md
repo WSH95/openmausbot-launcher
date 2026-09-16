@@ -54,6 +54,7 @@ paired device` (`request-auth.ts:293-309,364-370`); reads still work.
 | `GET /api/events` | `screens=off`, `since` | SSE, see below (`index.ts:8553-8619`) | — |
 | `POST /api/teams/import?mode=add` | an `openmaus.package` document | 201 `{name, bots[], group, groups[], routines[]}` (`index.ts:9151-9337`) | 400 on `mode=replace`; 400 on a schema violation; 403 without admin |
 | `POST /api/bots/:id/tasks` | `{title?}` | 201 `{bot, task{threadId,title,createdAt}}` (`index.ts:11105-11119`) | 409 `this bot is working — let it finish before starting a task`; 409 `this bot is securely saving a credential — try again when it finishes` |
+| `POST /api/bots/:id/tasks/:threadId` | — | 200 `{bot}`, that task is now the bot's active one (`index.ts:11120-11140`) | 404 `no such bot`; 404 `no such task`; 409 `this bot is working — stop it before switching tasks` — switching mid-turn would lose ownership of the process; 409 `this bot is securely saving a credential…`. Client scope may call it (`request-auth.ts:210-211`) |
 | `POST /api/bots/:id/messages` | `{text, threadId?, sendId?}` | 202 receipt, see below (`index.ts:10738-10870`) | 400 `text required`; 400 `threadId must be a task id`; 409 `the bot switched tasks before it could receive the message` (`10756,10794,10826`); 409 `the target task no longer exists`; 409 `sendId already belongs to another message` (`10767,10782`); 409 `the running turn ended before the steered message could be recorded` — a late steer whose turn settled first (`10832-10835`) |
 | `POST /api/threads/:id/respond` | `{requestId, behavior, message?}` | 200 `{ok:true, outcome}`, outcome ∈ `allowed-once` \| `rejected` \| `answered` \| `unavailable` (`contracts.ts:162`, `index.ts:10972-11033`) | 400 `behavior must be allow, deny, or answer` |
 | `POST /api/bots/:id/interrupt` | `{threadId?}` | 200 `{ok:true}` (`index.ts:11035-11091`) | 409 `this bot is running a routine in another conversation`; 409 `this bot is working in channel <name>`; 409 `the bot switched tasks before it could be interrupted` |
@@ -73,6 +74,15 @@ paired device` (`request-auth.ts:293-309,364-370`); reads still work.
 | `{ok:true, threadId, message}` | a turn started, or the text was appended |
 | `{ok:true, steered:true, threadId, message}` | accepted into the turn already running |
 | `{ok:true, queued:true, queueId, threadId}` | held in the server-side queue for the next turn |
+
+**A message reaches only the bot's active task.** `threadId` must name one of
+the bot's tasks (`index.ts:10755`), and the send is refused again inside the
+sequencer when the bot has moved on (`index.ts:10788-10797`). Nothing is ever
+retargeted; the only way to deliver to another task is to make it active with
+`POST /api/bots/:id/tasks/:threadId` first, which the server refuses while the
+bot is working. The replay check comes **before** that active-task check
+(`index.ts:10764-10777`), so retrying a send with the same `sendId` returns
+the canonical receipt without moving the bot at all.
 
 Idempotency is keyed `bot:<botId>:<threadId>:<sendId>` (`index.ts:10761`). A
 repeat with the same text and reply target returns the canonical receipt; a
@@ -185,6 +195,20 @@ all answer modes before posting; the fake models the real staged protocol.
 - Echo: role `bot`, kind `text`, `from` = the target bot, text
   `@<name> replied to the delegated task:\n\n<reply>` (`index.ts:3383-3390`).
   Names may contain spaces.
+- Delegation queued: role `bot`, kind `activity`, `tool.name`
+  `Delegated to @X` or `Delegated to @X: <reason>`, ok true, settled at birth
+  and never patched (`delegations.ts:302-313`). This chip, on the source
+  thread, is the only record that a delegation belongs to this run: the chips
+  carry bot **names**, never ids, and team-map edges carry no source thread
+  (`index.ts:8422-8433`).
+- An `ask_bot` that timed out on a busy peer becomes a delegation and says so:
+  `@X is still working — ask converted to a delegation` (`index.ts:7912-7916`).
+- Queued delegations lost with their turn:
+  `N queued delegation(s) dropped — the turn did not finish`
+  (`delegations.ts:438-442`); a failure with no name,
+  `error: delegation failed — <why>` (`delegations.ts:377-382`); one that
+  could not start, `error: delegation to @X could not start — <why>`
+  (`index.ts:3485-3500`).
 - Delegation activity: role `bot`, kind `activity`, `tool.name` one of
   `Delegation to @X completed without a text reply` (ok true) or
   `Delegation to @X failed — <reason>` (ok false) (`index.ts:3396-3400`);
