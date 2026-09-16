@@ -221,7 +221,9 @@ routine requests in `answer`. `pair` was deferred in v1 and landed on
    tagged threads only when this is the only open run. A later run records
    their **live active** thread ids instead, because a delegated turn lands on
    the target's active thread (`index.ts:3466`) and a fresh specialist thread
-   per run would hijack the first run's delegations.
+   per run would hijack the first run's delegations. `--no-fresh-threads`,
+   which puts a run on the threads that already exist, is a usage error for a
+   second run: its lead thread would be the first run's.
 6. Send the brief to the run's own lead thread with the run's `sendId`,
    switching the lead's active task back to it when it sits on another run's
    (see `send`); the brief names the worktree and, when claimed, the

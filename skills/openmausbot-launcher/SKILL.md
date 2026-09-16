@@ -115,7 +115,8 @@ specialists' existing threads: only the lead gets a thread per run.
 From then on every run-scoped verb takes `--run <ref>` — a slug, a title, a
 tag, or a run id — and with two runs open it refuses to guess: `send`,
 `answer`, `interrupt`, `watch`, `report`, `task --resume`, `task --abandon`.
-`status` reports all of them in `runs[]`.
+`status` reports all of them in `runs[]`. A closed run is read with
+`report --run <ref>`; nothing speaks to it any more.
 
 Then loop on the watch until a terminal state:
 
