@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { startFake, makeRepo, runOmb, ROOT, tmpDir, sleep } from "./helpers.mjs";
-import { statePaths, loadState, updateState } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
+import { statePaths, loadState, updateState, commitState, withLock } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
 import { turnsFromEvents, nativeCalls, check042, renderMarkdown, bareCommand, mergedShaFrom, beadStatus } from "../skills/openmausbot-launcher/scripts/lib/report.mjs";
 
 const PKG = path.join(ROOT, "tests", "fixtures", "dev-team.package.json");
@@ -470,4 +470,72 @@ test("an abandoned run can still be reported from the history", async (t) => {
   assert.equal(r.json.threads.length, 5);
   assert.equal(loadState(statePaths(dir)).history.at(-1).result, "abandoned", "re-reporting never rewrites the result");
   assert.equal(loadState(statePaths(dir)).history.at(-1).reanalysis.length, 1);
+});
+
+test("a run's name is matched whole: T1 never takes T10's record, foo-1 never takes foo-10's", async () => {
+  const { namesRun, taskLogEntry, allocateTurns } = await import("../skills/openmausbot-launcher/scripts/lib/report.mjs");
+  const t1 = { slug: "t1", title: "T1", bead: "foo-1" };
+  assert.equal(namesRun("docs(team): T10 merged as abc1234", t1), false);
+  assert.equal(namesRun("docs(team): T1 merged as abc1234", t1), true);
+  assert.equal(namesRun("closed foo-10", t1), false);
+  assert.equal(namesRun("closed foo-1.", t1), true);
+  assert.equal(namesRun("T1: the parser", t1), true);
+  assert.equal(namesRun("nothing here", t1), false);
+  assert.equal(namesRun("docs(team): t1 merged", { slug: "t1" }), true, "case does not matter");
+  assert.equal(namesRun("a b (c)", { title: "a b (c)" }), true, "a title is not a pattern");
+  const log = "# Progress\n\n### 2026-09-16T01:00:00Z — Sudo\nT10 merged as abc1234.\n\n### 2026-09-16T02:00:00Z — Sudo\nT1 merged as def5678.\n";
+  assert.match(taskLogEntry(log, t1), /02:00:00Z/, "T10's entry is not T1's");
+  assert.match(taskLogEntry(log, { slug: "t10" }), /01:00:00Z/);
+  // a queued delegation's turn starts after its chip; an ask converted to one was already running
+  const turn = [{ turnId: "n1", startedAt: iso(1000), completedAt: iso(5000), usage: { input: 10, output: 1, cachedInput: 0 } }];
+  assert.deepEqual(allocateTurns(turn, [{ from: 2000, to: 9000, kind: "queued" }]), { mine: [], shared: 1 });
+  assert.deepEqual(allocateTurns(turn, [{ from: 2000, to: 9000, kind: "converted" }]).mine.length, 1);
+  assert.equal(allocateTurns(turn, [{ from: 500, to: 9000, kind: "queued" }]).mine.length, 1);
+  assert.equal(allocateTurns(turn, [{ from: 500, to: null, kind: "queued" }]).mine.length, 1, "a window still open ends now");
+  assert.equal(allocateTurns(turn, [{ from: 6000, to: 9000, kind: "converted" }]).shared, 1, "and a window after the turn is nobody's");
+});
+
+test("a task log that cannot be read leaves the record unknown instead of passing", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const { dir, git } = makeRepo();
+  const bin = fs.mkdtempSync("/tmp/oml-report-bin-"); t.after(() => fs.rmSync(bin, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(bin, "bd"), '#!/bin/sh\nprintf \'[{"status":"closed"}]\\n\'\n', { mode: 0o755 });
+  const env = { OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir, PATH: `${bin}:${process.env.PATH}` };
+  fs.writeFileSync(path.join(dir, "PROGRESS.md"), "# Progress log\n");
+  git("add", "-A"); git("commit", "-q", "-m", "seed");
+  assert.equal((await runOmb(["import", PKG, "--project", dir, "--url", f.url], { env })).code, 0);
+  assert.equal((await runOmb(["bind", "--project", dir, "--default", "claude/claude-sonnet-5"], { env })).code, 0);
+  assert.equal((await runOmb(["facts", "--project", dir, "--test", "node -e 'process.exit(0)'", "--task-log", "PROGRESS.md"], { env })).code, 0);
+  const run = (await runOmb(["task", "--todo", "T10", "--project", dir], { env })).json;
+  fs.writeFileSync(path.join(dir, "feature.txt"), "done\n"); git("add", "-A"); git("commit", "-q", "-m", "feat: T10");
+  const merged = git("rev-parse", "HEAD").trim();
+  // the log the record was supposed to go in is gone, in a commit that touches it
+  fs.rmSync(path.join(dir, "PROGRESS.md"));
+  git("add", "-A"); git("commit", "-q", "-m", `docs(team): T10 merged as ${merged.slice(0, 7)}`);
+  await f.control({ op: "leadSay", threadId: run.leadThreadId, text: `Closing report: T10 merged as ${merged}.\n\nDONE ${run.tag}` });
+  assert.equal((await runOmb(["watch", "--project", dir, "--max-seconds", "10", "--quiet-seconds", "1", "--poll", "1"], { env })).json.state, "done");
+  const r = await runOmb(["report", "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.equal(r.json.record.taskLogChanged, null, "a log that cannot be read proves nothing");
+  assert.equal(r.json.record.taskLogEntry, null);
+  assert.equal(r.json.result, "incomplete", JSON.stringify(r.json.unknown));
+  assert.ok(r.json.unknown.includes("task-log-changed"));
+});
+
+test("a run does not close on a repository check that counted another run's worktree as owned", async (t) => {
+  const { dir, env, a, b } = await twoRuns(t);
+  const paths = statePaths(dir);
+  let release; const held = withLock(paths, () => new Promise((r) => { release = r; }));
+  while (!release) await sleep(5);
+  const pending = runOmb(["report", "--run", "t10", "--project", dir, "--no-tests", "--close"], { env });
+  await sleep(500);
+  // T11 is abandoned while T10 is reporting: its worktree and branch now belong to nobody
+  const doc = loadState(paths);
+  doc.history = [...(doc.history ?? []), { ...doc.runs[b.runId], status: "closed", result: "abandoned" }];
+  delete doc.runs[b.runId];
+  commitState(paths, doc);
+  release(); await held;
+  const r = await pending;
+  assert.equal(r.code, 3, r.stdout); assert.match(r.json.error, /open runs changed while reporting/);
+  assert.ok(loadState(paths).runs[a.runId], "T10 is still open, to be reported against the repository as it is now");
 });

@@ -76,8 +76,10 @@ verb("report", {
     const recordCommit = taskLog ? commits.find((c) => /^docs\(team\): .* merged as [0-9a-f]{7,}/.test(c.subject) && namesRun(c.subject, task) && c.files.length > 0 && c.files.every((f) => f === taskLog || f.startsWith(".beads/"))) : null;
     const logEntry = taskLog ? taskLogEntry(taskLogText, task) : null;
     // The task log moved for this run when a commit in its window touched it
-    // and the log carries an entry that names the run.
-    const taskLogChanged = taskLog ? commits.some((c) => c.files.includes(taskLog)) && (taskLogText === null || logEntry !== null) : null;
+    // AND the log carries an entry that names the run. A log that cannot be
+    // read — deleted, or unreadable — proves neither, so it stays unknown: a
+    // commit that touches the path is not evidence that a record was written.
+    const taskLogChanged = !taskLog ? null : taskLogText === null ? null : commits.some((c) => c.files.includes(taskLog)) && logEntry !== null;
     const bead = { ...beadStatus(task.bead, cfg.projectDir), applicable: Boolean(task.bead) };
     const closing = snap.leadText?.text ?? null;
     const mergedSha = mergedShaFrom(closing, recordCommit?.subject);
@@ -87,7 +89,9 @@ verb("report", {
     // A passing suite can dirty the checkout; observe the root after it ran.
     // Per run: the worktrees and branches the other open runs own are theirs,
     // not leftovers. Closing the last run checks the whole repository again.
-    const reconcile = rootCheck(cfg.projectDir, facts, { runs: open.filter((r) => r.runId !== task.runId) });
+    const owners = open.filter((r) => r.runId !== task.runId);
+    const reconcile = rootCheck(cfg.projectDir, facts, { runs: owners });
+    const ownersChecked = owners.map((r) => r.runId).sort().join(",");
     let ancestor = null;
     if (mergedSha) { try { gitRun(["merge-base", "--is-ancestor", mergedSha, reconcile.defaultBranch], cfg.projectDir); ancestor = true; } catch { ancestor = false; } }
     const recordRequired = taskLog !== null || Boolean(task.bead);
@@ -129,6 +133,12 @@ verb("report", {
     if (shouldClose && !cfg.dryRun) {
       await updateState(cfg.paths, (d) => {
         if (JSON.stringify(d.runs?.[task.runId]) !== JSON.stringify(task)) throw new Fail(EXIT.PRECONDITION, "the run changed while reporting; report again");
+        // The repository check above counted the other open runs' worktrees and
+        // branches as theirs. If one of them closed meanwhile, those are nobody's
+        // now and this run cannot pass on a check that no longer describes the repository.
+        if (openRuns(d).filter((r) => r.runId !== task.runId).map((r) => r.runId).sort().join(",") !== ownersChecked) {
+          throw new Fail(EXIT.PRECONDITION, "the other open runs changed while reporting; report again", { hint: "the repository check for this run treated their worktrees and branches as theirs" });
+        }
         if (JSON.stringify(d.facts) !== JSON.stringify(cfg.state.facts) || JSON.stringify(d.team) !== JSON.stringify(cfg.state.team) || JSON.stringify(d.server) !== JSON.stringify(cfg.state.server)) throw new Fail(EXIT.PRECONDITION, "the run context changed while reporting; report again");
         const closedRun = { ...d.runs[task.runId], context: runContext({ ...cfg, state: d }), status: "closed", result, closedAt: new Date().toISOString(), report: { state: ev.state, result, mergedSha, recordCommit: record.commit, tests: tests.ok, durationSec: report.durationSec, closing, outcomes: snap.outcomes, unknown, failedChecks } };
         d.history = [...(d.history ?? []), closedRun]; delete d.runs[task.runId]; return d;

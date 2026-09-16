@@ -189,10 +189,15 @@ export function commitsSince(projectDir, sinceSha) {
   return out ? out.split("\n").filter(Boolean).map((l) => { const [sha, at, ...rest] = l.split("\t"); let files = []; try { files = git(["diff-tree", "--no-commit-id", "--name-only", "-r", sha], projectDir).split("\n").filter(Boolean); } catch {} return { sha, at: Number(at) * 1000, subject: rest.join("\t"), files }; }) : [];
 }
 
-/** Does this text name the run? Its slug, its title, or the bead it carries. */
+const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Does this text name the run — its slug, its title, or the bead it carries —
+ * as a whole word? "T10" and "foo-10" must not answer for T1 and foo-1, or one
+ * run's record commit and log entry would close the other. */
 export const namesRun = (text, run) => {
-  const hay = String(text ?? "").toLowerCase();
-  return [run?.slug, run?.title, run?.bead].filter(Boolean).some((n) => hay.includes(String(n).toLowerCase()));
+  const hay = String(text ?? "");
+  return [run?.slug, run?.title, run?.bead].filter(Boolean)
+    .some((n) => new RegExp(`(?<![\\w-])${escapeRe(n)}(?![\\w-])`, "i").test(hay));
 };
 
 /** The task log entry this run wrote: the heading whose section names the run. */
@@ -207,14 +212,25 @@ export function taskLogEntry(text, run) {
   return null;
 }
 
-/** Turns on a thread two runs share: only those inside one of this run's open-delegation
- * windows are this run's; the rest are counted, and labelled, as shared. */
+/** Turns on a thread two runs share: only those inside one of this run's
+ * open-delegation windows are this run's; the rest are counted, and labelled,
+ * as shared. How a window opened decides what "inside" means. A queued
+ * delegation's turn STARTS after its chip (delegations.ts:302 enqueues, the
+ * target's turn follows), so a turn already running when the chip was written
+ * belongs to whoever started it. An ask converted to a delegation is the other
+ * way round: the wait timed out because that turn was already running
+ * (index.ts:7894-7917), so overlap is the right test there. */
 export function allocateTurns(turns, windows) {
   const inside = (turn) => {
     const from = Date.parse(turn.startedAt ?? turn.completedAt ?? "");
     const to = Date.parse(turn.completedAt ?? turn.startedAt ?? "");
     if (Number.isNaN(from) && Number.isNaN(to)) return false;
-    return (windows ?? []).some((w) => (Number.isNaN(to) ? from : to) >= w.from && (Number.isNaN(from) ? to : from) <= (w.to ?? Infinity));
+    const started = Number.isNaN(from) ? to : from;
+    const ended = Number.isNaN(to) ? from : to;
+    return (windows ?? []).some((w) => {
+      const closed = w.to ?? Infinity;
+      return w.kind === "converted" ? ended >= w.from && started <= closed : started >= w.from && started <= closed;
+    });
   };
   const mine = turns.filter(inside);
   return { mine, shared: turns.length - mine.length };
