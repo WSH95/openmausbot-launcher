@@ -225,7 +225,8 @@ export async function createFake(opts = {}) {
     ["GET", /^\/api\/auth\/session$/], ["GET", /^\/api\/health$/], ["GET", /^\/api\/events$/],
     ["GET", /^\/api\/bots$/], ["GET", /^\/api\/team-map$/], ["GET", /^\/api\/threads\/[\w-]+\/messages$/],
     ["POST", /^\/api\/bots\/[\w-]+\/messages$/], ["POST", /^\/api\/bots\/[\w-]+\/interrupt$/],
-    ["POST", /^\/api\/bots\/[\w-]+\/tasks$/], ["POST", /^\/api\/bots\/[\w-]+\/respond$/],
+    ["POST", /^\/api\/bots\/[\w-]+\/tasks$/], ["POST", /^\/api\/bots\/[\w-]+\/tasks\/[\w-]+$/], // S: request-auth.ts:210-211
+    ["POST", /^\/api\/bots\/[\w-]+\/respond$/],
     ["POST", /^\/api\/threads\/[\w-]+\/respond$/], ["PATCH", /^\/api\/bots\/[\w-]+$/], ["PATCH", /^\/api\/groups\/[\w-]+$/],
     ["POST", /^\/api\/groups\/[\w-]+\/messages$/], ["GET", /^\/api\/routines$/], ["GET", /^\/api\/config$/],
   ];
@@ -321,6 +322,7 @@ export async function createFake(opts = {}) {
       if ((m = p.match(/^\/api\/teams\/import$/)) && method === "POST") return importTeam(req, res, url);
       if ((m = p.match(/^\/api\/bots\/([\w-]+)\/model$/)) && method === "PATCH") return patchModel(req, res, m[1]);
       if ((m = p.match(/^\/api\/bots\/([\w-]+)\/tasks$/)) && method === "POST") return postTask(req, res, m[1]);
+      if ((m = p.match(/^\/api\/bots\/([\w-]+)\/tasks\/([\w-]+)$/)) && method === "POST") return switchTask(res, m[1], m[2]);
       if ((m = p.match(/^\/api\/bots\/([\w-]+)\/messages$/)) && method === "POST") return postMessage(req, res, m[1]);
       if ((m = p.match(/^\/api\/bots\/([\w-]+)\/interrupt$/)) && method === "POST") return interrupt(req, res, m[1]);
       if ((m = p.match(/^\/api\/bots\/([\w-]+)\/respond$/)) && method === "POST") { const bot = botById(m[1]); if (!bot) return json(res, 404, { error: "no such bot" }); return respond(req, res, bot.threadId); }
@@ -387,6 +389,18 @@ export async function createFake(opts = {}) {
     broadcast({ kind: "bot", bot: publicBot(bot) });
     return json(res, 201, { bot: publicBot(bot), task: { threadId: task.threadId, title: task.title, createdAt: task.createdAt } });
   }
+  function switchTask(res, id, threadId) { // S: index.ts:11120-11140
+    // Making another task the active one is the only way a message reaches it,
+    // and it is refused mid-turn because switching would lose ownership of the
+    // running process (S: index.ts:11127-11131).
+    const bot = botById(id); if (!bot) return json(res, 404, { error: "no such bot" });
+    if (bot.savingCredential) return json(res, 409, { error: "this bot is securely saving a credential — try again when it finishes" });
+    if (BUSY.has(bot.activity)) return json(res, 409, { error: "this bot is working — stop it before switching tasks" });
+    if (!taskByThread(bot, threadId)) return json(res, 404, { error: "no such task" });
+    bot.threadId = threadId;
+    broadcast({ kind: "bot", bot: publicBot(bot) });
+    return json(res, 200, { bot: publicBot(bot) });
+  }
   async function postMessage(req, res, id) { // S: index.ts:10738-10830
     const bot = botById(id); if (!bot) return json(res, 404, { error: "no such bot" });
     const body = await readBody(req) ?? {};
@@ -427,8 +441,12 @@ export async function createFake(opts = {}) {
     const body = await readBody(req) ?? {};
     if (body.threadId !== undefined && !/^[\w-]+$/.test(String(body.threadId))) return json(res, 400, { error: "threadId must be a task id" });
     if (bot.busyElsewhere) return json(res, 409, { error: `the bot is working in ${bot.busyElsewhere} — interrupt it there` });
-    if (body.threadId && body.threadId !== bot.threadId) return json(res, 409, { error: "the bot is not working in that task" });
-    bot.activity = "idle"; broadcast({ kind: "bot", bot: publicBot(bot) });
+    // S: index.ts:11077-11084. A turn pinned to a non-active thread — a held
+    // delegation wake drained on its own thread (S: index.ts:3225-3233) — is
+    // out of reach: only the active thread, or a dispatch claim this fake does
+    // not model (S: index.ts:11048, 808-823), answers to its own id.
+    if (body.threadId && body.threadId !== bot.threadId) return json(res, 409, { error: "the bot switched tasks before it could be interrupted" });
+    bot.activity = "idle"; bot.turnThreadId = null; broadcast({ kind: "bot", bot: publicBot(bot) });
     return json(res, 200, { ok: true });
   }
   async function respond(req, res, threadId) { // outcomes S: server/contracts.ts:162; unavailable marks the card S: index.ts:2116
@@ -559,6 +577,31 @@ export async function createFake(opts = {}) {
       case "delegationActivity": { // S: index.ts:3392-3401, delegations.ts:495
         const variants = { empty: `Delegation to @${op.name} completed without a text reply`, failed: `Delegation to @${op.name} failed — ${op.reason ?? "the delegated turn did not finish"}`, busy: `Delegation to @${op.name} waiting — they're busy (retry 1/3 when they finish)`, dropped: `Delegation to @${op.name} dropped — the queueing turn was interrupted`, canceled: `Delegation to @${op.name} canceled`, denied: `Delegation to @${op.name} denied — peer contact was not approved` };
         return { message: appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: variants[op.variant ?? "empty"], ok: op.variant === "empty" } }) }; }
+      case "pinnedTurn": { // S: index.ts:3225-3233 (a held wake starts on its own thread), 3925-3937 (busy flips; the active task is untouched)
+        if (!bot) throw Object.assign(new Error("no such bot"), { status: 404 });
+        const working = op.working !== false;
+        bot.activity = working ? "working" : "idle";
+        bot.turnThreadId = working ? (op.threadId ?? bot.threadId) : null;
+        broadcast({ kind: "bot", bot: publicBot(bot) });
+        return { turnThreadId: bot.turnThreadId };
+      }
+      case "delegated": // S: delegations.ts:302-313 — settled at birth, so ok is true and the chip is never patched
+        return { message: appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: `Delegated to @${op.name}${op.reason ? `: ${op.reason}` : ""}`, ok: true } }) };
+      case "askConverted": // S: index.ts:7912-7916 — an ask that timed out on a busy peer becomes a delegation
+        return { message: appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: `@${op.name} is still working — ask converted to a delegation` } }) };
+      case "delegationDone": { // the chips that settle a queued delegation
+        const n = op.count ?? 1;
+        const terminal = {
+          empty: { name: `Delegation to @${op.name} completed without a text reply`, ok: true }, // S: index.ts:3396-3400
+          failed: { name: `Delegation to @${op.name} failed — ${op.reason ?? "the delegated turn did not finish"}`, ok: false }, // S: index.ts:3398
+          busy: { name: `Delegation to @${op.name} waiting — they're busy (retry ${op.attempt ?? 1}/3 when they finish)` }, // S: delegations.ts:486-493 — a retry, not a settlement
+          canceled: { name: `Delegation to @${op.name} canceled — still busy after 3 retries`, ok: false }, // S: delegations.ts:503-507
+          denied: { name: `Delegation to @${op.name} denied by user`, ok: false }, // S: delegations.ts:532-536
+          dropped: { name: `${n} queued delegation${n > 1 ? "s" : ""} dropped — the turn did not finish`, ok: false }, // S: delegations.ts:438-442
+        }[op.variant ?? "empty"];
+        if (!terminal) throw Object.assign(new Error(`unknown delegationDone variant ${op.variant}`), { status: 400 });
+        return { message: appendMessage(threadId, { role: "bot", kind: "activity", tool: terminal }) };
+      }
       case "errorActivity": return { message: appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: `error: ${op.text ?? "the provider refused the turn"}`, ok: false } }) };
       case "card": { // S: index.ts:2917-2945, 2881-2896, 6420-6430; store.ts:63-66.
         const kind = op.kind ?? "approval";

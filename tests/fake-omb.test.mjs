@@ -197,6 +197,84 @@ test("thread messages: limit bounds, before cursor, hasMore; interrupt needs the
   assert.equal(r.status, 200);
 });
 
+test("switching the active task moves threadId, refuses while the bot works, and 404s an unknown task", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const { bots } = await importTeam(f);
+  const id = bots[0].id; const chat = bots[0].threadId;
+  const second = (await j(await post(`${f.url}/api/bots/${id}/tasks`, { title: "T10 [oml:abc]" }))).body.task.threadId;
+  const live = async () => (await j(await fetch(`${f.url}/api/bots`))).body.bots.find((b) => b.id === id);
+  assert.equal((await live()).threadId, second, "a fresh task is the active one");
+  let r = await j(await post(`${f.url}/api/bots/${id}/tasks/${chat}`, {}));
+  assert.equal(r.status, 200); assert.equal(r.body.bot.threadId, chat);
+  assert.equal((await live()).threadId, chat, "the switch is what makes a task active again");
+  r = await j(await post(`${f.url}/api/bots/${id}/tasks/nosuchthread`, {}));
+  assert.equal(r.status, 404); assert.match(r.body.error, /no such task/);
+  assert.equal((await j(await post(`${f.url}/api/bots/nosuchbot/tasks/${chat}`, {}))).status, 404);
+  await f.control({ op: "activity", botId: id, activity: "working" });
+  r = await j(await post(`${f.url}/api/bots/${id}/tasks/${second}`, {}));
+  assert.equal(r.status, 409); assert.match(r.body.error, /this bot is working — stop it before switching tasks/);
+  assert.equal((await live()).threadId, chat, "a refused switch changes nothing");
+  await f.control({ op: "activity", botId: id, activity: "idle" });
+  await f.control({ op: "credential", botId: id, saving: true });
+  assert.equal((await j(await post(`${f.url}/api/bots/${id}/tasks/${second}`, {}))).status, 409);
+  await f.control({ op: "credential", botId: id, saving: false });
+  const seen = readSse(`${f.url}/api/events?screens=off`, { ms: 400 });
+  await sleep(50);
+  assert.equal((await j(await post(`${f.url}/api/bots/${id}/tasks/${second}`, {}))).status, 200);
+  const { frames } = await seen;
+  assert.ok(frames.some((x) => x.data.kind === "bot" && x.data.bot.id === id && x.data.bot.threadId === second), "the switch broadcasts the bot");
+});
+
+test("a held wake runs on its own thread: the bot is busy, the active task does not move, and the pinned turn cannot be interrupted", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const { bots } = await importTeam(f);
+  const id = bots[0].id; const first = bots[0].threadId;
+  const second = (await j(await post(`${f.url}/api/bots/${id}/tasks`, { title: "T11 [oml:def]" }))).body.task.threadId;
+  await f.control({ op: "pinnedTurn", botId: id, threadId: first });
+  const live = async () => (await j(await fetch(`${f.url}/api/bots`))).body.bots.find((b) => b.id === id);
+  assert.equal((await live()).busy, true);
+  assert.equal((await live()).threadId, second, "a drained wake never switches the bot's active task");
+  let r = await j(await post(`${f.url}/api/bots/${id}/messages`, { text: "answer me", threadId: first }));
+  assert.equal(r.status, 409); assert.match(r.body.error, /switched tasks before it could receive the message/);
+  r = await j(await post(`${f.url}/api/bots/${id}/interrupt`, { threadId: first }));
+  assert.equal(r.status, 409); assert.match(r.body.error, /the bot switched tasks before it could be interrupted/);
+  assert.equal((await live()).busy, true, "a refused interrupt stopped nothing");
+  r = await j(await post(`${f.url}/api/bots/${id}/interrupt`, { threadId: second }));
+  assert.equal(r.status, 200, "the active thread is the only one an interrupt can name");
+  assert.equal((await live()).busy, false);
+});
+
+test("delegation chips: the queued label, the ask conversion, and every terminal form", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const { bots } = await importTeam(f);
+  const thread = bots[0].threadId;
+  await f.control({ op: "delegated", threadId: thread, name: "Nova", reason: "implement T10" });
+  await f.control({ op: "delegated", threadId: thread, name: "Quill" });
+  await f.control({ op: "askConverted", threadId: thread, name: "Sage" });
+  await f.control({ op: "delegationDone", threadId: thread, name: "Nova", variant: "empty" });
+  await f.control({ op: "delegationDone", threadId: thread, name: "Quill", variant: "failed", reason: "the delegated turn did not finish" });
+  await f.control({ op: "delegationDone", threadId: thread, name: "Sage", variant: "busy" });
+  await f.control({ op: "delegationDone", threadId: thread, name: "Sage", variant: "canceled" });
+  await f.control({ op: "delegationDone", threadId: thread, name: "Sage", variant: "denied" });
+  await f.control({ op: "delegationDone", threadId: thread, variant: "dropped", count: 2 });
+  const { body } = await j(await fetch(`${f.url}/api/threads/${thread}/messages`));
+  assert.deepEqual(body.messages.map((m) => m.tool.name), [
+    "Delegated to @Nova: implement T10",
+    "Delegated to @Quill",
+    "@Sage is still working — ask converted to a delegation",
+    "Delegation to @Nova completed without a text reply",
+    "Delegation to @Quill failed — the delegated turn did not finish",
+    "Delegation to @Sage waiting — they're busy (retry 1/3 when they finish)",
+    "Delegation to @Sage canceled — still busy after 3 retries",
+    "Delegation to @Sage denied by user",
+    "2 queued delegations dropped — the turn did not finish",
+  ]);
+  assert.deepEqual(body.messages.map((m) => m.tool.ok), [true, true, undefined, true, false, undefined, false, false, false]);
+  assert.deepEqual([...new Set(body.messages.map((m) => m.kind))], ["activity"]);
+  await f.control({ op: "delegationDone", threadId: thread, variant: "dropped" });
+  assert.match((await j(await fetch(`${f.url}/api/threads/${thread}/messages`))).body.messages.at(-1).tool.name, /^1 queued delegation dropped/);
+});
+
 test("echoes carry the target's from and a spaced name; delegation activities and error activities have their shapes", async (t) => {
   const f = await startFake(); t.after(() => f.close());
   const { bots } = await importTeam(f);
