@@ -227,7 +227,9 @@ test('watch cannot establish quiet before its initial SSE connection and replay'
   assert.ok(performance.now() - started >= 125);
 });
 
-const otherRun = { runId: 'r2', tag: 'oml:5678', sentAt: 1000, leadThreadId: 'lt2', threads: { lead: 'lt2', worker: 'wt' } };
+// The worker is the other run's own implementer, so its frames are that run's
+// business; a bot no run claims would be every run's, and would rightly count.
+const otherRun = { runId: 'r2', tag: 'oml:5678', sentAt: 1000, leadThreadId: 'lt2', threads: { lead: 'lt2', worker: 'wt' }, implementer: { id: 'worker', name: 'Worker' } };
 
 test('another run\'s bot frames never starve this run\'s verdict', async (t) => {
   // Frames about a bot this run does not hold are still worth a fresh
@@ -241,4 +243,35 @@ test('another run\'s bot frames never starve this run\'s verdict', async (t) => 
   const result = await watchRun({ client, team, task, runs: [task, otherRun], maxSeconds: 2, quietMs: 60, coalesceMs: 0, pollMs: 20, stallMs: Infinity });
   assert.equal(result.ev.state, 'done');
   assert.equal(result.outcome, 'terminal');
+});
+
+test('a foreign frame that hands this run a busy bot is drained before a verdict', async (t) => {
+  // The other run's delegation settles while this run is hydrating: the bot it
+  // was holding becomes nobody's, which makes it this run's to wait for. The
+  // view this run just built predates that, so its `done` is not emitted.
+  const chipAt = (name, at) => ({ id: `c${at}`, at, role: 'bot', kind: 'activity', tool: { name } });
+  const holding = [chipAt('Delegated to @Worker', 1100)];
+  const released = [...holding, chipAt('Delegation to @Worker completed without a text reply', 1500)];
+  const other = { runId: 'r2', tag: 'oml:5678', sentAt: 1000, leadThreadId: 'lt2', threads: { lead: 'lt2', worker: 'wt' } };
+  const busyFleet = team.bots.map((b) => ({ ...b, section: 's', busy: b.id === 'worker', activity: b.id === 'worker' ? 'working' : 'idle', threadId: task.threads[b.id] }));
+  let reads = 0; let push = null; let frames = 0;
+  const threads = {
+    lt: [user, done], wt: [],
+    // The read the verdict is built from returns the delegation still open, and
+    // announces its settlement the moment it is read: this run's own reads take
+    // longer, so the frame lands while this snapshot is still out.
+    get lt2() { reads += 1; if (reads === 2) push?.(); return reads <= 2 ? holding : released; },
+  };
+  const client = scripted({
+    threads, bots: busyFleet,
+    beforeGet: (route) => (route.includes('lt2') ? undefined : new Promise((r) => setTimeout(r, 25))),
+    stream: async (_url, signal) => ({ status: 200, body: new ReadableStream({ start(c) {
+      push = () => { try { c.enqueue(new TextEncoder().encode(`id: cursor:${++frames}\ndata: ${JSON.stringify({ kind: 'message', threadId: 'lt2' })}\n\n`)); } catch {} };
+      signal.addEventListener('abort', () => { try { c.close(); } catch {} }, { once: true });
+    } }) }),
+  });
+  const result = await watchRun({ client, team, task, runs: [task, other], maxSeconds: 1, quietMs: 5, coalesceMs: 0, pollMs: 10, stallMs: Infinity });
+  assert.notEqual(result.ev.state, 'done', 'a bot this run now has to wait for is not a finished run');
+  assert.notEqual(result.outcome, 'terminal', 'no verdict was emitted from the view that predated the settlement');
+  assert.ok(reads > 2, 'the other run\'s tail was read again before this run answered');
 });

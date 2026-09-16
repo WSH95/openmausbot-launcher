@@ -109,10 +109,20 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
   // restart the quiet window this run's verdict depends on. With one run open
   // every frame is that run's, as it always was.
   const scoped = runs.some((r) => r.runId !== task.runId);
-  const ownBots = (executing) => new Set([...(executing == null || executing === task.leadThreadId ? [team.lead.id] : []), task.implementer?.id].filter(Boolean));
-  let ownBotIds = ownBots(null);
+  let ownBotIds = new Set([team.lead.id, task.implementer?.id].filter(Boolean));
   let ownThreadIds = new Set([task.leadThreadId, ...(task.implementer?.id ? [task.threads?.[task.implementer.id]] : [])].filter(Boolean));
-  const mine = (frame) => !scoped || ownFrame(frame, { botIds: ownBotIds, threadIds: ownThreadIds });
+  // The other runs' lead threads are where their claims are written: a frame
+  // there settles or opens one of their delegations, which changes which bots
+  // count for THIS run. It never resets this run's quiet window, but a verdict
+  // is not emitted from a view that predates it.
+  const foreignLeadThreads = new Set(runs.filter((r) => r.runId !== task.runId).map((r) => r.leadThreadId).filter(Boolean));
+  for (const id of foreignLeadThreads) threadIds.add(id);
+  const classify = (frame) => {
+    if (!scoped) return "own";
+    if (ownFrame(frame, { botIds: ownBotIds, threadIds: ownThreadIds })) return "own";
+    const d = frame.data;
+    return ["message", "message.patch", "thread"].includes(d?.kind) && foreignLeadThreads.has(d.threadId) ? "ownership" : "other";
+  };
   let cursor = task.lastEval?.cursor ?? null;
   let receivedCursor = cursor;
   let quietSince = null;
@@ -125,7 +135,7 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
   // Two counters, because a frame can be worth a fresh snapshot without being
   // worth a restarted quiet window: `invalidations` drives hydration, and only
   // this run's own frames advance `ownInvalidations`.
-  let invalidations = 0; let appliedInvalidations = -1; let ownInvalidations = 0;
+  let invalidations = 0; let appliedInvalidations = -1; let ownInvalidations = 0; let ownershipInvalidations = 0;
   let streamFailures = 0; let pollingOnly = false;
   let waiter = null;
   const wake = () => waiter?.();
@@ -133,7 +143,7 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
   const deadlineTimer = setTimeout(() => { controller.abort(); wake(); }, Math.max(0, deadline - performance.now()));
   // The same question withinDeadline asks, so a budget it refuses is one this loop calls expired.
   const expired = () => outOfBudget(deadline, controller.signal);
-  const invalidate = (own = true) => { invalidations++; if (own) { ownInvalidations++; quietSince = null; } wake(); };
+  const invalidate = (kind = "own") => { invalidations++; if (kind === "own") { ownInvalidations++; quietSince = null; } else if (kind === "ownership") ownershipInvalidations++; wake(); };
 
   let markStreamReady;
   const streamReady = new Promise((resolve) => { markStreamReady = resolve; });
@@ -149,7 +159,7 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
             streamFailures = 0;
             if (frame.data?.kind === "ping") return;
             if (frame.id) receivedCursor = frame.id;
-            if (relevantFrame(frame, { teamIds, threadIds, section: team.section })) invalidate(mine(frame));
+            if (relevantFrame(frame, { teamIds, threadIds, section: team.section })) invalidate(classify(frame));
           },
         });
         // Start reading buffered hello/replay frames before hydration can
@@ -170,10 +180,11 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
   if (dataDir) {
     // The receipts file is the whole server's. A write to it is worth a fresh
     // snapshot; whether it carried one of this run's receipts, that snapshot says.
-    try { receiptsWatcher = fs.watch(dataDir, (_ev, name) => { if (name === "delegation-receipts.json" && !expired()) invalidate(!scoped); }); }
+    try { receiptsWatcher = fs.watch(dataDir, (_ev, name) => { if (name === "delegation-receipts.json" && !expired()) invalidate(scoped ? "other" : "own"); }); }
     catch (e) { log(`receipts: ${e.message}`); }
   }
 
+  let ownershipRedraws = 0;
   let snap = null; let ev = null; let sig = null;
   let lastSnapAt = null; let outcome = "timeout";
   try {
@@ -189,6 +200,7 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
       if (expired()) break;
       const targetInvalidations = invalidations;
       const targetOwn = ownInvalidations;
+      const targetOwnership = ownershipInvalidations;
       const targetCursor = receivedCursor;
       snap = await snapshot(client, { team, task: { ...task, lastEval: { ...task.lastEval, outcomes } }, runs: runs.map((r) => (r.runId === task.runId ? { ...r, lastEval: { ...task.lastEval, outcomes } } : r)) }, { dataDir, deadline, signal: controller.signal });
       outcomes = mergeOutcomes(outcomes, snap.outcomes); snap.outcomes = outcomes;
@@ -196,11 +208,11 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
       const now = Date.now();
       for (const bot of snap.bots) teamIds.add(bot.id);
       for (const thread of snap.runThreads) threadIds.add(thread.threadId);
-      // Who this run holds right now: its implementer, the bots it has an open
-      // delegation to (snapshot.mjs, openDelegations), and the lead — unless
-      // the runtime log says the turn it is running belongs to another run, in
-      // which case the lead's own start and finish frames are that run's.
-      ownBotIds = ownBots(snap.executing ?? null);
+      // Whose frames may reset this run's quiet window: exactly the bots whose
+      // work the snapshot counted for it — its lead while the lead's turn is
+      // not another run's, its implementer, the bots it has an open delegation
+      // to, and any bot no run can claim, which is every run's to wait for.
+      ownBotIds = new Set(snap.attributedBots ?? []);
       for (const bot of snap.bots) if ((snap.openDelegations?.byName[bot.name] ?? 0) > 0) ownBotIds.add(bot.id);
       ownThreadIds = new Set([task.leadThreadId, ...[...ownBotIds].filter((id) => id !== team.lead.id).map((id) => task.threads?.[id] ?? snap.bots.find((b) => b.id === id)?.threadId)].filter(Boolean));
       const busyNow = snap.bots.some((b) => b.busy) || snap.teamMap.queued.length > 0 || snap.teamMap.running.length > 0;
@@ -208,6 +220,7 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
       // Only an own frame that arrived while this snapshot was in flight makes
       // its truth stale for this run; another run's traffic leaves it good.
       const hasUnappliedOwn = targetOwn !== ownInvalidations;
+      const hasUnappliedOwnership = targetOwnership !== ownershipInvalidations;
       if (snap.complete && !expired()) {
         if (targetCursor !== null) cursor = targetCursor;
         appliedInvalidations = targetInvalidations;
@@ -236,7 +249,11 @@ export async function watchRun({ client, team, task, runs = [], dataDir = null, 
         sig = signatureOf(snap, ev); lastSig = sig; lastChangeAt = Date.now();
       }
       if (expired()) break;
-      if (hasUnappliedOwn && snap.complete) continue;
+      // A frame that may have changed who owns what is drained before a
+      // verdict, but boundedly: the other run talking without pause must delay
+      // this run's answer, not replace it with silence.
+      if (hasUnappliedOwnership && snap.complete && ownershipRedraws < 2) { ownershipRedraws++; continue; }
+      if (!hasUnappliedOwnership) ownershipRedraws = 0;
       if (TERMINAL.has(ev.state)) { outcome = "terminal"; break; }
       if (until === "change" && !sameSig(reported, sig)) { outcome = "change"; break; }
       if (until === "question" && ["needs-user", "attention"].includes(ev.state)) { outcome = "question"; break; }

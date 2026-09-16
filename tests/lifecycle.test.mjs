@@ -161,44 +161,47 @@ test("down refuses stale or reused identities", { skip: !linux && "needs /proc" 
   assert.equal(procInfo(process.pid).alive, true, "the test process was never signalled");
 });
 
-test("up reports a server that dies at startup with the log tail and a sandbox hint", { skip: !linux && "needs /proc" }, async (t) => {
-  const { dir } = makeRepo();
-  // This test needs the API port taken and its neighbour free at the moment
-  // `up` runs. The rest of the suite is opening and closing servers in
-  // parallel, so the neighbour this test just measured as free can be taken
-  // between the two — and `up` then refuses the pair before it ever spawns the
-  // server whose death this test is about. Hold the neighbour until the last
-  // moment, and when the race is lost anyway, say so and take another pair.
+/**
+ * Run `up` with its API port taken and the neighbour `port + 1` free, which is
+ * what makes the spawned server die of EADDRINUSE. The rest of the suite opens
+ * and closes servers in parallel, so a neighbour measured as free can be taken
+ * before `up` runs — and `up` then refuses the pair before it ever spawns the
+ * server these tests are about. Hold both until the last moment, and when the
+ * race is lost anyway, take another pair instead of asserting through it.
+ */
+async function upWithPortTaken(t, { dir, dataDir }) {
   for (let attempt = 1; ; attempt++) {
     const port = await freePortPair();
     const neighbour = net.createServer(); await new Promise((r) => neighbour.listen(port + 1, "127.0.0.1", r));
     const blocker = net.createServer(); await new Promise((r) => blocker.listen(port, "127.0.0.1", r));
     t.after(() => blocker.close());
     await new Promise((r) => neighbour.close(r));
-    const dataDir = path.join(tmpDir("oml-dead-"), "data");
     const r = await runOmb(["up", "--project", dir, "--port", String(port), "--data-dir", dataDir, "--timeout", "10"], { env: { OMB_BIN: FAKE, OMB_TOKEN: "" } });
     if (/is in use; OpenMausBot binds/.test(r.json?.error ?? "")) {
       assert.ok(attempt < 5, `the neighbour of ${port} was taken on every attempt: ${r.stdout}`);
       blocker.close();
       continue;
     }
-    assert.equal(r.code, 1, r.stdout);
-    assert.match(r.json.error, /exited during startup/);
-    assert.match(r.json.log, /EADDRINUSE/);
-    assert.match(r.json.hint, /see .*serve\.log/);
-    assert.equal(loadState(statePaths(dir)), null, "nothing is recorded for a server that never answered");
-    break;
+    return r;
   }
+}
+
+test("up reports a server that dies at startup with the log tail and a sandbox hint", { skip: !linux && "needs /proc" }, async (t) => {
+  const { dir } = makeRepo();
+  const r = await upWithPortTaken(t, { dir, dataDir: path.join(tmpDir("oml-dead-"), "data") });
+  assert.equal(r.code, 1, r.stdout);
+  assert.match(r.json.error, /exited during startup/);
+  assert.match(r.json.log, /EADDRINUSE/);
+  assert.match(r.json.hint, /see .*serve\.log/);
+  assert.equal(loadState(statePaths(dir)), null, "nothing is recorded for a server that never answered");
 });
 
 test("up names the sandbox cause from anywhere in serve.log, not only its 12-line tail", { skip: !linux && "needs /proc" }, async (t) => {
   const { dir } = makeRepo();
-  const port = await freePortPair();
-  const blocker = net.createServer(); await new Promise((r) => blocker.listen(port, "127.0.0.1", r)); t.after(() => blocker.close());
   const dataDir = path.join(tmpDir("oml-sandbox-"), "data");
   fs.mkdirSync(dataDir, { recursive: true });
   fs.writeFileSync(path.join(dataDir, "serve.log"), CODEX_WW_LOG); // spawnServer appends (server.mjs:54), so the fake's EADDRINUSE stack lands below it
-  const r = await runOmb(["up", "--project", dir, "--port", String(port), "--data-dir", dataDir, "--timeout", "10"], { env: { OMB_BIN: FAKE, OMB_TOKEN: "" } });
+  const r = await upWithPortTaken(t, { dir, dataDir });
   assert.equal(r.code, 1, r.stdout);
   assert.equal(r.json.log.split("\n").length, 12, "the display tail stays twelve lines");
   assert.doesNotMatch(r.json.log, /EPERM/, "the signature sits above the tail");

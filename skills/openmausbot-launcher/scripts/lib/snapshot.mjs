@@ -375,6 +375,9 @@ export async function snapshot(client, state, { dataDir = null, now = Date.now()
       bots: scoped, lead: scoped.find((b) => b.id === leadId) ?? null,
       teamMap: { queued: tm.queued.filter((q) => attributable(bots.find((b) => b.id === q.targetBotId), run)), running: tm.running.filter((r) => attributable(bots.find((b) => b.id === r.targetBotId), run)) },
       leadThreadId, runThreads, leadTail: msgs, executing,
+      // Whose work counts for this run right now, by the same rule the busy
+      // flags above were masked with. A watch needs the set, not the reasons.
+      attributedBots: bots.filter((b) => attributable(b, run)).map((b) => b.id),
       leadText: lastLead ? { id: lastLead.id, at: lastLead.at, text: lastLead.text } : null,
       lastUser: latestUser ? { id: latestUser.id, at: latestUser.at, text: latestUser.text } : null,
       outcomes: mergeOutcomes(run?.lastEval?.outcomes, observedOutcomes),
