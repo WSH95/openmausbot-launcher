@@ -8,6 +8,9 @@ import { procInfo, freshDataDir, unreachable } from "../skills/openmausbot-launc
 import { serverIdentity } from "../skills/openmausbot-launcher/scripts/lib/session.mjs";
 import { Fail } from "../skills/openmausbot-launcher/scripts/lib/cli.mjs";
 import { createClient } from "../skills/openmausbot-launcher/scripts/lib/http.mjs";
+import { DatabaseSync } from "node:sqlite";
+import { run as runCli } from "../skills/openmausbot-launcher/scripts/lib/cli.mjs";
+import "../skills/openmausbot-launcher/scripts/lib/verbs/run.mjs";
 
 const PKG = path.join(ROOT, "tests/fixtures/dev-team.package.json");
 async function setup(t) {
@@ -113,15 +116,26 @@ test("fresh data allocation reserves distinct directories atomically", () => {
 });
 
 test("abandon refuses a run replaced while it waits for the state lock", async (t) => {
-  const { run, paths } = await setup(t);
-  let release; const held = withLock(paths, () => new Promise((r) => { release = r; }));
-  while (!release) await sleep(5);
-  const pending = run(["task", "--abandon"]);
-  await sleep(250);
+  const { dir, paths } = await setup(t);
+  let release; let acquired;
+  const ready = new Promise((resolve) => { acquired = resolve; });
+  const held = withLock(paths, () => new Promise((resolve) => { release = resolve; acquired(); }));
+  await ready;
+  t.after(async () => { release(); await held; });
+  let contended;
+  const waiting = new Promise((resolve) => { contended = resolve; });
+  const exec = DatabaseSync.prototype.exec;
+  t.mock.method(DatabaseSync.prototype, "exec", function(sql) {
+    try { return exec.call(this, sql); }
+    catch (e) { if (sql === "BEGIN IMMEDIATE" && e.errcode === 5) contended(); throw e; }
+  });
+  const pending = runCli(["task", "--abandon", "--project", dir]);
+  await Promise.race([waiting, pending.then((r) => { throw new Error(`command did not wait for its lock: ${r.output}`); })]);
   const doc = loadState(paths); doc.runs = { replacement: { ...Object.values(doc.runs)[0], runId: "replacement", title: "Replacement" } }; commitState(paths, doc);
   release(); await held;
   const r = await pending;
-  assert.equal(r.code, 3, r.stdout); assert.deepEqual(Object.keys(loadState(paths).runs), ["replacement"]);
+  assert.equal(r.code, 3, r.output); assert.deepEqual(Object.keys(loadState(paths).runs), ["replacement"]);
+  assert.match(JSON.parse(r.output).error, /state changed while this command waited for the lock/);
 });
 
 test("watch checkpoints wait at most one second for another writer", async (t) => {

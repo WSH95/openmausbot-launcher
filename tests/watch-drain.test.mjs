@@ -544,17 +544,25 @@ test("an unrecorded hidden bot does not invalidate a run whose snapshot excludes
   assert.equal(result.ev.state, "done");
 });
 
-test("a buffered stream flood cannot consume the checkpoint grace before observation ends", async () => {
+test("a buffered stream flood cannot consume the checkpoint grace before observation ends", async (t) => {
   const f = fixture();
-  const chunk = new TextEncoder().encode('data: {"kind":"ping"}\n\n'.repeat(500_000));
+  const ping = '{"kind":"ping","fixture":"budget"}';
+  const chunk = new TextEncoder().encode(`data: ${ping}\n\n`.repeat(1000));
+  let now = 0; let decoded = 0;
+  t.mock.method(performance, "now", () => now);
+  const parse = JSON.parse;
+  t.mock.method(JSON, "parse", function(text, ...args) {
+    if (text === ping) { decoded++; now = 11; }
+    return parse(text, ...args);
+  });
   f.client.stream = async (_url, signal) => ({ status: 200, body: new ReadableStream({ start(c) {
     c.enqueue(chunk);
     signal.addEventListener("abort", () => { try { c.close(); } catch {} }, { once: true });
   } }) });
-  const start = performance.now();
   const result = await f.watch({ maxSeconds: 0.01, checkpoint: async () => true });
   assert.equal(result.outcome, "timeout");
-  assert.ok(performance.now() - start < 250, "parsing buffered frames obeys the observation deadline");
+  assert.equal(decoded, 1, "no further frames are parsed after the observation budget expires");
+  assert.equal(result.checkpointed, false);
 });
 
 test("a watch remembers another run's first-seen card owner across invocations", async () => {

@@ -6,11 +6,48 @@ import { statePaths, loadState, updateState } from "../skills/openmausbot-launch
 import { relevantFrame, mergeCheckpoint, watchRun } from "../skills/openmausbot-launcher/scripts/lib/watch.mjs";
 import { createClient } from "../skills/openmausbot-launcher/scripts/lib/http.mjs";
 import { outOfBudget, withinDeadline } from "../skills/openmausbot-launcher/scripts/lib/snapshot.mjs";
+import { run as runCli } from "../skills/openmausbot-launcher/scripts/lib/cli.mjs";
+import "../skills/openmausbot-launcher/scripts/lib/verbs/run.mjs";
 
 const PKG = path.join(ROOT, "tests", "fixtures", "dev-team.package.json");
 let env = { OMB_TOKEN: "" };
 const fast = ["--quiet-seconds", "1", "--drop-seconds", "1", "--poll", "1"];
 const thread = async (f, id) => (await (await fetch(`${f.url}/api/threads/${id}/messages`)).json()).messages;
+
+// Wait for an actual response, not an estimate of subprocess startup time.
+function responses(f, matches, count = 1) {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => { clearTimeout(timer); f.server.off("request", onRequest); };
+    const timer = setTimeout(() => { cleanup(); reject(new Error("expected watch request did not arrive")); }, 15_000);
+    const onRequest = (req, res) => {
+      if (matches(req.url)) res.once("finish", () => {
+        if (--count === 0) { cleanup(); resolve(); }
+      });
+    };
+    f.server.on("request", onRequest);
+  });
+}
+
+// Exercise the real CLI handler/output and HTTP fake, but expire observation
+// only after watch has verified a snapshot and entered its idle poll wait.
+// Request deadlines and the stream keep their real timers; 137 ms identifies
+// the requested poll interval, which a busy run cannot shorten for quiet.
+async function timeoutAfterObservation(t, f, dir, flags = []) {
+  let now = 0; let observed = false;
+  const clock = t.mock.method(performance, "now", () => now);
+  const setTimer = globalThis.setTimeout;
+  const timer = t.mock.method(globalThis, "setTimeout", (fn, ms, ...args) => {
+    if (ms !== 137) return setTimer(fn, ms, ...args);
+    observed = true;
+    return setTimer(() => { now = 2000; fn(...args); }, 0);
+  });
+  try {
+    const r = await runCli(["watch", "--project", dir, "--url", f.url, "--data-dir", f.dataDir,
+      "--max-seconds", "2", "--poll", "0.137", ...flags]);
+    assert.equal(observed, true, "the deadline follows a verified observation");
+    return { code: r.code, stdout: r.output, json: r.output ? JSON.parse(r.output) : null };
+  } finally { timer.mock.restore(); clock.mock.restore(); }
+}
 
 async function setup(t, { implementer = null, ...opts } = {}) {
   const f = await startFake({ heartbeatMs: 100, ...opts }); t.after(() => f.close());
@@ -92,23 +129,25 @@ test("a question card ends the watch immediately with exit 5; a cold start with 
 test("deadline, --until change, --quiet-if-unchanged, and polling when the stream is dropped", async (t) => {
   const { f, dir, lead, lt } = await setup(t);
   await f.control({ op: "activity", botId: lead.id, activity: "working" });
-  let r = await runOmb(["watch", "--project", dir, "--max-seconds", "2", ...fast], { env });
+  let r = await timeoutAfterObservation(t, f, dir);
   assert.equal(r.code, 4, r.stdout); assert.equal(r.json.state, "timeout"); assert.deepEqual(r.json.busy, ["Sudo"]); assert.match(r.json.brief, /running/);
-  r = await runOmb(["watch", "--project", dir, "--max-seconds", "2", "--quiet-if-unchanged", ...fast], { env });
+  r = await timeoutAfterObservation(t, f, dir, ["--quiet-if-unchanged"]);
   assert.equal(r.code, 4); assert.equal(r.stdout, "", "nothing new, nothing printed");
-  r = await runOmb(["watch", "--project", dir, "--max-seconds", "2", "--quiet-if-unchanged", "--brief", ...fast], { env });
+  r = await timeoutAfterObservation(t, f, dir, ["--quiet-if-unchanged", "--brief"]);
   assert.equal(r.stdout, "");
+  const hydrated = responses(f, (url) => url.startsWith(`/api/threads/${lt}/messages`));
   const p = runOmb(["watch", "--project", dir, "--max-seconds", "20", "--until", "change", ...fast], { env });
-  await sleep(500);
+  await hydrated;
   await f.control({ op: "leadSay", threadId: lt, text: "Planning now." });
   r = await p;
   assert.equal(r.code, 0, r.stdout); assert.equal(r.json.outcome, "change"); assert.equal(r.json.state, "running"); assert.equal(r.json.lead.text, "Planning now.");
   assert.ok(r.json.changes.some((c) => c.lead === "Planning now."));
-  r = await runOmb(["watch", "--project", dir, "--max-seconds", "2", "--until", "change", "--quiet-if-unchanged", ...fast], { env });
+  r = await timeoutAfterObservation(t, f, dir, ["--until", "change", "--quiet-if-unchanged"]);
   assert.equal(r.stdout, "", "the change was already reported");
   await f.control({ op: "dropStreams", enabled: true });
+  const failedStreams = responses(f, (url) => url.startsWith("/api/events?"), 3);
   const p2 = runOmb(["watch", "--project", dir, "--max-seconds", "20", ...fast], { env });
-  await sleep(6500); // three stream attempts fail (0 s, 2 s, 4 s) before the card appears
+  await failedStreams;
   await f.control({ op: "activity", botId: lead.id, activity: "idle" });
   await f.control({ op: "card", threadId: lt, requestId: "ap", kind: "approval", text: "Contact Quill?" });
   r = await p2;
