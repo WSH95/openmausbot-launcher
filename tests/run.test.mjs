@@ -416,3 +416,23 @@ test("answer works on one run's own cards and refuses a request no run can claim
   r = await runOmb(["answer", "--allow", "--request", "loose", "--run", "t10", "--project", dir], { env });
   assert.equal(r.code, 0, r.stdout); assert.equal(r.json.outcome, "allowed-once");
 });
+
+test("task --resume sends the brief to its own run's thread even when the lead moved to another run", async (t) => {
+  const { f, dir, lead } = await setup(t);
+  const a = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  assert.equal(a.code, 0, a.stdout);
+  await f.control({ op: "bot", name: "Vex", title: "Implementer", section: "Dev team" });
+  const b = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
+  assert.equal(b.code, 0, b.stdout);
+  // A is back to preparing with a brief the server has not seen — the state a
+  // crash between opening the lead's task and sending leaves — and the lead has
+  // since moved on to B's task.
+  await updateState(statePaths(dir), (d) => { const run = d.runs[a.json.runId]; run.status = "preparing"; run.sentAt = null; run.sendId = "task-resend"; run.brief = `${run.brief}\n\n(resumed)`; return d; });
+  assert.equal((await fleet(f)).find((x) => x.id === lead.id).threadId, b.json.leadThreadId);
+  const r = await runOmb(["task", "--resume", "--run", "t10", "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.equal(r.json.status, "dispatched"); assert.equal(r.json.leadThreadId, a.json.leadThreadId);
+  const msgs = await thread(f, a.json.leadThreadId);
+  assert.equal(msgs.filter((m) => m.sendId === "task-resend").length, 1, "the brief landed once, on t10's own thread");
+  assert.equal((await fleet(f)).find((x) => x.id === lead.id).threadId, a.json.leadThreadId, "the switch is what made it land");
+});

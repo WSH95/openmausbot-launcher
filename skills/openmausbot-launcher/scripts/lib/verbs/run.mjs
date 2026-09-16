@@ -230,11 +230,11 @@ verb("task", {
         doc.runs[run.runId] = run; doc = commitState(cfg.paths, doc);
       }
       if (run.status === "preparing") {
-        let receipt;
-        try { receipt = await client.post(`/api/bots/${leadLive.id}/messages`, { text: run.brief, threadId: run.leadThreadId, sendId: run.sendId }); }
-        catch (e) { throw precondition(e, e instanceof HttpError && /switched tasks/.test(e.body?.error ?? "") ? "the lead's active task moved; delete the tagged task or task --abandon" : undefined); }
-        run.sentAt = receipt.message?.at ?? Date.now();
-        run.sendReceipt = { steered: receipt.steered === true, queued: receipt.queued === true, messageId: receipt.message?.id ?? null, queueId: receipt.queueId ?? null };
+        // The same delivery as `send`: a resumed dispatch often finds the lead
+        // on another run's task, and the brief belongs on this run's thread.
+        const receipt = await deliverToLead(client, { leadId: leadLive.id, run, otherRuns: openRuns(doc).filter((r) => r.runId !== run.runId), text: run.brief, sendId: run.sendId });
+        run.sentAt = receipt.at ?? Date.now();
+        run.sendReceipt = { steered: receipt.steered === true, queued: receipt.queued === true, messageId: receipt.messageId ?? null, queueId: receipt.queueId ?? null, switched: receipt.switched === true };
         run.status = "dispatched";
         run.lastEval = { state: "running", lastChangeAt: run.sentAt, outcomes: [], quietSince: null, lastLeadMessageId: null, cursor: null, lastReported: null };
         doc.runs[run.runId] = run; doc = commitState(cfg.paths, doc);
@@ -263,7 +263,7 @@ export async function deliverToLead(client, { leadId, run, otherRuns = [], text,
   const post = () => client.post(`/api/bots/${leadId}/messages`, { text, threadId: run.leadThreadId, sendId });
   const movedAway = (e) => e instanceof HttpError && e.status === 409 && /switched tasks|no longer exists/.test(e.body?.error ?? "");
   const shape = (receipt, switched) => (receipt.dryRun ? { dryRun: true, ...receipt } : {
-    threadId: receipt.threadId, messageId: receipt.message?.id ?? null, steered: receipt.steered === true,
+    threadId: receipt.threadId, messageId: receipt.message?.id ?? null, at: receipt.message?.at ?? null, steered: receipt.steered === true,
     queued: receipt.queued === true, queueId: receipt.queueId ?? null,
     duplicate: typeof receipt.message?.at === "number" && receipt.message.at < t0, switched,
   });
