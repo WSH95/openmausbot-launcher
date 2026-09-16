@@ -6,6 +6,7 @@ import { verb, EXIT, Fail } from "../cli.mjs";
 import { resolveConfig } from "../config.mjs";
 import { createClient, HttpError, precondition } from "../http.mjs";
 import { updateState, ensureExclude } from "../state.mjs";
+import { openRuns, runLabel } from "../runs.mjs";
 import { defaultBranch, gitTopLevel } from "../git.mjs";
 import * as srv from "../server.mjs";
 import { parseEngineSpec, specString, sameSelection, findBot, isReviewer, sameName, parseFacts, renderFacts, replaceFactsBlock, FACTS_MARKER } from "../team.mjs";
@@ -25,7 +26,8 @@ verb("import", {
   options: { lead: { type: "string" }, adopt: { type: "string" } },
   allowPositionals: true,
   handler: stateCommand(async ({ flags, positionals, cfg, save }) => {
-    if (cfg.state?.task && cfg.state.task.status !== "closed") throw new Fail(EXIT.PRECONDITION, `a run is ${cfg.state.task.status} (${cfg.state.task.title})`, { hint: "finish it with report, or task --abandon, before changing the team" });
+    const openBefore = openRuns(cfg.state);
+    if (openBefore.length) throw new Fail(EXIT.PRECONDITION, `a run is ${openBefore[0].status} (${openBefore[0].title})`, { hint: openBefore.length > 1 ? `${openBefore.length} runs are open: ${openBefore.map(runLabel).join(", ")}; finish each with report, or task --abandon --run <ref>` : "finish it with report, or task --abandon, before changing the team" });
     const client = createClient(cfg);
     if (!flags.adopt) requireDataDir(cfg, "import");
     const keepOwned = await protectServerSelection(cfg, cfg.url);

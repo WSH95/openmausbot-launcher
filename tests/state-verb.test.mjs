@@ -14,7 +14,7 @@ test("state --show prints the document as read, without a lock or a request, and
   assert.equal(r.json.error, `no state at ${paths.file}`); assert.equal(r.json.hint, "import a team or run up to create it");
   assert.equal(fs.existsSync(paths.dir), false, "a refused read creates nothing");
   fs.mkdirSync(paths.dir, { recursive: true, mode: 0o700 });
-  commitState(paths, { ...initState(dir), server: { url: "http://127.0.0.1:8899", owned: true, healthPid: 4242 }, team: { section: "Dev team", lead: { id: "l", name: "Sudo" }, bots: [], rooms: [] }, task: { runId: "r1", title: "T10", status: "dispatched" } });
+  commitState(paths, { ...initState(dir), server: { url: "http://127.0.0.1:8899", owned: true, healthPid: 4242 }, team: { section: "Dev team", lead: { id: "l", name: "Sudo" }, bots: [], rooms: [] }, runs: { r1: { runId: "r1", title: "T10", status: "dispatched" } } });
   for (const extra of [["--show"], [], ["--url", "http://127.0.0.1:1"], ["--remote"], ["--remote", "--url", "https://maus.example.com"]]) {
     r = await runOmb(["state", ...extra, "--project", dir], { env });
     assert.equal(r.code, 0, r.stdout);
@@ -22,7 +22,7 @@ test("state --show prints the document as read, without a lock or a request, and
   }
   assert.equal(fs.existsSync(paths.lockDb), false, "a read never initializes the lock database");
   r = await runOmb(["state", "--show", "--project", dir, "--brief"], { env });
-  assert.equal(r.stdout, `state · ${paths.file} · rev 1 · server http://127.0.0.1:8899 (owned) · team Dev team · task T10 dispatched\n`);
+  assert.equal(r.stdout, `state · ${paths.file} · rev 1 · server http://127.0.0.1:8899 (owned) · team Dev team · runs T10 dispatched\n`);
 });
 
 test("usage names seventeen verbs, state among them", async () => {

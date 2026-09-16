@@ -60,9 +60,9 @@ test("watch reaches done through SSE wake-ups: busy, outcome, closing report wit
   assert.ok(r.json.changes.length >= 2, "changes were recorded"); assert.equal(r.json.outcomes, 2);
   assert.match(r.json.cursor, /^[0-9a-f]{8}:\d+$/);
   assert.match(r.json.brief, /DONE after/);
-  const st = loadState(statePaths(dir));
-  assert.equal(st.task.status, "dispatched", "watch never changes the run status");
-  assert.equal(st.task.lastEval.state, "done"); assert.equal(st.task.lastEval.cursor, r.json.cursor); assert.equal(st.task.lastEval.quietSince, null); assert.equal(st.task.lastEval.outcomes.length, 2);
+  const saved = loadState(statePaths(dir)).runs[run.runId];
+  assert.equal(saved.status, "dispatched", "watch never changes the run status");
+  assert.equal(saved.lastEval.state, "done"); assert.equal(saved.lastEval.cursor, r.json.cursor); assert.equal(saved.lastEval.quietSince, null); assert.equal(saved.lastEval.outcomes.length, 2);
   const s = await runOmb(["status", "--project", dir], { env });
   assert.equal(s.json.state, "done", "status carries the watch's verdict");
 });
@@ -120,7 +120,7 @@ test("a bearer token works on the stream; --nudge sends status? once on a suspec
   r = await runOmb(["watch", "--project", dir, "--max-seconds", "4", "--nudge", ...fast], { env });
   assert.equal(r.json.nudged, true); assert.ok(r.json.changes.some((c) => c.nudged));
   assert.equal((await thread(f, lt)).filter((m) => m.text === "status?").length, 1);
-  assert.ok(loadState(statePaths(dir)).task.nudgedAt);
+  assert.ok(loadState(statePaths(dir)).runs[run.runId].nudgedAt);
   r = await runOmb(["watch", "--project", dir, "--max-seconds", "4", "--nudge", ...fast], { env });
   assert.equal((await thread(f, lt)).filter((m) => m.text === "status?").length, 1, "nudged once per run");
   await f.control({ op: "leadSay", threadId: lt, text: `All done.\nDONE ${run.tag}` });
@@ -130,17 +130,17 @@ test("a bearer token works on the stream; --nudge sends status? once on a suspec
 
 test("watch refuses without a dispatched run and never writes watermarks for another run", async (t) => {
   const { f, dir, run } = await setup(t);
-  await updateState(statePaths(dir), (d) => { d.task.status = "preparing"; return d; });
+  await updateState(statePaths(dir), (d) => { d.runs[run.runId].status = "preparing"; return d; });
   let r = await runOmb(["watch", "--project", dir, "--max-seconds", "2", ...fast], { env });
   assert.equal(r.code, 3); assert.match(r.json.error, /the run is preparing/);
-  await updateState(statePaths(dir), (d) => { d.task.status = "dispatched"; return d; });
+  await updateState(statePaths(dir), (d) => { d.runs[run.runId].status = "dispatched"; return d; });
   const p = runOmb(["watch", "--project", dir, "--max-seconds", "3", ...fast], { env });
   await sleep(400);
-  await updateState(statePaths(dir), (d) => { d.task = { ...d.task, runId: "replaced", lastEval: { state: "running", marker: "keep" } }; return d; });
+  await updateState(statePaths(dir), (d) => { d.runs = { replaced: { ...d.runs[run.runId], runId: "replaced", lastEval: { state: "running", marker: "keep" } } }; return d; });
   r = await p;
   assert.equal(r.code, 4);
-  assert.equal(loadState(statePaths(dir)).task.lastEval.marker, "keep", "the replaced run's watermarks were left alone");
-  await updateState(statePaths(dir), (d) => { d.task = null; return d; });
+  assert.equal(loadState(statePaths(dir)).runs.replaced.lastEval.marker, "keep", "the replaced run's watermarks were left alone");
+  await updateState(statePaths(dir), (d) => { d.runs = {}; return d; });
   r = await runOmb(["watch", "--project", dir, "--max-seconds", "2", ...fast], { env });
   assert.equal(r.code, 3); assert.match(r.json.error, /no open run/);
 });
@@ -157,22 +157,22 @@ test("mergeCheckpoint takes the watch's watermarks but keeps a newer lastChangeA
 });
 
 test("the watch checkpoint keeps a lastChangeAt another writer advanced", async (t) => {
-  const { f, dir, lt } = await setup(t);
+  const { f, dir, lt, run } = await setup(t);
   const paths = statePaths(dir);
   const bumped = Date.now() + 60_000;
-  await updateState(paths, (d) => { d.task.lastEval = { ...d.task.lastEval, lastChangeAt: bumped }; return d; });
+  await updateState(paths, (d) => { d.runs[run.runId].lastEval = { ...d.runs[run.runId].lastEval, lastChangeAt: bumped }; return d; });
   const p = runOmb(["watch", "--project", dir, "--max-seconds", "2", ...fast], { env });
   await sleep(400);
   await f.control({ op: "leadSay", threadId: lt, text: "Planning now." });
   const r = await p;
   assert.equal(r.json.checkpointed, true, r.stdout);
-  assert.equal(loadState(paths).task.lastEval.lastChangeAt, bumped);
+  assert.equal(loadState(paths).runs[run.runId].lastEval.lastChangeAt, bumped);
 });
 
 test("a receipts directory that cannot be watched is logged and reported, never swallowed", async (t) => {
-  const { f, dir, team } = await setup(t);
+  const { f, dir, team, run } = await setup(t);
   const client = createClient({ url: f.url });
-  const task = loadState(statePaths(dir)).task;
+  const task = loadState(statePaths(dir)).runs[run.runId];
   const logs = [];
   const r = await watchRun({ client, team, task, dataDir: path.join(dir, "absent-data"), maxSeconds: 0.5, quietMs: 100, log: (m) => logs.push(m) });
   assert.equal(r.receiptsWatched, false);
@@ -185,9 +185,9 @@ test("a receipts directory that cannot be watched is logged and reported, never 
 });
 
 test("a deadline inside the sub-millisecond window ends the watch as a timeout, never as a thrown deadline error", async (t) => {
-  const { f, dir, team } = await setup(t);
+  const { f, dir, team, run } = await setup(t);
   const client = createClient({ url: f.url });
-  const task = loadState(statePaths(dir)).task;
+  const task = loadState(statePaths(dir)).runs[run.runId];
   // withinDeadline floors the remaining budget, so 0 < remaining < 1 ms already reads as out of
   // budget. watchRun's own expiry test must agree: while it did not, the guarded rethrow around
   // the stream wait escaped and `watch` exited 1 "observation deadline reached" instead of 4.

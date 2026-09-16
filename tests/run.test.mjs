@@ -38,7 +38,7 @@ test("task: preconditions, dispatch with fresh tagged threads, the brief and its
   fs.rmSync(path.join(dir, "stray"));
   r = await runOmb(["task", "--todo", "T10", "--bead", "slg-a9x", "--project", dir, "--dry-run"], { env });
   assert.equal(r.code, 0, r.stdout); assert.equal(r.json.dryRun, true); assert.match(r.json.brief, /^Sudo, do T10 from TODO\.md in this project\. Test command: npm test \(run inside the task's worktree\)\. Setup command: none\. Bead: slg-a9x\./);
-  assert.equal(loadState(statePaths(dir)).task, null);
+  assert.deepEqual(loadState(statePaths(dir)).runs, {});
   assert.equal((await runOmb(["facts", "--project", dir, "--test", "npm test (run inside the task's worktree)"], { env })).code, 0);
   r = await runOmb(["task", "--todo", "T10", "--bead", "slg-a9x", "--project", dir, "--dry-run"], { env });
   assert.match(r.json.brief, /Test command: npm test \(run inside the task's worktree\)\. Setup/, "the parenthetical is not doubled");
@@ -53,12 +53,12 @@ test("task: preconditions, dispatch with fresh tagged threads, the brief and its
   assert.equal(bots.find((b) => b.id === lead.id).threadId, r.json.leadThreadId, "the fresh task is active");
   const msgs = await thread(f, r.json.leadThreadId);
   assert.equal(msgs.length, 1); assert.equal(msgs[0].role, "user"); assert.equal(msgs[0].sendId, `task-${r.json.runId}`);
-  const st = loadState(statePaths(dir));
-  assert.equal(st.task.status, "dispatched"); assert.equal(st.task.sentAt, msgs[0].at); assert.equal(st.task.lastEval.state, "running");
+  const run = loadState(statePaths(dir)).runs[r.json.runId];
+  assert.equal(run.status, "dispatched"); assert.equal(run.sentAt, msgs[0].at); assert.equal(run.lastEval.state, "running");
   r = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
   assert.equal(r.code, 3); assert.match(r.json.error, /a run is dispatched: T10/);
   r = await runOmb(["task", "--project", dir, "--abandon"], { env });
-  assert.equal(r.code, 0); assert.equal(loadState(statePaths(dir)).task, null); assert.equal(loadState(statePaths(dir)).history[0].result, "abandoned");
+  assert.equal(r.code, 0); assert.deepEqual(loadState(statePaths(dir)).runs, {}); assert.equal(loadState(statePaths(dir)).history[0].result, "abandoned");
   r = await runOmb(["task", "a free-form brief for the lead", "--project", dir], { env });
   assert.equal(r.code, 0, r.stdout); assert.match(r.json.brief, /^a free-form brief for the lead\n\nWhen the task is finished/); assert.equal(r.json.title, "a free-form brief for the lead");
   await f.control({ op: "newEnvironment" });
@@ -70,7 +70,7 @@ test("task --resume recovers a crash after preparing, after one thread, and is i
   const { f, dir, team, lead, client } = await setup(t);
   const paths = statePaths(dir);
   // crash after preparing: intent persisted, nothing on the server yet
-  await updateState(paths, (d) => { d.task = { runId: "1234567890abcdef", status: "preparing", slug: "t10", title: "T10", tag: "oml:12345678", brief: "Sudo, do T10.\n\nDONE oml:12345678", sendId: "task-1234567890abcdef", sentAt: null, sentSha: "x", threads: {}, freshThreads: true, leadThreadId: null }; return d; });
+  await updateState(paths, (d) => { d.runs["1234567890abcdef"] = { runId: "1234567890abcdef", status: "preparing", slug: "t10", title: "T10", tag: "oml:12345678", brief: "Sudo, do T10.\n\nDONE oml:12345678", sendId: "task-1234567890abcdef", sentAt: null, sentSha: "x", threads: {}, freshThreads: true, leadThreadId: null }; return d; });
   let r = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
   assert.equal(r.code, 3); assert.match(r.json.error, /a run is preparing: T10/); assert.match(r.json.hint, /task --resume/);
   r = await runOmb(["task", "--project", dir, "--resume"], { env });
@@ -84,7 +84,7 @@ test("task --resume recovers a crash after preparing, after one thread, and is i
   // crash after one thread was created: the lead's task exists on the server and in the state; the rest is created
   await runOmb(["task", "--project", dir, "--abandon"], { env });
   const leadTask = await client.post(`/api/bots/${lead.id}/tasks`, { title: "T12 [oml:aaaaaaaa]" });
-  await updateState(paths, (d) => { d.task = { runId: "aaaaaaaa00000000", status: "preparing", slug: "t12", title: "T12", tag: "oml:aaaaaaaa", brief: "Sudo, do T12.\n\nDONE oml:aaaaaaaa", sendId: "task-aaaaaaaa00000000", sentAt: null, sentSha: "x", threads: { [lead.id]: leadTask.task.threadId }, freshThreads: true, leadThreadId: leadTask.task.threadId }; return d; });
+  await updateState(paths, (d) => { d.runs["aaaaaaaa00000000"] = { runId: "aaaaaaaa00000000", status: "preparing", slug: "t12", title: "T12", tag: "oml:aaaaaaaa", brief: "Sudo, do T12.\n\nDONE oml:aaaaaaaa", sendId: "task-aaaaaaaa00000000", sentAt: null, sentSha: "x", threads: { [lead.id]: leadTask.task.threadId }, freshThreads: true, leadThreadId: leadTask.task.threadId }; return d; });
   r = await runOmb(["task", "--project", dir, "--resume"], { env });
   assert.equal(r.code, 0, r.stdout); assert.equal(r.json.threads[lead.id], leadTask.task.threadId); assert.equal(Object.keys(r.json.threads).length, 5);
   // ambiguous: two tagged tasks on a bot
@@ -92,7 +92,7 @@ test("task --resume recovers a crash after preparing, after one thread, and is i
   const nova = team.bots.find((b) => b.key === "nova");
   await client.post(`/api/bots/${nova.id}/tasks`, { title: "T13 [oml:bbbbbbbb]" });
   await client.post(`/api/bots/${nova.id}/tasks`, { title: "T13 [oml:bbbbbbbb]" });
-  await updateState(paths, (d) => { d.task = { runId: "bbbbbbbb00000000", status: "preparing", slug: "t13", title: "T13", tag: "oml:bbbbbbbb", brief: "x", sendId: "task-bbbbbbbb00000000", sentAt: null, sentSha: "x", threads: {}, freshThreads: true, leadThreadId: null }; return d; });
+  await updateState(paths, (d) => { d.runs["bbbbbbbb00000000"] = { runId: "bbbbbbbb00000000", status: "preparing", slug: "t13", title: "T13", tag: "oml:bbbbbbbb", brief: "x", sendId: "task-bbbbbbbb00000000", sentAt: null, sentSha: "x", threads: {}, freshThreads: true, leadThreadId: null }; return d; });
   r = await runOmb(["task", "--project", dir, "--resume"], { env });
   assert.equal(r.code, 3); assert.match(r.json.error, /Nova has 2 tasks tagged oml:bbbbbbbb/);
 });

@@ -60,7 +60,7 @@ test("up --dry-run previews attachment without creating state or a lock database
 
 test("task --resume --dry-run does not create threads or mark a preparing run dispatched", async (t) => {
   const { run, paths, mutations } = await setup(t);
-  await updateState(paths, (d) => { d.task = { runId: "1234567890abcdef", status: "preparing", slug: "t1", title: "T1", tag: "oml:12345678", brief: "Do T1", sendId: "task-1234567890abcdef", sentAt: null, sentSha: "x", threads: {}, freshThreads: true, leadThreadId: null }; });
+  await updateState(paths, (d) => { d.runs["1234567890abcdef"] = { runId: "1234567890abcdef", status: "preparing", slug: "t1", title: "T1", tag: "oml:12345678", brief: "Do T1", sendId: "task-1234567890abcdef", sentAt: null, sentSha: "x", threads: {}, freshThreads: true, leadThreadId: null }; });
   const before = fs.readFileSync(paths.file, "utf8");
   const r = await run(["task", "--resume", "--dry-run"]);
   assert.equal(r.code, 0, r.stdout);

@@ -6,6 +6,7 @@ import { verb, EXIT, Fail } from "../cli.mjs";
 import { resolveConfig, resolveBinary } from "../config.mjs";
 import { createClient } from "../http.mjs";
 import { updateState, identityMatches } from "../state.mjs";
+import { openRuns } from "../runs.mjs";
 import { gitAvailable, gitTopLevel, gitPath } from "../git.mjs";
 import * as srv from "../server.mjs";
 import { scanOrphans } from "../proc.mjs";
@@ -61,7 +62,7 @@ verb("doctor", {
     const summary = {
       server: state?.server ? { url: state.server.url, owned: state.server.owned === true, healthPid: state.server.healthPid ?? null } : null,
       team: state?.team ? { section: state.team.section, lead: state.team.lead?.name ?? null, bots: state.team.bots?.length ?? 0 } : null,
-      task: state?.task ? { runId: state.task.runId, status: state.task.status, title: state.task.title } : null,
+      runs: openRuns(state).map((r) => ({ runId: r.runId, status: r.status, title: r.title, slug: r.slug ?? null })),
     };
     let engines = [];
     if (flags.server) {

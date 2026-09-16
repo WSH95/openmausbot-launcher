@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawn, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { tmpDir, makeRepo, sleep } from "./helpers.mjs";
-import { statePaths, initState, loadState, updateState, withLock, assertRun, identityMatches, ensureExclude, commitState, Fail } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
+import { statePaths, initState, loadState, updateState, withLock, assertOpenRun, identityMatches, ensureExclude, commitState, STATE_VERSION, Fail } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
 
 const STATE_MJS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../skills/openmausbot-launcher/scripts/lib/state.mjs");
 
@@ -14,7 +14,7 @@ test("init, update, rev, atomic file", async () => {
   const paths = statePaths(dir);
   assert.equal(loadState(paths), null);
   const a = await updateState(paths, (doc) => { doc.project.dir = dir; doc.marks = ["a"]; return doc; });
-  assert.equal(a.rev, 1); assert.equal(a.version, 1);
+  assert.equal(a.rev, 1); assert.equal(a.version, 2); assert.deepEqual(a.runs, {}); assert.equal("task" in a, false);
   const b = await updateState(paths, (doc) => { doc.marks.push("b"); return doc; });
   assert.equal(b.rev, 2); assert.deepEqual(b.marks, ["a", "b"]);
   assert.deepEqual(loadState(paths).marks, ["a", "b"]);
@@ -127,18 +127,55 @@ test("a mutation that throws leaves the document untouched and releases the lock
   assert.equal(fs.existsSync(paths.lock), false);
 });
 
-test("assertRun and identityMatches", () => {
+test("assertOpenRun and identityMatches", () => {
   const doc = initState("/p");
-  doc.task = { runId: "r1", status: "dispatched" };
-  assert.doesNotThrow(() => assertRun(doc, "r1"));
-  assert.throws(() => assertRun(doc, "r2"), (e) => e instanceof Fail && e.code === 3 && /run/.test(e.message));
-  assert.throws(() => assertRun({ ...doc, task: null }, "r1"), /run/);
+  doc.runs.r1 = { runId: "r1", status: "dispatched" };
+  assert.equal(assertOpenRun(doc, "r1").runId, "r1");
+  assert.throws(() => assertOpenRun(doc, "r2"), (e) => e instanceof Fail && e.code === 3 && /run/.test(e.message));
+  assert.throws(() => assertOpenRun({ ...doc, runs: {} }, "r1"), /run/);
+  assert.throws(() => assertOpenRun({ ...doc, runs: { r1: { runId: "r1", status: "closed" } } }, "r1"), /run/);
   const server = { environmentId: "e1", healthPid: 10, healthStart: 100 };
   assert.equal(identityMatches(server, { environmentId: "e1", healthPid: 10, healthStart: 100 }), true);
   assert.equal(identityMatches(server, { environmentId: "e2", healthPid: 10, healthStart: 100 }), false);
   assert.equal(identityMatches(server, { environmentId: "e1", healthPid: 11, healthStart: 100 }), false);
   assert.equal(identityMatches(server, { environmentId: "e1", healthPid: 10, healthStart: 101 }), false);
   assert.equal(identityMatches(null, { environmentId: "e1" }), false);
+});
+
+test("a version 1 document is migrated in memory: an open task becomes a run, a closed one is dropped", async () => {
+  const paths = statePaths(tmpDir());
+  fs.mkdirSync(paths.dir, { recursive: true, mode: 0o700 });
+  const open = { runId: "abcdef0123456789", status: "dispatched", title: "T10", slug: "t10" };
+  const closed = { runId: "9876543210fedcba", status: "closed", title: "T09", slug: "t09", result: "passed" };
+  const v1 = { version: 1, rev: 7, project: { dir: "/p" }, server: null, team: null, facts: null, task: open, history: [closed] };
+  fs.writeFileSync(paths.file, JSON.stringify(v1));
+  const doc = loadState(paths);
+  assert.equal(doc.version, STATE_VERSION);
+  assert.deepEqual(doc.runs, { abcdef0123456789: open });
+  assert.equal("task" in doc, false, "the v1 field never survives the migration");
+  assert.deepEqual(doc.history, [closed], "the history is carried over untouched");
+  assert.equal(doc.rev, 7, "a read is not a write");
+  // a closed task was already appended to the history by whoever closed it
+  fs.writeFileSync(paths.file, JSON.stringify({ ...v1, task: { ...closed, status: "closed" } }));
+  assert.deepEqual(loadState(paths).runs, {});
+  // the migrated shape reaches the file on the next write, which stamps the version
+  fs.writeFileSync(paths.file, JSON.stringify(v1));
+  const written = await updateState(paths, (d) => { d.marks = ["after"]; return d; });
+  assert.equal(written.version, STATE_VERSION); assert.equal(written.rev, 8);
+  assert.equal(JSON.parse(fs.readFileSync(paths.file, "utf8")).task, undefined);
+  assert.equal(JSON.parse(fs.readFileSync(paths.file, "utf8")).runs.abcdef0123456789.title, "T10");
+});
+
+test("a launcher that only knows version 1 refuses a version 2 document instead of reading it as one run", () => {
+  // The check this copies is the one shipped before runs existed (state.mjs:30).
+  // A v1 launcher must fail closed on this file: its `task` field is gone, so
+  // reading it would silently dispatch a second run over an open one.
+  const v1Loader = (doc) => { if (doc.version !== 1) throw new Fail(3, `state file version ${doc.version} is not 1`, { hint: "move it aside and re-import or adopt the team" }); return doc; };
+  assert.throws(() => v1Loader(initState("/p")), (e) => e instanceof Fail && e.code === 3 && /version 2 is not 1/.test(e.message));
+  const paths = statePaths(tmpDir());
+  fs.mkdirSync(paths.dir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(paths.file, JSON.stringify({ ...initState("/p"), version: 3 }));
+  assert.throws(() => loadState(paths), (e) => e instanceof Fail && e.code === 3 && /version 3 is not 2/.test(e.message), "and this launcher fails closed on a newer one");
 });
 
 test("ensureExclude appends each entry once to .git/info/exclude", () => {

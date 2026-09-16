@@ -9,7 +9,7 @@ import { EXIT, Fail } from "./cli.mjs";
 import { gitPath } from "./git.mjs";
 
 export { Fail };
-export const STATE_VERSION = 1;
+export const STATE_VERSION = 2;
 
 export function statePaths(projectDir, override) {
   const file = override ? path.resolve(override) : path.join(path.resolve(projectDir), ".omb", "state.json");
@@ -18,7 +18,18 @@ export function statePaths(projectDir, override) {
 }
 
 export function initState(projectDir) {
-  return { version: STATE_VERSION, rev: 0, project: { dir: path.resolve(projectDir) }, server: null, team: null, facts: null, task: null, history: [] };
+  return { version: STATE_VERSION, rev: 0, project: { dir: path.resolve(projectDir) }, server: null, team: null, facts: null, runs: {}, history: [] };
+}
+
+/** Version 1 held one `task`; version 2 holds `runs` keyed by run id. A closed
+ * task was already appended to `history` by whoever closed it, so only an open
+ * one carries over. The document is migrated on every read and reaches the file
+ * in the new shape on the next write. */
+export function migrate(doc) {
+  if (doc.version !== 1) return doc;
+  const { task, ...rest } = doc;
+  const runs = task && task.status !== "closed" && task.runId ? { [task.runId]: task } : {};
+  return { ...rest, version: STATE_VERSION, runs };
 }
 
 /** A fresh read. Returns null when there is no state yet. */
@@ -27,8 +38,8 @@ export function loadState(paths) {
   try { text = fs.readFileSync(paths.file, "utf8"); } catch (e) { if (e.code === "ENOENT") return null; throw e; }
   let doc;
   try { doc = JSON.parse(text); } catch { throw new Fail(EXIT.PRECONDITION, `state file is not valid JSON: ${paths.file}`, { hint: "move it aside and re-import or adopt the team" }); }
-  if (doc.version !== STATE_VERSION) throw new Fail(EXIT.PRECONDITION, `state file version ${doc.version} is not ${STATE_VERSION}`, { hint: "move it aside and re-import or adopt the team" });
-  return doc;
+  if (doc.version !== STATE_VERSION && doc.version !== 1) throw new Fail(EXIT.PRECONDITION, `state file version ${doc.version} is not ${STATE_VERSION}`, { hint: "move it aside and re-import or adopt the team" });
+  return migrate(doc);
 }
 
 /** Write, fsync, rename, then fsync the directory so the rename is durable; never leave a temp file behind. */
@@ -108,11 +119,13 @@ export async function updateState(paths, mutate, opts = {}) {
   }, opts);
 }
 
-/** The current run must be the one the caller observed. */
-export function assertRun(doc, runId) {
-  if (!doc?.task || doc.task.runId !== runId) {
-    throw new Fail(EXIT.PRECONDITION, `the state's current run is ${doc?.task?.runId ?? "none"}, not ${runId}`, { hint: "another launcher replaced the run; re-read the state" });
+/** The run must still be open in the document the caller is about to write. */
+export function assertOpenRun(doc, runId) {
+  const run = doc?.runs?.[runId];
+  if (!run || run.status === "closed") {
+    throw new Fail(EXIT.PRECONDITION, `the state has no open run ${runId}`, { hint: "another launcher closed or replaced it; re-read the state" });
   }
+  return run;
 }
 
 /** Persistent environment id plus the live server process identity. */

@@ -179,7 +179,7 @@ test("status --tail shows a standalone send's reply without creating or classify
   assert.equal(status.json.lastUser.id, sent.json.messageId); assert.equal(status.json.lastUser.text, "Reply with M1 transport ACK");
   assert.deepEqual(status.json.tail.map(m => [m.id, m.role, m.text]), [[reply.message.id, "bot", "M1 transport ACK"]]);
   assert.equal(status.json.state, undefined, "a standalone reply is not a task completion verdict");
-  assert.equal(loadState(statePaths(dir)).task, null);
+  assert.deepEqual(loadState(statePaths(dir)).runs, {});
   const plain = await runOmb(["status", "--project", dir], { env });
   assert.equal(plain.json.lead.text, "M1 transport ACK"); assert.equal(plain.json.tail, undefined);
 });
@@ -195,7 +195,7 @@ test("status: without a run, with a dispatched run, and carrying a terminal verd
   const client = createClient({ url: f.url });
   const threadId = (await client.post(`/api/bots/${lead.id}/tasks`, { title: "T10 [oml:abcd1234]" })).task.threadId;
   const sent = await client.post(`/api/bots/${lead.id}/messages`, { text: "go", threadId, sendId: "s" });
-  await updateState(statePaths(dir), (d) => { d.task = { runId: "r1", status: "dispatched", tag: "oml:abcd1234", sentAt: sent.message.at, leadThreadId: threadId, threads: { [lead.id]: threadId }, slug: "T10", title: "T10" }; return d; });
+  await updateState(statePaths(dir), (d) => { d.runs.r1 = { runId: "r1", status: "dispatched", tag: "oml:abcd1234", sentAt: sent.message.at, leadThreadId: threadId, threads: { [lead.id]: threadId }, slug: "T10", title: "T10" }; return d; });
   await f.control({ op: "activity", botId: lead.id, activity: "working" });
   r = await runOmb(["status", "--project", dir, "--brief"], { env });
   assert.match(r.stdout, /^T10 · running .* · Sudo working/);
@@ -204,11 +204,11 @@ test("status: without a run, with a dispatched run, and carrying a terminal verd
   r = await runOmb(["status", "--project", dir, "--bots", "--tail", "3"], { env });
   assert.equal(r.json.state, "running", "one snapshot cannot settle"); assert.equal(r.json.bots.length, 5); assert.equal(r.json.tail.length, 2);
   assert.equal(r.json.carried, false);
-  const s = await snapshot(client, { team: st.team, task: loadState(statePaths(dir)).task }, {});
-  await updateState(statePaths(dir), (d) => { d.task.lastEval = { state: "done", lastLeadMessageId: s.leadText.id, outcomes: [], quietSince: Date.now() - 60_000, lastChangeAt: Date.now() - 60_000 }; return d; });
+  const s = await snapshot(client, { team: st.team, task: loadState(statePaths(dir)).runs.r1 }, {});
+  await updateState(statePaths(dir), (d) => { d.runs.r1.lastEval = { state: "done", lastLeadMessageId: s.leadText.id, outcomes: [], quietSince: Date.now() - 60_000, lastChangeAt: Date.now() - 60_000 }; return d; });
   r = await runOmb(["status", "--project", dir], { env });
   assert.equal(r.json.state, "running", "legacy watermarks lack sufficient evidence to carry done");
-  await updateState(statePaths(dir), (d) => { d.task.lastEval.evidence = evidenceOf(s); return d; });
+  await updateState(statePaths(dir), (d) => { d.runs.r1.lastEval.evidence = evidenceOf(s); return d; });
   r = await runOmb(["status", "--project", dir], { env });
   assert.equal(r.json.state, "done"); assert.match(r.json.reasons[0], /from the last watch/);
   assert.equal(r.json.carried, true);

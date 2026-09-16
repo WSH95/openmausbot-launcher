@@ -6,6 +6,7 @@ import { resolveConfig } from "../config.mjs";
 import { createClient } from "../http.mjs";
 import { snapshot, evaluate, carriedVerdict, TERMINAL as TERMINAL_STATES } from "../snapshot.mjs";
 import { updateState } from "../state.mjs";
+import { openRuns, selectRun, runLabel } from "../runs.mjs";
 import { requireTeam, requireDataDir, requireSameEnvironment, runContext } from "../session.mjs";
 import { readNdjson, turnsFromEvents, nativeCalls, check042, beadStatus, commitsSince, runTests, renderMarkdown, mergedShaFrom, historicalContext, archivedMessages } from "../report.mjs";
 import { reconcileCheck as rootCheck, git as gitRun } from "../git.mjs";
@@ -15,15 +16,13 @@ verb("report", {
   handler: async ({ flags }) => {
     const cfg = resolveConfig(flags);
     const history = cfg.state?.history ?? [];
-    const fromHistory = Boolean(flags.run);
-    let task = cfg.state?.task?.status !== "closed" ? cfg.state?.task : null;
-    if (fromHistory) {
-      const matches = flags.run === "last" ? history.slice(-1) : history.filter((h) => h.runId === flags.run || h.runId?.startsWith(flags.run));
-      if (matches.length > 1) throw new Fail(EXIT.PRECONDITION, `ambiguous closed run ${flags.run}`);
-      task = matches[0];
-      if (!task) throw new Fail(EXIT.PRECONDITION, `no closed run ${flags.run} in the history`, { hint: history.length ? `known: ${history.map((h) => `${h.runId?.slice(0, 8)} ${h.title}`).join(", ")}` : "the history is empty" });
-    }
+    const open = openRuns(cfg.state);
+    let task = null;
+    if (flags.run) task = selectRun(cfg.state, flags.run);
+    else if (open.length > 1) throw new Fail(EXIT.PRECONDITION, `${open.length} runs are open; pass --run`, { hint: open.map(runLabel).join(", ") });
+    else task = open[0] ?? null;
     if (!task) throw new Fail(EXIT.PRECONDITION, "no open run to report", { hint: history.length ? "report --run last re-reports the last closed run" : "the history is empty" });
+    const fromHistory = task.status === "closed";
 
     let context; let team; let snap; let ev; let env;
     if (fromHistory) {
@@ -107,10 +106,10 @@ verb("report", {
     };
     if (shouldClose && !cfg.dryRun) {
       await updateState(cfg.paths, (d) => {
-        if (JSON.stringify(d.task) !== JSON.stringify(task)) throw new Fail(EXIT.PRECONDITION, "the run changed while reporting; report again");
+        if (JSON.stringify(d.runs?.[task.runId]) !== JSON.stringify(task)) throw new Fail(EXIT.PRECONDITION, "the run changed while reporting; report again");
         if (JSON.stringify(d.facts) !== JSON.stringify(cfg.state.facts) || JSON.stringify(d.team) !== JSON.stringify(cfg.state.team) || JSON.stringify(d.server) !== JSON.stringify(cfg.state.server)) throw new Fail(EXIT.PRECONDITION, "the run context changed while reporting; report again");
-        const closedRun = { ...d.task, context: runContext({ ...cfg, state: d }), status: "closed", result, closedAt: new Date().toISOString(), report: { state: ev.state, result, mergedSha, recordCommit: record.commit, tests: tests.ok, durationSec: report.durationSec, closing, outcomes: snap.outcomes, unknown, failedChecks } };
-        d.history = [...(d.history ?? []), closedRun]; d.task = null; return d;
+        const closedRun = { ...d.runs[task.runId], context: runContext({ ...cfg, state: d }), status: "closed", result, closedAt: new Date().toISOString(), report: { state: ev.state, result, mergedSha, recordCommit: record.commit, tests: tests.ok, durationSec: report.durationSec, closing, outcomes: snap.outcomes, unknown, failedChecks } };
+        d.history = [...(d.history ?? []), closedRun]; delete d.runs[task.runId]; return d;
       });
       report.closed = true;
     }

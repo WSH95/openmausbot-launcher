@@ -118,10 +118,10 @@ test("abandon refuses a run replaced while it waits for the state lock", async (
   while (!release) await sleep(5);
   const pending = run(["task", "--abandon"]);
   await sleep(250);
-  const doc = loadState(paths); doc.task = { ...doc.task, runId: "replacement", title: "Replacement" }; commitState(paths, doc);
+  const doc = loadState(paths); doc.runs = { replacement: { ...Object.values(doc.runs)[0], runId: "replacement", title: "Replacement" } }; commitState(paths, doc);
   release(); await held;
   const r = await pending;
-  assert.equal(r.code, 3, r.stdout); assert.equal(loadState(paths).task.runId, "replacement");
+  assert.equal(r.code, 3, r.stdout); assert.deepEqual(Object.keys(loadState(paths).runs), ["replacement"]);
 });
 
 test("watch checkpoints wait at most one second for another writer", async (t) => {
@@ -176,7 +176,7 @@ test("in remote mode the binding is the environment id, so another URL to the sa
   const sameServer = `http://localhost:${f.port}`;
   const viaTunnel = await run(["status", "--remote", "--url", sameServer]);
   assert.equal(viaTunnel.code, 0, viaTunnel.stdout);
-  assert.equal(viaTunnel.json.run.runId, (await run(["state", "--show"])).json.state.task.runId);
+  assert.equal(viaTunnel.json.run.runId, Object.keys((await run(["state", "--show"])).json.state.runs)[0]);
 
   const elsewhere = await startFake(); t.after(() => elsewhere.close());
   const wrong = await run(["status", "--remote", "--url", `http://localhost:${elsewhere.port}`]);

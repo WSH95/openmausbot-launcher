@@ -42,7 +42,7 @@ test("import maps package keys to returned bots, records the chief as lead, room
   assert.equal(again.json.section, "Dev team 2");
   const bad = await runOmb(["import", path.join(ROOT, "package.json"), "--project", dir, "--url", f.url], { env });
   assert.equal(bad.code, 2);
-  await updateState(statePaths(dir), (d) => { d.task = { runId: "r", status: "dispatched", title: "T1" }; return d; });
+  await updateState(statePaths(dir), (d) => { d.runs.r = { runId: "r", status: "dispatched", title: "T1" }; return d; });
   const busy = await runOmb(["import", PKG, "--project", dir, "--url", f.url], { env });
   assert.equal(busy.code, 3); assert.match(busy.json.error, /a run is dispatched/);
 });

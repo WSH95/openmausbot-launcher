@@ -111,7 +111,7 @@ test("report: a full synthetic run passes --check-042, renders markdown, and clo
   assert.equal(r.json.threads.find((x) => x.bot === "Sudo").turns, 2); assert.equal(r.json.threads.find((x) => x.bot === "Nova").totals.input, 500);
   assert.ok(r.json.check042.every((c) => c.ok === true), JSON.stringify(r.json.check042));
   const after = loadState(statePaths(dir));
-  assert.equal(after.task, null); assert.equal(after.history.at(-1).result, "passed"); assert.equal(after.history.at(-1).runId, run.json.runId);
+  assert.deepEqual(after.runs, {}); assert.equal(after.history.at(-1).result, "passed"); assert.equal(after.history.at(-1).runId, run.json.runId);
   const md = renderMarkdown(r.json);
   assert.match(md, /^## \d{4}-\d{2}-\d{2} — T10 \(passed\)/); assert.match(md, /\| Sudo \| 2 \|/); assert.match(md, /- merged-ancestor: yes/);
   r = await runOmb(["report", "--project", dir], { env });

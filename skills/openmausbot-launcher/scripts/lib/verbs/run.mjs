@@ -24,7 +24,7 @@ verb("status", {
     const team = requireTeam(cfg);
     const client = createClient(cfg);
     await requireSameEnvironment(cfg, client);
-    const task = cfg.state.task && cfg.state.task.status !== "closed" ? cfg.state.task : null;
+    const task = openRuns(cfg.state)[0] ?? null;
     const snap = await snapshot(client, { team, task }, { dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null });
     const tail = Number(flags.tail ?? 0);
     const conversation = { lead: snap.leadText, lastUser: snap.lastUser, ...(tail > 0 ? { tail: snap.leadTail.slice(-tail).map((m) => ({ id: m.id, at: m.at, role: m.role, kind: m.kind, from: m.from?.name ?? null, text: summarizeLong(m) })) } : {}) };
@@ -49,7 +49,8 @@ const summarizeLong = (m) => (m.text ?? m.tool?.name ?? "").replace(/\s+/g, " ")
 
 // ── task, send, answer, interrupt (design: "Task lifecycle") ──
 import { createHash, randomBytes } from "node:crypto";
-import { withLock, loadState, commitState, updateState, initState, assertRun, LockTimeout } from "../state.mjs";
+import { withLock, loadState, commitState, updateState, initState, assertOpenRun, LockTimeout } from "../state.mjs";
+import { openRuns, selectRun, runLabel } from "../runs.mjs";
 import { HttpError, precondition } from "../http.mjs";
 import { reconcileCheck, git } from "../git.mjs";
 import * as srv from "../server.mjs";
@@ -80,11 +81,11 @@ verb("task", {
     if (cfg.mode === "remote") throw new Fail(EXIT.PRECONDITION, "task needs the project checkout on the server's machine", { hint: "remote hosts can status, watch, send, answer, and interrupt" });
     requireDataDir(cfg, "task");
     const team = requireTeam(cfg);
-    const current = cfg.state.task && cfg.state.task.status !== "closed" ? cfg.state.task : null;
+    const current = openRuns(cfg.state)[0] ?? null;
     if (flags.abandon) {
       if (!current) throw new Fail(EXIT.PRECONDITION, "no open run to abandon");
       if (cfg.dryRun) return { result: { dryRun: true, abandon: current.runId } };
-      const doc = await save( (d) => { assertRun(d, current.runId); const t = { ...d.task, status: "closed", result: "abandoned", closedAt: new Date().toISOString() }; d.history = [...(d.history ?? []), t]; d.task = null; return d; });
+      const doc = await save( (d) => { const open = assertOpenRun(d, current.runId); const t = { ...open, status: "closed", result: "abandoned", closedAt: new Date().toISOString() }; d.history = [...(d.history ?? []), t]; delete d.runs[current.runId]; return d; });
       return { result: { abandoned: current.runId, title: current.title, history: doc.history.length }, brief: `task · abandoned ${current.title}` };
     }
     const client = createClient(cfg);
@@ -123,15 +124,15 @@ verb("task", {
     // Everything from here runs under the lock (design steps 2-4).
     return (async () => {
       let doc = loadState(cfg.paths) ?? initState(cfg.projectDir);
-      let run = doc.task && doc.task.status !== "closed" ? doc.task : null;
-      if (flags.resume) { assertRun(doc, current.runId); if (!run) throw new Fail(EXIT.PRECONDITION, "the run was closed by another launcher"); }
+      let run = flags.resume ? assertOpenRun(doc, current.runId) : openRuns(doc)[0] ?? null;
+      if (flags.resume) { /* assertOpenRun already refused a run another launcher closed */ }
       else {
         if (run) throw new Fail(EXIT.PRECONDITION, `a run is ${run.status}: ${run.title}`, { hint: "another launcher started it; task --resume or task --abandon" });
         const runId = randomBytes(8).toString("hex"); const tag = tagOf(runId);
         const title = flags.title ?? flags.todo ?? briefArg.split("\n")[0].slice(0, 60);
         run = { runId, context: runContext(cfg), status: "preparing", slug: slugify(title), title, tag, brief: composeBrief({ leadName: team.lead.name, brief: briefArg, todo: flags.todo, bead: flags.bead, facts: doc.facts, tag }), bead: flags.bead ?? null,
           sendId: `task-${runId}`, sentAt: null, sentSha, sendReceipt: null, leadThreadId: null, threads: {}, freshThreads: !flags["no-fresh-threads"], createdAt: new Date().toISOString(), nudgedAt: null, lastEval: null };
-        doc.task = run; doc = commitState(cfg.paths, doc);
+        doc.runs[run.runId] = run; doc = commitState(cfg.paths, doc);
       }
       const threadTitle = `${run.title} [${run.tag}]`;
       const order = [leadLive, ...live.filter((b) => b.id !== leadLive.id)];
@@ -152,7 +153,7 @@ verb("task", {
         }
         run.threads[bot.id] = threadId;
         if (bot.id === leadLive.id) run.leadThreadId = threadId;
-        doc.task = run; doc = commitState(cfg.paths, doc);
+        doc.runs[run.runId] = run; doc = commitState(cfg.paths, doc);
       }
       if (run.status === "preparing") {
         let receipt;
@@ -162,7 +163,7 @@ verb("task", {
         run.sendReceipt = { steered: receipt.steered === true, queued: receipt.queued === true, messageId: receipt.message?.id ?? null, queueId: receipt.queueId ?? null };
         run.status = "dispatched";
         run.lastEval = { state: "running", lastChangeAt: run.sentAt, outcomes: [], quietSince: null, lastLeadMessageId: null, cursor: null, lastReported: null };
-        doc.task = run; doc = commitState(cfg.paths, doc);
+        doc.runs[run.runId] = run; doc = commitState(cfg.paths, doc);
       }
       return { result: { runId: run.runId, status: run.status, title: run.title, slug: run.slug, tag: run.tag, leadThreadId: run.leadThreadId, threads: run.threads, sentAt: run.sentAt, sentSha: run.sentSha, sendReceipt: run.sendReceipt, resumed: flags.resume === true, brief: run.brief },
         brief: `task · ${run.title} · ${run.status} · lead thread ${run.leadThreadId} · ${Object.keys(run.threads).length} fresh thread(s)` };
@@ -199,13 +200,13 @@ verb("send", {
     await requireSameEnvironment(cfg, client);
     const bot = flags.bot ? findBot(team, flags.bot) : team.lead;
     if (!bot) throw new Fail(EXIT.USAGE, `no team bot named ${flags.bot}`);
-    const task = cfg.state.task && cfg.state.task.status !== "closed" ? cfg.state.task : null;
+    const task = openRuns(cfg.state)[0] ?? null;
     let threadId = flags.thread ?? (task?.threads?.[bot.id]) ?? null;
     if (!threadId) { const live = (await client.get("/api/bots?messages=0")).bots?.find((b) => b.id === bot.id); threadId = live?.threadId; }
     // --again salts the scope: a deliberate repeat gets a fresh sendId and is delivered, not deduped.
     const sendId = sendIdFor(`${task?.runId ?? "no-run"}${flags.again ? `:${Date.now()}` : ""}`, threadId, text);
     const r = await deliver(client, cfg, { botId: bot.id, threadId, text, sendId });
-    if (!r.dryRun && task) await save( (d) => { if (d.task?.runId === task.runId) d.task.lastEval = { ...(d.task.lastEval ?? {}), lastChangeAt: Date.now() }; return d; });
+    if (!r.dryRun && task) await save( (d) => { const live = d.runs?.[task.runId]; if (live) live.lastEval = { ...(live.lastEval ?? {}), lastChangeAt: Date.now() }; return d; });
     return { result: { bot: bot.name, ...r, sendId }, brief: `send · ${bot.name} · ${r.duplicate ? `duplicate of ${r.messageId}` : r.queued ? "queued" : r.steered ? "steered" : "delivered"}` };
   }),
 });
@@ -220,7 +221,7 @@ verb("answer", {
     const bare = positionals.join(" ").trim();
     const modes = [flags.allow && "allow", flags.deny && "deny", flags.message !== undefined && "answer"].filter(Boolean);
     if (modes.length > 1) throw new Fail(EXIT.USAGE, "pass one of --allow, --deny, --message");
-    const task = cfg.state.task && cfg.state.task.status !== "closed" ? cfg.state.task : null;
+    const task = openRuns(cfg.state)[0] ?? null;
     if (!modes.length) {
       if (!bare) throw new Fail(EXIT.USAGE, 'usage: answer --allow|--deny|--message "<text>" [--request ID]  |  answer "<text>"');
       const out = await VERBS.get("send").handler({ flags: { ...flags }, positionals: [bare], verb: "send" });
@@ -262,7 +263,7 @@ verb("interrupt", {
     await requireSameEnvironment(cfg, client);
     const bot = flags.bot ? findBot(team, flags.bot) : team.lead;
     if (!bot) throw new Fail(EXIT.USAGE, `no team bot named ${flags.bot}`);
-    const task = cfg.state.task && cfg.state.task.status !== "closed" ? cfg.state.task : null;
+    const task = openRuns(cfg.state)[0] ?? null;
     const threadId = task?.threads?.[bot.id] ?? null;
     if (!threadId) throw new Fail(EXIT.PRECONDITION, `no run thread is recorded for ${bot.name}`, { hint: "interrupt only stops the run's own turn" });
     try { await client.post(`/api/bots/${bot.id}/interrupt`, { threadId }); } catch (e) { throw precondition(e, "the bot is busy somewhere else (a room or a routine); it was not interrupted"); }
@@ -279,7 +280,7 @@ verb("watch", {
   handler: async ({ flags }) => {
     const cfg = resolveConfig(flags);
     const team = requireTeam(cfg);
-    const task = cfg.state.task && cfg.state.task.status !== "closed" ? cfg.state.task : null;
+    const task = openRuns(cfg.state)[0] ?? null;
     if (!task) throw new Fail(EXIT.PRECONDITION, "no open run to watch", { hint: "start one with task, or use status" });
     if (task.status !== "dispatched") throw new Fail(EXIT.PRECONDITION, `the run is ${task.status}`, { hint: "task --resume finishes the dispatch" });
     const until = flags.until ?? "settled";
@@ -295,11 +296,11 @@ verb("watch", {
       return { code: EXIT.TIMEOUT, result: { state: "timeout", checkpointed: false, complete: false, pending: [], cursor: task.lastEval?.cursor ?? null, reasons: ["watch deadline reached before server identity was verified"] }, brief: "watch · timed out before server identity was verified" };
     }
     const nudge = flags.nudge && !cfg.dryRun ? async (opts) => withLock(cfg.paths, async () => {
-      const doc = loadState(cfg.paths); assertRun(doc, task.runId);
-      if (doc.task.nudgedAt) return;
+      const doc = loadState(cfg.paths); const live = assertOpenRun(doc, task.runId);
+      if (live.nudgedAt) return;
       await requireSameEnvironment({ ...cfg, state: doc }, client, opts);
       await client.post(`/api/bots/${team.lead.id}/messages`, { text: "status?", threadId: task.leadThreadId, sendId: `nudge-${task.runId}` }, opts);
-      doc.task.nudgedAt = new Date().toISOString(); commitState(cfg.paths, doc);
+      live.nudgedAt = new Date().toISOString(); commitState(cfg.paths, doc);
     }, { waitMs: Math.min(1000, opts.timeoutMs) }) : null;
     const r = await watchRun({ client, team, task, dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null, maxSeconds, deadline, until, pollMs: num(flags.poll, 30) * 1000, stallMs: num(flags["stall-minutes"], 40) * 60_000, quietMs: num(flags["quiet-seconds"], 30) * 1000, dropMs: num(flags["drop-seconds"], 120) * 1000, nudge, log });
     let checkpointed = false;
@@ -307,10 +308,11 @@ verb("watch", {
       try {
         await withLock(cfg.paths, () => {
           const doc = loadState(cfg.paths);
-          if (doc?.task?.runId !== task.runId || doc.task.status === "closed") return;
+          const live = doc?.runs?.[task.runId];
+          if (!live || live.status === "closed") return;
           if (JSON.stringify(doc.server) !== JSON.stringify(cfg.state.server) || doc.team?.lead?.id !== team.lead.id) throw new Fail(EXIT.PRECONDITION, "the server binding changed before the watch checkpoint", { hint: "re-read the state" });
-          doc.task.lastEval = mergeCheckpoint(doc.task.lastEval, r.watermarks);
-          if (r.nudged && !doc.task.nudgedAt) doc.task.nudgedAt = new Date().toISOString();
+          live.lastEval = mergeCheckpoint(live.lastEval, r.watermarks);
+          if (r.nudged && !live.nudgedAt) live.nudgedAt = new Date().toISOString();
           commitState(cfg.paths, doc); checkpointed = true;
         }, { waitMs: 1000 });
       } catch (e) { if (!(e instanceof LockTimeout)) throw e; }
