@@ -99,7 +99,14 @@ than none: the hook fires in a degenerate state (dev pack `HANDOFF.md`,
   `ECONNREFUSED` keeps `nothing answers at <url> (ECONNREFUSED)`. Loopback
   HTTP is blocked there too: `status` exits 1 with a network error naming the
   URL (M1 review, tier 2); an exit 1 from a sandboxed Codex is the sandbox,
-  not the server.
+  not the server. A `watch` there never reaches a first frame: on 2026-09-17
+  `codex exec --approve-for-me` (v0.154.0, `sandbox: workspace-write [workdir,
+  /tmp, $TMPDIR]`) ran `watch --run <slug> --max-seconds 570 --verbose` against
+  a live run and the driver exited after 47 ms with that same EPERM and hint,
+  so long SSE inside the sandbox needs `danger-full-access` or `--remote`
+  against a reachable URL. `--approve-for-me` is not a way around it: it routes
+  approvals through automatic review using the workspace-write sandbox, and
+  Codex refuses `--sandbox` alongside it.
 - The record step (`bd`, `git commit`) runs inside the lead's CLI sandbox. A
   failure there leaves the root dirty, and the next task's `reconcile`
   is what reports it.
@@ -198,6 +205,22 @@ historical reports append a reanalysis instead of replacing the original.
   and implementer, and every run-scoped verb takes `--run <ref>` rather than
   guessing. Finish each with `report --run <ref>`, or close it with
   `task --abandon --run <ref>`. There is no `--force`.
+- **A shared specialist is a shared bottleneck.** With one reviewer for two
+  runs, a lead can post the run marker while that reviewer is still busy on
+  the other run: on 2026-09-17 T15's `DONE` arrived with `task/t15` unmerged
+  and its bead open, and the lead said so in the same message. What the
+  operator sees is `DONE` over an unmerged branch, so read the closing text
+  before believing the state; the recovery is one `send --run <slug>` telling
+  the lead the reviewer is free. A lead should queue or wait instead of
+  declaring done — that is pack behaviour, not something the driver can fix.
+- **A run can stop settling once its sibling closes** (bead `oml-fg8`, open).
+  After `report --run <a>` moved the first run into history, every
+  `watch --run <b>` returned `timeout` with `idle for 0 s, not yet settled`
+  (`quietFor 0`, `changes []`, `inflight false`, `busy []`, `complete true`)
+  although every bot was idle and the lead's last turn was eight minutes old —
+  and the same run had settled as `attention` four times before that. Until it
+  is fixed: `task --abandon --run <b>`, then `report --run <runId>`, which
+  reads the same evidence from history.
 - **A busy lead belongs to every open run** unless the runtime log names the
   thread its turn is on, and a pending request nobody can place is `shared`
   and needs `--request`. The driver would rather keep both runs waiting than

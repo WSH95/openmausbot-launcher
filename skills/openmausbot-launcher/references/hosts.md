@@ -37,14 +37,15 @@ quiet window before it can declare a run settled, so never go below
 |---|---|---|
 | Claude Code | Bash 120 s by default, up to 600 s with `timeout`; `run_in_background` for longer | `--max-seconds 100`, or `--max-seconds 570` in the background with a 600 s timeout |
 | Grok Build | similar to Claude Code | `--max-seconds 100` |
-| Codex CLI | the exec timeout of the sandbox | `--max-seconds 100` |
-| OpenClaw | `exec` yields after 10 s and keeps the process running in the background; the process timeout still applies | `--max-seconds 1500` in the background, read the result through the process tool; or automations. The 10 s yield is still unverified: the 2026-09-16 pass had no open run |
-| Hermes | cron jobs run a script to completion (verified 2026-09-16); the terminal tool takes a per-call timeout, over `terminal.timeout` (180 s) and `terminal.lifetime_seconds` (300 s) in `config.yaml` | `--max-seconds 240` from the cron adapter; raise the two config values before a longer watch |
+| Codex CLI | the exec timeout of the sandbox | `--max-seconds 100`, and only outside the sandbox: inside `workspace-write` the watch cannot open the connection at all (2026-09-17) |
+| OpenClaw | `exec` yields after 10 s and keeps the process running in the background; the process timeout still applies | `--max-seconds 1500` in the background, read the result through the process tool; or automations. On 2026-09-17 an OpenClaw agent ran `watch --run t14 --max-seconds 40 --brief` against a live run and read the approval line back (run `614776d8-418a-457e-9b62-55b128102520`, 45.3 s, one approval card resolved `allow-once`); the 10 s yield itself is still unobserved |
+| Hermes | cron jobs run a script to completion (verified 2026-09-16); the terminal tool takes a per-call timeout, over `terminal.timeout` (180 s) and `terminal.lifetime_seconds` (300 s) in `config.yaml` | `--max-seconds 240` from the cron adapter; raise the two config values before a longer watch. On 2026-09-17 `hermes -z` ran `watch --run t14 --max-seconds 40 --brief` against a live run through the terminal tool and read the approval line back (session `20260917_013542_298e4e`, 34 s, its tool recorded the driver's exit 5) |
 | DSH | not measured | `--max-seconds 100` |
 
-## Codex sandbox (verified 2026-09-08 against real OpenMausBot 0.1.56)
+## Codex sandbox (verified 2026-09-08 and 2026-09-17 against real OpenMausBot 0.1.56)
 
-Inside `--sandbox workspace-write` (Codex CLI 0.153.4):
+Inside `--sandbox workspace-write` (Codex CLI 0.153.4, and 0.154.0 on
+2026-09-17):
 
 - Listening sockets are denied: `up` exits 1 with `the server exited during
   startup`, the log shows `listen EPERM: operation not permitted`, and the
@@ -56,6 +57,15 @@ Inside `--sandbox workspace-write` (Codex CLI 0.153.4):
   the sandbox, not the server.
 - `--sandbox read-only` lists `$openmausbot-launcher` among the skills, and
   `workspace-write` can write `<project>/.omb/state.json`.
+- A long `watch` is not slow there, it is impossible: against a live run on
+  2026-09-17 (`watch --run t15 --max-seconds 570 --verbose`, session
+  `01a0ade0-3bad-7f63-8530-cf3e076a800d`) the driver exited after 47 ms with
+  `cannot reach http://127.0.0.1:8899: EPERM` and its sandbox hint, and the
+  model stopped without requesting an escalation. `--approve-for-me` is not a
+  way around it: it routes approvals through automatic review **using the
+  workspace-write sandbox**, so it cannot be combined with `--sandbox`
+  ("the argument '--sandbox <SANDBOX_MODE>' cannot be used with
+  '--approve-for-me'") and it leaves the same sandbox in place.
 
 Two ways out:
 
@@ -86,7 +96,9 @@ The M1 review's tier 2 (2026-09-08, `docs/evidence.md`) added the
 real-server survival spike from Grok and Codex, the Codex skill listing and
 state-file writability checks, and the Claude trigger phrase; its tier 3
 ran the 100 s foreground and 570 s background watches. Long Codex SSE
-watches inside the sandbox remain unverified.
+watches inside the sandbox are not unverified any more: they are blocked
+before the first frame (2026-09-17, above), so they need the escalation path
+or `--remote`.
 
 ## OpenClaw, Hermes and dsh (verified 2026-09-16 against real OpenMausBot 0.1.56)
 

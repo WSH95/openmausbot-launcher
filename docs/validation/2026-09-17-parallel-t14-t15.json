@@ -1,0 +1,976 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-17T06:30:00Z",
+  "purpose": "v2 validation (beads oml-u1j, oml-fg8): two tasks open at once on one team, three request kinds answered on a real server, two agent hosts watching the live run, and a sandboxed Codex asked for a long SSE watch",
+  "coverage": {
+    "path": "up --fresh -> import -> bind -> facts -> three request kinds on Nova -> the lead creates a second implementer -> import --adopt + bind -> task T14 -> task T15 while T14 runs -> alternating watch/answer -> report each run -> abandon the run that would not settle -> reconcile, cleanup, down",
+    "tested": [
+      "two runs open at once on one team, each with its own worktree, branch, bead and implementer",
+      "the lead serialized across two run threads (12 turns, no overlap)",
+      "routine, learned-skill and credential request kinds against real OpenMausBot 0.1.56",
+      "a lead creating a second implementer, then import --adopt and bind for it",
+      "17 approval cards on a thread both runs record, each attributed to one run and answered with --run",
+      "report --md --check-042 for an open run and from history",
+      "watch --run <slug> --max-seconds 40 --brief executed and read back by OpenClaw and by Hermes Agent",
+      "codex exec --approve-for-me: the driver cannot reach loopback inside workspace-write"
+    ],
+    "notTested": [
+      "the connector request kind (Composio unconfigured; the server refuses to create a request)",
+      "answer --message on a real question card (none appeared)",
+      "a provider-key credential and its busy-fleet refusal against a real server",
+      "watch --nudge, a third open run, dsh watch, any host watch longer than 40 s",
+      "long SSE inside a Codex sandbox: unreachable there without escalation"
+    ],
+    "newOmbBotTurns": 34,
+    "paidHostTurns": "3 native sessions: OpenClaw 1, Hermes Agent 1, Codex exec 1",
+    "commandSource": "session scratchpad p7-*.json / .md / .txt, the run's data directory (events/, decisions.ndjson, routines.json, config.json, skill-state/) and the fixture's git history",
+    "outputProjection": "no token, credential value or pairing code appears in this record; the credential answered in this run was a dummy value written to a 0600 file by the operator and cleared from the server afterwards"
+  },
+  "driverCommit": "5217d71",
+  "driverCommitNote": "3c64657, the repository HEAD when this run started, touches only .project-steward/",
+  "node": "node 24.11.0; local mode needs 24+",
+  "fixture": {
+    "project": "/home/wsh/.cache/agent-team/validate-0.4.1/slugkit",
+    "startCommit": "17e2850d5074c516fea40eb3c82918f2b7917b66",
+    "startCommitSubject": "docs: add T14 (lowercase) and T15 (CLI options) for the v2 parallel run",
+    "startTests": 85,
+    "tasks": {
+      "T14": "slg-h3m",
+      "T15": "slg-0sq"
+    },
+    "endCommit": "ddd46843ff1b16158bc28bc3772e2e1468787942",
+    "endCommitSubject": "docs(team): T14 lowercase merged as c7554a5, T15 CLI options merged as 11ff1e6",
+    "endTests": 99,
+    "commits": [
+      "ddd4684 docs(team): T14 lowercase merged as c7554a5, T15 CLI options merged as 11ff1e6",
+      "11ff1e6 Add --sep, --max-length, --max-words CLI options (T15 / slg-0sq)",
+      "c7554a5 Add lowercase parameter to slugify (T14 / slg-h3m)",
+      "17e2850 docs: add T14 (lowercase) and T15 (CLI options) for the v2 parallel run"
+    ],
+    "statusAtEnd": "clean"
+  },
+  "server": {
+    "version": "0.1.56",
+    "port": 8899,
+    "ports": [
+      8899,
+      8900
+    ],
+    "url": "http://127.0.0.1:8899",
+    "dataDir": "/home/wsh/.cache/agent-team/omb-launcher-data-v2run-20260917T050914-20260917T050915-XwqQxP",
+    "dataDirRequested": "/home/wsh/.cache/agent-team/omb-launcher-data-v2run-20260917T050914",
+    "environmentId": "b4962439-c550-4971-805b-25b11863b797",
+    "supervisorPid": 1643151,
+    "healthPid": 1643158,
+    "askTimeoutMs": 600000,
+    "startedAt": "2026-09-17T05:09:21.657Z",
+    "sessionStartedAt": "2026-09-17T05:09:14Z",
+    "stoppedAt": "2026-09-17T06:07:26Z",
+    "down": {
+      "ok": true,
+      "verb": "down",
+      "stopped": true,
+      "supervisorPid": 1643151,
+      "healthPid": 1643158,
+      "url": "http://127.0.0.1:8899",
+      "orphans": []
+    },
+    "doctor": {
+      "beforeUp": "6/6",
+      "withServer": "11/11",
+      "engines": [
+        "grok",
+        "claude",
+        "codex",
+        "hermes"
+      ]
+    }
+  },
+  "package": {
+    "path": "/home/wsh/Documents/agent-team-devpack/packages/dev-team/dev-team.openmaus.json",
+    "name": "Agent Team dev team",
+    "release": "0.4.2",
+    "sha256": "48e4ac637c7afb6d9e82f0ecf035967411d9c75e61ac8e0603ee7b62a3255949",
+    "sha256Note": "identical before the import and after down",
+    "importedAt": "2026-09-17T05:09:22.958Z",
+    "bots": {
+      "Sudo": "3afba314-11aa-4916-9f05-e8a23ed788a8",
+      "Sage": "95e4a8fa-17a8-4a62-928c-b4c3f293c78a",
+      "Vale": "49665bf7-16ee-49be-9f0f-8ee253dac38b",
+      "Nova": "e032a653-97be-498e-95c3-eb3df3fdac71",
+      "Quill": "b13e5fa0-fad6-46bb-803a-4f88b9ca5ad5"
+    },
+    "room": {
+      "id": "2f4cd296-7df5-43b5-af54-8f117f515818",
+      "name": "Dev Room",
+      "threadId": "939623a3-65a7-4bdc-9930-a519e4011dd2"
+    }
+  },
+  "roster": {
+    "afterFirstBind": [
+      "Quill: grok/grok-4.6/medium (ask)",
+      "Nova: claude/claude-opus-5/high (auto)",
+      "Vale: codex/gpt-5.6-terra/high (auto)",
+      "Sage: claude/claude-sonnet-5/high (auto)",
+      "Sudo: codex/gpt-5.6-luna/high (auto)"
+    ],
+    "skipped": [
+      {
+        "bot": "Quill",
+        "why": "a grok bot has no auto approval level; it stays on ask"
+      }
+    ],
+    "afterSecondBind": [
+      "Forge: claude/claude-opus-5/high (auto)",
+      "Quill: grok/grok-4.6/medium (ask)",
+      "Nova: claude/claude-opus-5/high (auto)",
+      "Vale: codex/gpt-5.6-terra/high (auto)",
+      "Sage: claude/claude-sonnet-5/high (auto)",
+      "Sudo: codex/gpt-5.6-luna/high (auto)"
+    ],
+    "facts": {
+      "defaultBranch": "main",
+      "test": "python3 -m unittest discover -s tests -t . (run inside the task's worktree)",
+      "setup": "none",
+      "merge": "auto",
+      "taskLog": ".project-steward/PROGRESS.md",
+      "tracker": "beads",
+      "planReview": "ask"
+    }
+  },
+  "secondImplementer": {
+    "name": "Forge",
+    "id": "f761bfab-8745-4740-a7b5-f8d83800cf3a",
+    "createdBy": "the lead, from one operator message on its DM thread 286c0a7c-a5f4-4df9-b19a-d3282d70e9c8",
+    "askedAt": "2026-09-17T05:13:50Z",
+    "sendMessageId": "0e0f874d-55ab-470f-bdc5-b8950b4d8d57",
+    "visibleAt": "2026-09-17T05:14:21Z",
+    "botsBefore": "['Bramble', 'Nova', 'Quill', 'Sage', 'Sudo', 'Vale']",
+    "adopt": {
+      "at": "2026-09-17T05:14:27.013Z",
+      "bots": [
+        "Forge",
+        "Quill",
+        "Nova",
+        "Vale",
+        "Sage",
+        "Sudo"
+      ],
+      "note": "Bramble, the server's titleless default bot, is not among the adopted six"
+    },
+    "bind": {
+      "command": "bind --model Forge=claude/claude-opus-5/high",
+      "changes": {
+        "Forge": [
+          "cwd",
+          "model claude/claude-opus-5/high",
+          "approval auto"
+        ],
+        "Quill": [],
+        "Nova": [],
+        "Vale": [],
+        "Sage": [],
+        "Sudo": []
+      }
+    },
+    "orderNote": "all of this ran before the first dispatch: import --adopt is refused while a run is open and the implementer picker only chooses bound bots"
+  },
+  "requestKinds": [
+    {
+      "kind": "routine",
+      "bot": "Nova",
+      "threadId": "441ace76-6100-418f-885a-e9f9a79ddd62",
+      "sentAt": "2026-09-17T05:10:38Z",
+      "sendMessageId": "27fe03dc-fdd5-4e10-b6bb-aa5208c02817",
+      "cardAt": "2026-09-17T05:10:49Z",
+      "cardId": "c1cacd50-abc9-4f63-bf94-7902f5b2dabf",
+      "cardKind": "routine",
+      "tool": "schedule_routine",
+      "title": "Schedule “omb-smoke”?",
+      "operation": {
+        "action": "create",
+        "routine": {
+          "name": "omb-smoke",
+          "instructions": "Post the single word PING in this thread. Do nothing else.",
+          "schedule": {
+            "type": "interval",
+            "everyMinutes": 60
+          },
+          "runOn": "maus",
+          "durationMinutes": 30
+        }
+      },
+      "answer": {
+        "command": "answer --confirm --request <id>",
+        "ok": true,
+        "verb": "answer",
+        "requestId": "c1cacd50-abc9-4f63-bf94-7902f5b2dabf",
+        "threadId": "441ace76-6100-418f-885a-e9f9a79ddd62",
+        "bot": "Nova",
+        "cardKind": "routine",
+        "title": "Schedule “omb-smoke”?",
+        "behavior": "allow",
+        "outcome": "allowed-once",
+        "routineAction": "create",
+        "resultId": "b74e949f-6f33-4f1b-b09b-2e2e768d7636"
+      },
+      "serverEffect": {
+        "route": "GET /api/routines",
+        "routines": [
+          {
+            "id": "b74e949f-6f33-4f1b-b09b-2e2e768d7636",
+            "name": "omb-smoke",
+            "prompt": "Post the single word PING in this thread. Do nothing else.",
+            "target": "bot",
+            "botId": "e032a653-97be-498e-95c3-eb3df3fdac71",
+            "runOn": "maus",
+            "enabled": true,
+            "schedule": {
+              "type": "interval",
+              "everyMinutes": 60,
+              "anchorAt": 1789621865160
+            },
+            "durationMinutes": 30,
+            "attachments": [],
+            "sourceThreadId": "441ace76-6100-418f-885a-e9f9a79ddd62",
+            "nextRunAt": 1789625465160,
+            "createdAt": 1789621865160,
+            "updatedAt": 1789621865160
+          }
+        ]
+      },
+      "cleanup": {
+        "route": "DELETE /api/routines/b74e949f-6f33-4f1b-b09b-2e2e768d7636",
+        "response": {
+          "ok": true
+        },
+        "routinesJsonAtShutdown": []
+      }
+    },
+    {
+      "kind": "skill",
+      "bot": "Nova",
+      "threadId": "441ace76-6100-418f-885a-e9f9a79ddd62",
+      "precondition": {
+        "route": "PUT /api/config",
+        "patch": {
+          "features": {
+            "skillRecorder": true
+          }
+        },
+        "response.features": {
+          "skillRecorder": true,
+          "showToolCalls": false,
+          "browser": false
+        }
+      },
+      "sentAt": "2026-09-17T05:11:45Z",
+      "sendMessageId": "5478be3a-b600-4590-94c3-ca626877509a",
+      "cardAt": "2026-09-17T05:11:56Z",
+      "cardId": "cd93ec72-249c-4b32-bdd7-9c231d4f730d",
+      "tool": "stage_skill",
+      "stagedId": "f554198e-6148-4400-8b3d-d56a50e1160d",
+      "name": "omb-smoke",
+      "source": "learn:conversation",
+      "sha256": "15077bc5fe418639d1d397f0404a855e4d98d3570bec97e819aa6151a0512fef",
+      "sha256OfPreviewRecomputed": "15077bc5fe418639d1d397f0404a855e4d98d3570bec97e819aa6151a0512fef",
+      "previewLines": 7,
+      "answer": {
+        "command": "answer --allow --reviewed <card sha256> --request <id>",
+        "ok": true,
+        "verb": "answer",
+        "requestId": "cd93ec72-249c-4b32-bdd7-9c231d4f730d",
+        "threadId": "441ace76-6100-418f-885a-e9f9a79ddd62",
+        "bot": "Nova",
+        "cardKind": "skill",
+        "name": "omb-smoke",
+        "action": "create",
+        "behavior": "allow",
+        "outcome": "allowed-once"
+      },
+      "serverEffect": {
+        "route": "GET /api/bots/e032a653-97be-498e-95c3-eb3df3fdac71/skills/omb-smoke",
+        "status": 200,
+        "textEqualsPreview": true
+      },
+      "cleanup": {
+        "route": "DELETE /api/bots/e032a653-…/skills/omb-smoke",
+        "response": {
+          "ok": true
+        },
+        "thenGet": "404 (not captured to a file)",
+        "skillStateAtShutdown": {}
+      }
+    },
+    {
+      "kind": "secret",
+      "bot": "Nova",
+      "threadId": "441ace76-6100-418f-885a-e9f9a79ddd62",
+      "sentAt": "2026-09-17T05:12:38Z",
+      "sendMessageId": "f98ff1e9-a41e-407a-9dbc-7112b0302305",
+      "cardAt": "2026-09-17T05:12:49Z",
+      "requestMessageId": "62fcf731-180c-4a8d-b81b-9b8ace1f224f",
+      "pendingKind": "secret",
+      "secret": {
+        "target": "openaiImageApiKey",
+        "label": "OpenAI API key",
+        "description": "Used only to generate custom bot avatar images. launcher smoke check",
+        "placeholder": "sk-…",
+        "helpUrl": "https://platform.openai.com/api-keys",
+        "requestKey": "2fdb4e6f-6ac2-4f91-8065-3e2876ede0e6"
+      },
+      "answer": {
+        "command": "answer --provide --secret-stdin --request <id> < <0600 file the operator wrote>",
+        "valueSource": "a 0600 dummy value, never a real key, never in any command line",
+        "ok": true,
+        "verb": "answer",
+        "messageId": "62fcf731-180c-4a8d-b81b-9b8ace1f224f",
+        "threadId": "441ace76-6100-418f-885a-e9f9a79ddd62",
+        "bot": "Nova",
+        "kind": "secret",
+        "target": "openaiImageApiKey",
+        "label": "OpenAI API key",
+        "saveOutcome": "saved",
+        "provided": true,
+        "resumed": true,
+        "woken": true
+      },
+      "serverEffect": {
+        "saveOutcome": "saved",
+        "note": "the driver reports 'saved' when the PUT returns normally; 'verified' is reserved for the recovery path after a lost answer"
+      },
+      "cleanup": {
+        "route": "PUT /api/config",
+        "patch": {
+          "imageGen": {
+            "key": ""
+          }
+        },
+        "response.imageGen": {
+          "configured": false
+        },
+        "configJsonAtShutdown": {
+          "key": ""
+        },
+        "leakCheck": {
+          "p7Outputs": "absent",
+          "projectStateFile": "absent",
+          "dataDirFilesScanned": 601,
+          "dataDirHits": 0,
+          "note": "the server's own config.json held the value by design while it was configured; after the clearing PUT it reads an empty string"
+        }
+      }
+    },
+    {
+      "kind": "connector",
+      "exercised": false,
+      "why": "GET /api/config reports composio {\"configured\": false, \"mode\": \"unavailable\"}; the server refuses to create a connection request without a project key or broker, so this kind stays fake-only"
+    }
+  ],
+  "runs": [
+    {
+      "runId": "092671dff24f849a",
+      "slug": "t14",
+      "title": "T14",
+      "branch": "task/t14",
+      "tag": "oml:092671df",
+      "implementer": "Nova",
+      "leadThreadId": "4f8cc1eb-33df-4815-97c5-33028274b3c9",
+      "threads": {
+        "3afba314-11aa-4916-9f05-e8a23ed788a8": "4f8cc1eb-33df-4815-97c5-33028274b3c9",
+        "f761bfab-8745-4740-a7b5-f8d83800cf3a": "e7ae8680-abcd-40fb-bd4f-c71003abde3f",
+        "b13e5fa0-fad6-46bb-803a-4f88b9ca5ad5": "00c50bf4-9d27-4e1c-af12-7c175e5f0701",
+        "e032a653-97be-498e-95c3-eb3df3fdac71": "d67e5df0-bb24-48c0-90a1-b4553e99d120",
+        "49665bf7-16ee-49be-9f0f-8ee253dac38b": "1af9e409-70ba-47c5-9c80-e4cce193f1e8",
+        "95e4a8fa-17a8-4a62-928c-b4c3f293c78a": "8c7b2c69-c85e-4958-8b54-70d509fa76d4"
+      },
+      "freshThreads": "all six bots",
+      "dispatchedAt": "2026-09-17T05:14:59.505Z",
+      "sentSha": "17e2850d5074c516fea40eb3c82918f2b7917b66",
+      "attention": {
+        "at": "2026-09-17T05:23:30.446Z",
+        "messageId": "6de17184-a42e-46b6-bd93-d14a7bd23017",
+        "asked": "confirm task/t14 and .worktrees/t14 over the repository's older task/t14-lowercase style",
+        "operatorAnsweredAt": "2026-09-17T05:25:40.592Z",
+        "sendReceipt": {
+          "ok": true,
+          "verb": "send",
+          "bot": "Sudo",
+          "threadId": "4f8cc1eb-33df-4815-97c5-33028274b3c9",
+          "messageId": "ad9db2c8-e8a1-40b9-b69b-3b1ec376446b",
+          "at": 1789622740592,
+          "steered": false,
+          "queued": false,
+          "queueId": null,
+          "duplicate": false,
+          "switched": false,
+          "sendId": "send-ba2f04b6ccd5bfa3"
+        }
+      },
+      "doneAt": "2026-09-17T05:42:24.694Z",
+      "markerSeenBy": "watch: t14 · DONE after 28m",
+      "mergeCommit": "c7554a5",
+      "implementationCommit": "c7554a5",
+      "tests": 91,
+      "bead": "slg-h3m",
+      "reportFile": "scratchpad/p7-report-t14.md",
+      "reportRanAt": "2026-09-17T06:00:20Z",
+      "result": "incomplete",
+      "recordStep": "task log no, record commit none, bead slg-h3m is closed. Tests: passed in 1 s. Root: 2 modified or untracked path(s).",
+      "checks": {
+        "worktree-after-approval": {
+          "verdict": "no",
+          "detail": "Vale's last pre-worktree reply at 2026-09-17T05:22:23.102Z: not approved; git worktree add at 2026-09-17T05:26:10.097Z"
+        },
+        "record-time-from-date-u": {
+          "verdict": "no",
+          "detail": "date -u returned 2026-09-17T05:40:53Z; this run's entry heading is \"### 2026-09-17T05:55:23Z — Sudo (orchestrator)\""
+        },
+        "no-host-listagents": {
+          "verdict": "yes",
+          "detail": "tools used: mcp__agents__list_bots"
+        },
+        "bead-closed": {
+          "verdict": "yes",
+          "detail": "bead slg-h3m is closed"
+        },
+        "record-commit": {
+          "verdict": "no",
+          "detail": "no attributable docs(team) record commit since dispatch"
+        },
+        "merged-ancestor": {
+          "verdict": "unknown",
+          "detail": "the closing report names no merged commit"
+        },
+        "task-branch-and-worktree-absent": {
+          "verdict": "yes",
+          "detail": "0 task branch(es) and 0 worktree(s) with no owner; 0 task branch(es) and 0 worktree(s) in all"
+        },
+        "root-clean": {
+          "verdict": "no",
+          "detail": "2 modified or untracked path(s)"
+        },
+        "tests-pass": {
+          "verdict": "yes",
+          "detail": "exit 0 in 1 s"
+        }
+      },
+      "closingReport": "T14 completed and merged into `main` as `c7554a5`. - Quill review: ready, no findings. - Tests: 91 passed on `main`. - Bead `slg-h3m`: closed. - Worktree and branch removed. - Progress and Beads records are staged; commit was blocked by repository policy. - Team-room report was attempted but rejected by authorization controls. DONE oml:092671df"
+    },
+    {
+      "runId": "289bb21f8b7d1dd4",
+      "slug": "t15",
+      "title": "T15",
+      "branch": "task/t15",
+      "tag": "oml:289bb21f",
+      "implementer": "Forge",
+      "leadThreadId": "f1cd8141-d945-4fa1-a750-3c2fbbf26b80",
+      "threads": {
+        "3afba314-11aa-4916-9f05-e8a23ed788a8": "f1cd8141-d945-4fa1-a750-3c2fbbf26b80",
+        "f761bfab-8745-4740-a7b5-f8d83800cf3a": "e7ae8680-abcd-40fb-bd4f-c71003abde3f",
+        "b13e5fa0-fad6-46bb-803a-4f88b9ca5ad5": "00c50bf4-9d27-4e1c-af12-7c175e5f0701",
+        "e032a653-97be-498e-95c3-eb3df3fdac71": "d67e5df0-bb24-48c0-90a1-b4553e99d120",
+        "49665bf7-16ee-49be-9f0f-8ee253dac38b": "1af9e409-70ba-47c5-9c80-e4cce193f1e8",
+        "95e4a8fa-17a8-4a62-928c-b4c3f293c78a": "8c7b2c69-c85e-4958-8b54-70d509fa76d4"
+      },
+      "freshThreads": "the lead thread only; the five specialist threads are T14's live ones",
+      "dispatchedAt": "2026-09-17T05:28:41.712Z",
+      "sentSha": "17e2850d5074c516fea40eb3c82918f2b7917b66",
+      "openRunsAtDispatch": 2,
+      "markerAt": "2026-09-17T05:37:35.134Z",
+      "markerNote": "posted before the review had started: 'Quill is currently busy, so the required code review has not started yet'; watch read t15 · DONE after 10m with task/t15 unmerged",
+      "operatorSend": {
+        "at": "2026-09-17T05:46:52.915Z",
+        "text": "Quill is free now: T14 is merged. …",
+        "receipt": {
+          "ok": true,
+          "verb": "send",
+          "bot": "Sudo",
+          "threadId": "f1cd8141-d945-4fa1-a750-3c2fbbf26b80",
+          "messageId": "f8816752-6b51-4a1d-aa9f-f1139cc078d9",
+          "at": 1789624012915,
+          "steered": false,
+          "queued": false,
+          "queueId": null,
+          "duplicate": false,
+          "switched": false,
+          "sendId": "send-77507b8bdf1e8ed7"
+        }
+      },
+      "implementationCommit": "abad668",
+      "testsBeforeRebase": 93,
+      "mergeCommit": "11ff1e6",
+      "tests": 99,
+      "rebase": "Quill's first review required a rebase onto the merged T14; Forge rebased abad668 to 11ff1e6 and Quill's fresh review passed",
+      "doneAt": null,
+      "closedBy": {
+        "verb": "task --abandon --run t15",
+        "at": "2026-09-17T06:06:56Z",
+        "result": {
+          "ok": true,
+          "verb": "task",
+          "abandoned": "289bb21f8b7d1dd4",
+          "title": "T15",
+          "history": 4
+        }
+      },
+      "bead": "slg-0sq",
+      "reportFile": "scratchpad/p7-report-t15.md",
+      "reportRanAt": "2026-09-17T06:00:21Z",
+      "result": "incomplete",
+      "historyReport": {
+        "command": "report --run 289bb21f8b7d1dd4 --md --check-042",
+        "file": "scratchpad/p7-report-t15-history.md",
+        "identicalToOpenRunReport": true
+      },
+      "recordStep": "task log no, record commit none, bead slg-0sq is closed. Tests: passed in 1 s. Root: 2 modified or untracked path(s).",
+      "checks": {
+        "worktree-after-approval": {
+          "verdict": "unknown",
+          "detail": "Vale's last pre-worktree reply at 2026-09-17T05:34:45.402Z: verdict unknown; git worktree add at 2026-09-17T05:35:07.617Z"
+        },
+        "record-time-from-date-u": {
+          "verdict": "yes",
+          "detail": "date -u returned 2026-09-17T05:55:23Z; this run's entry heading is \"### 2026-09-17T05:55:23Z — Sudo (orchestrator)\""
+        },
+        "no-host-listagents": {
+          "verdict": "yes",
+          "detail": "tools used: mcp__agents__list_bots"
+        },
+        "bead-closed": {
+          "verdict": "yes",
+          "detail": "bead slg-0sq is closed"
+        },
+        "record-commit": {
+          "verdict": "no",
+          "detail": "no attributable docs(team) record commit since dispatch"
+        },
+        "merged-ancestor": {
+          "verdict": "unknown",
+          "detail": "the closing report names no merged commit"
+        },
+        "task-branch-and-worktree-absent": {
+          "verdict": "yes",
+          "detail": "0 task branch(es) and 0 worktree(s) with no owner; 0 task branch(es) and 0 worktree(s) in all"
+        },
+        "root-clean": {
+          "verdict": "no",
+          "detail": "2 modified or untracked path(s)"
+        },
+        "tests-pass": {
+          "verdict": "yes",
+          "detail": "exit 0 in 1 s"
+        }
+      },
+      "closingReport": "T15 is merged and validated: - `main` at `11ff1e6` - 99 tests pass - Bead `slg-0sq` closed - Worktree and branch removed - Progress log updated The required local documentation commit was blocked because explicit commit authorization is required. Please approve that commit so I can finish the record, post the team report, and emit the marker."
+    }
+  ],
+  "overlap": {
+    "bothOpenFrom": "2026-09-17T05:28:41.712Z",
+    "bothOpenUntil": "2026-09-17T06:00:20Z (report --run t14 closed T14)",
+    "dispatchedWhileBusy": "the watch immediately before T15's dispatch read 't14 · running 14m · Nova working'",
+    "insideQuillsT14ReviewTurn": {
+      "quillT14Review": {
+        "started": "2026-09-17T05:30:13.596Z",
+        "completed": "2026-09-17T05:39:44.506Z"
+      },
+      "t15TurnsInsideIt": [
+        {
+          "bot": "Sudo (T15 lead)",
+          "started": "05:31:26.935",
+          "completed": "05:36:03.427"
+        },
+        {
+          "bot": "Vale",
+          "started": "05:32:27.252",
+          "completed": "05:33:08.118"
+        },
+        {
+          "bot": "Sage",
+          "started": "05:33:26.494",
+          "completed": "05:33:54.076"
+        },
+        {
+          "bot": "Vale",
+          "started": "05:34:30.389",
+          "completed": "05:34:45.387"
+        },
+        {
+          "bot": "Forge",
+          "started": "05:36:03.524",
+          "completed": "05:36:52.429"
+        }
+      ]
+    },
+    "watchLoopViews": [
+      {
+        "at": "2026-09-17T05:33:53Z",
+        "file": "p7-w-007-t14.json",
+        "busy": [
+          "Quill",
+          "Sage"
+        ]
+      },
+      {
+        "at": "2026-09-17T05:36:29Z",
+        "file": "p7-w-011-t15.json",
+        "brief": "t15 · running 8m · Forge working · outcomes 2 · Sudo 26s ago"
+      },
+      {
+        "at": "2026-09-17T05:36:29Z",
+        "file": "p7-w-012-t14.json",
+        "busy": [
+          "Quill"
+        ]
+      }
+    ],
+    "leadTurnsNeverOverlap": true,
+    "leadTurns": {
+      "t14": [
+        {
+          "started": "2026-09-17T05:14:59.554Z",
+          "completed": "2026-09-17T05:16:09.212Z"
+        },
+        {
+          "started": "2026-09-17T05:17:36.902Z",
+          "completed": "2026-09-17T05:23:30.446Z"
+        },
+        {
+          "started": "2026-09-17T05:25:40.650Z",
+          "completed": "2026-09-17T05:28:34.054Z"
+        },
+        {
+          "started": "2026-09-17T05:29:40.686Z",
+          "completed": "2026-09-17T05:30:13.504Z"
+        },
+        {
+          "started": "2026-09-17T05:39:44.570Z",
+          "completed": "2026-09-17T05:42:24.694Z"
+        }
+      ],
+      "t15": [
+        {
+          "started": "2026-09-17T05:28:41.796Z",
+          "completed": "2026-09-17T05:29:40.611Z"
+        },
+        {
+          "started": "2026-09-17T05:31:26.935Z",
+          "completed": "2026-09-17T05:36:03.427Z"
+        },
+        {
+          "started": "2026-09-17T05:36:52.495Z",
+          "completed": "2026-09-17T05:37:35.134Z"
+        },
+        {
+          "started": "2026-09-17T05:46:52.956Z",
+          "completed": "2026-09-17T05:47:33.524Z"
+        },
+        {
+          "started": "2026-09-17T05:48:25.163Z",
+          "completed": "2026-09-17T05:48:58.694Z"
+        },
+        {
+          "started": "2026-09-17T05:49:21.773Z",
+          "completed": "2026-09-17T05:50:03.406Z"
+        },
+        {
+          "started": "2026-09-17T05:54:05.956Z",
+          "completed": "2026-09-17T05:56:13.866Z"
+        }
+      ]
+    },
+    "closestLeadGapMs": 75
+  },
+  "approvalRequests": {
+    "count": 17,
+    "mode": "allow-once",
+    "always": 0,
+    "bot": "Quill",
+    "why": "a grok bot has no auto approval level, so every tool call raises a card",
+    "threadId": "00c50bf4-9d27-4e1c-af12-7c175e5f0701",
+    "threadNote": "both runs record that thread; every card came back shared:false and was answered with --run",
+    "tools": {
+      "shell": 14,
+      "edit": 3
+    },
+    "byRun": {
+      "t14": 9,
+      "t15": 8
+    },
+    "answeredBy": "scratchpad/p7-loop.sh, one answer --allow --request <id> --run <slug> per card",
+    "requestIds": [
+      "ca42c1f8-c73e-4fa7-9662-31e009d50de3",
+      "1accdadd-118d-4bfc-8090-586e6619932f",
+      "83944a5c-f3b3-4cf2-a2a9-c7438e6c873b",
+      "d1ff9318-baa6-41d2-bfd3-a8c3d283210b",
+      "e38e414c-bee2-4b5e-900b-4887b4944455",
+      "485824df-4cf8-4a3f-b122-e0e5f88f6e1b",
+      "6ffcfd9a-e6ed-4a51-b6d1-4039224c7903",
+      "11a3f773-ff64-4bd0-af0d-4b31fb3cc591",
+      "be495fde-86fa-4c30-855e-7745fb099063",
+      "b1175669-7e46-409a-b49f-44f9dd82a9b3",
+      "ab278c3e-f584-4284-b4fc-57f1d687438d",
+      "8e4d8fbf-b868-4468-bdb4-a72288086025",
+      "14f6deb7-08d6-4f0a-9ba9-687da9378edc",
+      "62be360a-be87-4b66-a0c5-064d0643677a",
+      "caf99c19-3d70-4647-a352-60a05b71f4da",
+      "5fc11dc5-f5a0-464f-8dcc-8f89b63741cb",
+      "92cebb7e-040c-499c-b91d-5ca9a044fe77"
+    ],
+    "outcomes": [
+      "allowed-once"
+    ],
+    "decisionsNdjson": {
+      "cardShown": 19,
+      "userApproved": 19,
+      "always": 0,
+      "note": "19 user-approved records: these 17 Quill cards plus Nova's routine and learned-skill cards"
+    },
+    "questionCards": 0
+  },
+  "botTurns": [
+    {
+      "threadId": "f1cd8141-d945-4fa1-a750-3c2fbbf26b80",
+      "bot": "Sudo",
+      "turns": 7,
+      "what": "T15 lead thread"
+    },
+    {
+      "threadId": "8c7b2c69-c85e-4958-8b54-70d509fa76d4",
+      "bot": "Sage",
+      "turns": 6,
+      "what": "planner, both runs"
+    },
+    {
+      "threadId": "4f8cc1eb-33df-4815-97c5-33028274b3c9",
+      "bot": "Sudo",
+      "turns": 5,
+      "what": "T14 lead thread"
+    },
+    {
+      "threadId": "1af9e409-70ba-47c5-9c80-e4cce193f1e8",
+      "bot": "Vale",
+      "turns": 5,
+      "what": "plan reviewer, both runs"
+    },
+    {
+      "threadId": "441ace76-6100-418f-885a-e9f9a79ddd62",
+      "bot": "Nova",
+      "turns": 4,
+      "what": "DM thread for the three request kinds"
+    },
+    {
+      "threadId": "00c50bf4-9d27-4e1c-af12-7c175e5f0701",
+      "bot": "Quill",
+      "turns": 3,
+      "what": "code reviewer, both runs"
+    },
+    {
+      "threadId": "e7ae8680-abcd-40fb-bd4f-c71003abde3f",
+      "bot": "Forge",
+      "turns": 2,
+      "what": "implementer, T15"
+    },
+    {
+      "threadId": "d67e5df0-bb24-48c0-90a1-b4553e99d120",
+      "bot": "Nova",
+      "turns": 1,
+      "what": "implementer, T14"
+    },
+    {
+      "threadId": "286c0a7c-a5f4-4df9-b19a-d3282d70e9c8",
+      "bot": "Sudo",
+      "turns": 1,
+      "what": "DM that asked for a second implementer"
+    }
+  ],
+  "botTurnsSource": "/home/wsh/.cache/agent-team/omb-launcher-data-v2run-20260917T050914-20260917T050915-XwqQxP/events/<thread>.ndjson, type turn.completed",
+  "reportAllocation": {
+    "allocatedToARun": 20,
+    "sharedOnSharedThreads": 9,
+    "outsideBothRuns": 5,
+    "note": "the per-run tables count only the turns inside that run's open-delegation windows; Vale's 5 turns and 4 of Sage's 6 are shared, and the 5 DM turns belong to no run",
+    "spotCheck": "Quill's 571 s in T14's table is the single 05:30:13.596 -> 05:39:44.506 turn; its 294 s in T15's table is the two later turns (51 s + 242 s)"
+  },
+  "totals": {
+    "phase": 34,
+    "pass": 39,
+    "cap": 50,
+    "sessionAllowance": 30,
+    "overrun": "4 turns over the session's 30: Quill's two T15 review turns, Forge's rebase turn and the lead turn that delegated it, spent to finish T15's review rather than leave a merged branch unreviewed",
+    "priorPhases": {
+      "v2 host verification": 3,
+      "v2 remote run": 2
+    }
+  },
+  "hostProofs": {
+    "openclaw": {
+      "command": "openclaw agent --json -m \"Run exactly this shell command once and paste its complete stdout and stderr verbatim, then stop: env OMB_BIN=… OMB_TOKEN= <skill>/scripts/omb.mjs watch --run t14 --max-seconds 40 --brief --project <clone>\"",
+      "promptAt": "2026-09-17T05:34:54.213Z",
+      "runId": "614776d8-418a-457e-9b62-55b128102520",
+      "sessionId": "571ddd65-a9c9-40de-b97b-18c0759c93ba",
+      "provider": "openai",
+      "model": "gpt-5.6-sol",
+      "harness": "codex",
+      "durationMs": 45313,
+      "toolCalls": 3,
+      "escalation": {
+        "card": "plugin:1004b3fb-8860-4e2b-b2f5-eeff658df98d",
+        "pendingAt": "2026-09-17T05:35:22Z",
+        "resolvedAt": "2026-09-17T05:35:25Z",
+        "decision": "allow-once",
+        "by": "scratchpad/approve-loop.sh"
+      },
+      "output": "the t14 APPROVAL brief line for card d1ff9318-baa6-41d2-bfd3-a8c3d283210b",
+      "answeredTheCard": false
+    },
+    "hermes": {
+      "command": "hermes -z \"Run exactly this shell command once and paste its complete stdout and stderr verbatim, then stop: <skill>/scripts/omb.mjs watch --run t14 --max-seconds 40 --brief --project <clone>\"",
+      "env": "OMB_BIN and an empty OMB_TOKEN exported in the launching shell",
+      "sessionId": "20260917_013542_298e4e",
+      "sessionStore": "~/.hermes/state.db",
+      "model": "gpt-5.6-sol",
+      "startedAt": "2026-09-17T05:35:39Z",
+      "endedAt": "2026-09-17T05:36:13Z",
+      "durationS": 34,
+      "durationSInItsOwnRecord": 29.3,
+      "terminalToolExitCode": 5,
+      "output": "the t14 APPROVAL brief line for card e38e414c-bee2-4b5e-900b-4887b4944455",
+      "answeredTheCard": false
+    }
+  },
+  "codexSandboxWatch": {
+    "firstAttempt": {
+      "command": "codex exec --sandbox workspace-write --approve-for-me …",
+      "result": "refused at argument parsing: \"the argument '--sandbox <SANDBOX_MODE>' cannot be used with '--approve-for-me'\"",
+      "why": "codex exec --help: --approve-for-me routes approval requests through automatic review using the workspace-write sandbox, so it already selects one"
+    },
+    "command": "codex exec --approve-for-me -C <clone> \"Run exactly this shell command once, wait for it to finish (it may take up to 10 minutes), and paste its complete stdout and stderr verbatim, then stop: env OMB_BIN=… OMB_TOKEN= <skill>/scripts/omb.mjs watch --run t15 --max-seconds 570 --project <clone> --verbose\"",
+    "version": "0.154.0",
+    "model": "gpt-6-astra",
+    "modelNote": "the config default, not chosen for this run",
+    "profile": {
+      "approval": "on-request",
+      "sandbox": "workspace-write [workdir, /tmp, $TMPDIR]",
+      "reasoningEffort": "max",
+      "workdir": "/home/wsh/.cache/agent-team/validate-0.4.1/slugkit"
+    },
+    "sessionId": "01a0ade0-3bad-7f63-8530-cf3e076a800d",
+    "startedAt": "2026-09-17T05:39:08Z",
+    "endedAt": "2026-09-17T05:39:39Z",
+    "escalation": "none requested",
+    "elapsedS": 31,
+    "tokens": 8698,
+    "frames": 0,
+    "driverExitAfterMs": 47,
+    "exit": "EPERM before connect",
+    "error": {
+      "ok": false,
+      "verb": "watch",
+      "error": "cannot reach http://127.0.0.1:8899: EPERM",
+      "hint": "the shell's sandbox blocks outbound connections: run this command outside the sandbox (escalation), or use --remote against a reachable URL"
+    },
+    "outcome": "documented restriction",
+    "meaning": "long SSE inside workspace-write is not merely unverified: the watch cannot open the connection at all, so it needs the host's escalation path (danger-full-access) or --remote against a reachable URL"
+  },
+  "incidents": [
+    {
+      "id": 1,
+      "what": "a git ref lock on the first task/t14 provisioning",
+      "detail": "the lead reported 'git could not lock the ref' for refs/heads/task/t14 and the retry succeeded",
+      "cost": "one lead turn"
+    },
+    {
+      "id": 2,
+      "what": "the lead's own Codex harness refused its record commit in both runs",
+      "t14": "Progress and Beads records are staged; commit was blocked by repository policy.",
+      "t15": "The required local documentation commit was blocked because explicit commit authorization is required.",
+      "fixtureHooks": "core.hooksPath=.beads/hooks; the beads hooks do not block a commit and the operator's own commit went through",
+      "fixturePolicy": "the clone's AGENTS.md: 'Do not commit or push without clear authority from the active profile or the current user request'",
+      "resolution": "the operator committed the staged records as ddd4684 after both reports; both runs therefore closed incomplete on record-commit and root-clean"
+    },
+    {
+      "id": 3,
+      "what": "a team-room report was refused",
+      "detail": "T14's closing message: 'Team-room report was attempted but rejected by authorization controls'; the chat report arrived"
+    },
+    {
+      "id": 4,
+      "what": "the T15 marker was posted while the shared reviewer was busy",
+      "detail": "DONE oml:289bb21f at 05:37:35.134Z with task/t15 unmerged and slg-0sq open, because Quill was reviewing T14",
+      "operatorSees": "watch says DONE and the branch is unmerged",
+      "recovery": "send --run t15 once the reviewer is free",
+      "packObservation": "a lead should queue or wait for a shared reviewer rather than declare DONE"
+    },
+    {
+      "id": 5,
+      "what": "report attribution across two runs",
+      "detail": "record-time-from-date-u for T14 matched T15's task-log entry, because the pack's entry heading ('### <time> — Sudo (orchestrator)') names no run and both runs write into the same file"
+    },
+    {
+      "id": 6,
+      "what": "bead oml-fg8: a run that would not settle after its sibling closed",
+      "detail": "after report --run t14 closed T14 at 06:00:20Z, every watch --run t15 returned state timeout with reasons ['idle for 0 s, not yet settled'], quietFor 0, changes [], inflight false, busy [], complete true, checkpointed true, although every bot was idle and the lead's last turn had completed at 05:56:13.866Z",
+      "before": "the same run settled as attention four times between 05:55Z and 05:59Z, while T14 was still open",
+      "workaround": "task --abandon --run t15, then report --run <runId> from history",
+      "evidence": "scratchpad/p7-quiet-defect/ (four watch outputs, the two identical reports, the state file)"
+    },
+    {
+      "id": 7,
+      "what": "status has no --run option",
+      "detail": "status --run t14 --tail 40 is exit 2 \"Unknown option '--run'\"; status lists every open run in runs[] and the tail was read from that entry"
+    }
+  ],
+  "defects": [
+    "oml-fg8"
+  ],
+  "cleanup": {
+    "abandon": {
+      "ok": true,
+      "verb": "task",
+      "abandoned": "289bb21f8b7d1dd4",
+      "title": "T15",
+      "history": 4
+    },
+    "historyReport": "report --run 289bb21f8b7d1dd4 --md --check-042 reproduced the same block from history",
+    "reconcileBefore": {
+      "clean": true,
+      "head": "17e2850d5074c516fea40eb3c82918f2b7917b66"
+    },
+    "reconcileAfter": {
+      "clean": true,
+      "head": "ddd46843ff1b16158bc28bc3772e2e1468787942",
+      "taskBranches": [],
+      "openRuns": [],
+      "defaultBranchSource": "facts"
+    },
+    "cleanupKill": {
+      "pattern": "codex-linux-sandbox",
+      "orphans": [],
+      "killed": []
+    },
+    "down": {
+      "ok": true,
+      "verb": "down",
+      "stopped": true,
+      "supervisorPid": 1643151,
+      "healthPid": 1643158,
+      "url": "http://127.0.0.1:8899",
+      "orphans": []
+    },
+    "portsAfterDown": "no listener on 8899 or 8900",
+    "kept": "the data directory and the clone, because the ids in this record are read from them",
+    "pushes": "none"
+  },
+  "verification": {
+    "packageSha256Unchanged": true,
+    "cloneTestsAtEnd": "python3 -m unittest discover -s tests -t . : Ran 99 tests, OK",
+    "cloneStatusAtEnd": "clean at ddd4684",
+    "credentialLeakCheck": "the dummy value is absent from every p7-* output, from the project's .omb/state.json and from all 601 files of the data directory",
+    "skillHashRecomputed": true,
+    "routinesEmptyAtShutdown": true,
+    "novaSkillsEmptyAtShutdown": true,
+    "leadTurnsDoNotOverlap": true,
+    "turnTotalFromEventFiles": 34
+  }
+}

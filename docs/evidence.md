@@ -1373,3 +1373,506 @@ or any transport other than `tailscale serve`; a remote `watch` over a
 delegation chain, since only the lead ran and only for one turn; `pair
 --replace` against a live entry; two launchers writing one origin; a session
 left to expire. The four non-lead bots were configured and never executed.
+
+## 2026-09-17 — v2 validation: two parallel tasks T14/T15, request kinds, Codex sandbox (34 bot turns, 3 native sessions)
+
+Two tasks ran on one team at the same time — T14 with Nova as implementer and
+T15 with a second implementer the lead created during the session — against real
+OpenMausBot **0.1.56** on the slugkit clone. The same server answered three of
+the request kinds the driver had only ever met in the fake (a routine card, a
+learned-skill card and a credential request), two other agent hosts watched the
+live run from their own shells while it was open, and a sandboxed Codex was
+asked for the long SSE watch that has been carried as unverified since
+2026-09-08. Driver at `5217d71`; `3c64657`, the commit on top of it, touches
+only `.project-steward/`. The structured record is
+[validation/2026-09-17-parallel-t14-t15.json](validation/2026-09-17-parallel-t14-t15.json);
+the raw outputs are the session scratchpad's `p7-*` files. Beads `oml-u1j` (long
+SSE inside the Codex sandbox) and `oml-fg8`, filed by this run.
+
+**What this establishes.** Two runs can be open on one team and make progress at
+once: while Quill's 571 s review turn for T14 ran, T15's lead, planner, plan
+reviewer and implementer each took a turn, and the twelve lead turns across the
+two run threads never overlapped, the closest pair 75 ms apart. Each run owned its own
+worktree, branch, bead and implementer, and every run-scoped verb was given
+`--run`. A routine card, a learned-skill card and a credential request were
+raised by a real bot and answered through `answer`, each with the server-side
+effect verified afterwards and then undone. A lead created a second implementer
+on request, `import --adopt` picked it up and `bind` gave it a model without
+disturbing the other five. Two hosts (OpenClaw, Hermes Agent) ran
+`watch --run t14 --max-seconds 40 --brief` against the live run and read the
+approval line back. Inside Codex's `workspace-write` sandbox the driver cannot
+reach the server at all, so long SSE there is not merely unverified but
+unreachable without escalation.
+
+**What it does not establish.** Neither run passed all nine `--check-042`
+checks: both closed `incomplete`, because the lead's own CLI refused its record
+commit and the operator made it afterwards. The parallel path is one team on one
+machine with one lead, not two leads or two servers. The connector request kind
+was still not exercised (Composio is unconfigured on this machine, so the server
+cannot create one). No question card appeared, so `answer --message` on a real
+card is still untested in this pass. `watch` on dsh, and any host watch longer
+than 40 s, remain untested. And it does not establish that a lead handles a
+shared reviewer well: T15's marker arrived before its review had started.
+
+### Environment and fixture
+
+- Project: the slugkit clone `/home/wsh/.cache/agent-team/validate-0.4.1/slugkit`
+  at `17e2850` on `main` (that commit adds T14 and T15 to `TODO.md` and the beads
+  `slg-h3m` and `slg-0sq`), clean, one worktree, no `task/*` branch, 85 tests.
+- `doctor` before the server: 6/6. `up --fresh --port 8899 --data-dir
+  ~/.cache/agent-team/omb-launcher-data-v2run-20260917T050914` at 05:09:14Z →
+  `ports: [8899, 8900]`, supervisor `1643151`, health `1643158`, environment
+  `b4962439-c550-4971-805b-25b11863b797`, `askTimeoutMs 600000`, started
+  05:09:21.657Z, data dir
+  `~/.cache/agent-team/omb-launcher-data-v2run-20260917T050914-20260917T050915-XwqQxP`
+  (`up` appends its own timestamp and suffix to the given prefix). `doctor
+  --server`: 11/11, engines `grok, claude, codex, hermes` available.
+- Unchanged external test input:
+  `~/Documents/agent-team-devpack/packages/dev-team/dev-team.openmaus.json`,
+  release 0.4.2, SHA-256
+  `48e4ac637c7afb6d9e82f0ecf035967411d9c75e61ac8e0603ee7b62a3255949` before the
+  import and after `down`. Imported 05:09:22.958Z as section "Agent Team dev
+  team": Sudo `3afba314-11aa-4916-9f05-e8a23ed788a8`, Sage
+  `95e4a8fa-17a8-4a62-928c-b4c3f293c78a`, Vale
+  `49665bf7-16ee-49be-9f0f-8ee253dac38b`, Nova
+  `e032a653-97be-498e-95c3-eb3df3fdac71`, Quill
+  `b13e5fa0-fad6-46bb-803a-4f88b9ca5ad5`, room Dev Room
+  `2f4cd296-7df5-43b5-af54-8f117f515818`.
+- `bind --approval auto` with the user's roster: Sudo `codex/gpt-5.6-luna/high`,
+  Sage `claude/claude-sonnet-5/high`, Vale `codex/gpt-5.6-terra/high`, Nova
+  `claude/claude-opus-5/high`, Quill `grok/grok-4.6/medium`. Quill is skipped
+  with "a grok bot has no auto approval level; it stays on ask", so its review
+  raised one card per tool call again.
+- `facts`: default branch `main`, test `python3 -m unittest discover -s tests -t
+  . (run inside the task's worktree)`, setup `none`, merge `auto`, task log
+  `.project-steward/PROGRESS.md`, tracker `beads`, plan review `ask`; 1573-character
+  block. `reconcile` before the first dispatch: clean, `defaultBranchSource:
+  facts`, one worktree at `17e2850`.
+
+### Request kinds on Nova (three verified, connector fake-only)
+
+All three were raised by Nova (Claude engine) on its own DM thread
+`441ace76-6100-418f-885a-e9f9a79ddd62`, before any run was open, each costing one
+bot turn plus its continuation — four turns on that thread in total.
+
+**Routine.** `send --bot Nova` at 05:10:38Z (message
+`27fe03dc-fdd5-4e10-b6bb-aa5208c02817`) asked for a `propose_routine` call; the
+card was pending 11 s later: request `c1cacd50-abc9-4f63-bf94-7902f5b2dabf`, tool
+`schedule_routine`, title `Schedule "omb-smoke"?`, operation `create`, schedule
+`interval` every 60 minutes, `runOn: maus`. `answer --confirm --request
+c1cacd50…` returned `outcome: allowed-once`, `routineAction: create`, `resultId:
+b74e949f-6f33-4f1b-b09b-2e2e768d7636`, and `GET /api/routines` then listed that
+routine, enabled, with `nextRunAt` one interval out. `DELETE
+/api/routines/b74e949f…` answered `{"ok":true}`; the data directory's
+`routines.json` ends the session with an empty `routines` list.
+
+**Learned skill.** The recorder is off by default, so `PUT /api/config
+{"features":{"skillRecorder":true}}` came first and the response read
+`features.skillRecorder: true`. `send --bot Nova` at 05:11:45Z asked for a
+`skill_manage` call naming `omb-smoke`; the card arrived 11 s later: request
+`cd93ec72-249c-4b32-bdd7-9c231d4f730d`, tool `stage_skill`, staged
+`f554198e-6148-4400-8b3d-d56a50e1160d`, source `learn:conversation`, sha256
+`15077bc5fe418639d1d397f0404a855e4d98d3570bec97e819aa6151a0512fef`, and a
+seven-line preview. The orchestrator computed sha256 of that preview text locally
+and got the card's own hash, which is what `--reviewed` must equal; `answer
+--allow --reviewed 15077bc5… --request cd93ec72…` returned `allowed-once`. `GET
+/api/bots/e032a653-97be-498e-95c3-eb3df3fdac71/skills/omb-smoke` then returned
+200 with text byte-identical to the preview, and `DELETE` answered
+`{"ok":true}`; the `GET` after it answered 404, which is the one step of this
+kind not captured to a file. The bot's `skill-state/` ends the session with
+`skills.json` `{}` and `staged.json` `{"writes":{}}`.
+
+**Credential.** `send --bot Nova` at 05:12:38Z asked for a `request_credential`
+call for `openaiImageApiKey` — an `imageGen` target, chosen because its config
+section is on the no-reload list and cannot restart the provider fleet. The
+pending request is not a card: kind `secret`, message
+`62fcf731-180c-4a8d-b81b-9b8ace1f224f`, target `openaiImageApiKey`, label "OpenAI
+API key", description "Used only to generate custom bot avatar images. launcher
+smoke check", request key `2fdb4e6f-6ac2-4f91-8065-3e2876ede0e6`. It was answered
+with `answer --provide --secret-stdin --request 62fcf731… < <file>`, where the
+file is a 0600 one the operator wrote holding a dummy value — never a real key,
+and never part of any command: the result read `saveOutcome: "saved"` (the `verified` value is reserved
+for the recovery path after a lost answer), `provided: true`, `resumed: true`,
+`woken: true`. `PUT /api/config {"imageGen":{"key":""}}` then returned
+`imageGen.configured: false`. Leak check afterwards: the dummy value appears in
+no `p7-*` output, in no `stdout`/`stderr` of the answer, in the project's
+`.omb/state.json`, or in any of the 601 files of the data directory — the
+server's own `config.json`, which held it by design while it was configured, now
+reads `"imageGen": {"key": ""}`.
+
+**Connector.** Not exercised, as the plan expected: `GET /api/config` reports
+`composio: {"configured": false, "mode": "unavailable"}`, and the server refuses
+to create a connection request without a project key or broker. That kind stays
+fake-only.
+
+### The second implementer
+
+Before any dispatch, because `import --adopt` is refused while a run is open and
+the implementer picker only chooses bound bots: `send "Sudo, create a second
+implementer."` on the lead's DM thread `286c0a7c-a5f4-4df9-b19a-d3282d70e9c8` at
+05:13:50Z (one lead turn). The team had `['Bramble', 'Nova', 'Quill', 'Sage',
+'Sudo', 'Vale']`; 31 s later it also carried **Forge**,
+`f761bfab-8745-4740-a7b5-f8d83800cf3a`, title Implementer, with no model and no
+working folder — a same-section bot the lead made for itself, which is exactly
+the kind `task` refuses to claim until it is adopted and bound. `import --adopt "Agent Team dev team"` at 05:14:27.013Z returned
+the six titled bots — Bramble, the server's own titleless default bot, is not one
+of them — and `bind --model Forge=claude/claude-opus-5/high` gave Forge `cwd`,
+that model and `approval auto` while the other five reported `changes: []`. The
+roster after the bind is the same five bindings plus `Forge:
+claude/claude-opus-5/high (auto)`.
+
+### The two runs
+
+T14 was dispatched with `task --todo T14 --bead slg-h3m --implementer Nova` at
+05:14:59.505Z: run `092671dff24f849a`, tag `oml:092671df`, slug `t14`, branch
+`task/t14`, lead thread `4f8cc1eb-33df-4815-97c5-33028274b3c9`, `sentSha
+17e2850`, and fresh tagged threads for all six bots, Forge included. T15 followed
+at 05:28:41.712Z with `--implementer Forge`: run `289bb21f8b7d1dd4`, tag
+`oml:289bb21f`, branch `task/t15`, lead thread
+`f1cd8141-d945-4fa1-a750-3c2fbbf26b80`, `openRuns: 2`, the same `sentSha`, and —
+as the design requires for a second run — only the lead thread fresh, the five
+specialist threads recorded as the live ones T14 already owns. The watch that ran
+immediately before that dispatch reported `t14 · running 14m · Nova working`.
+
+**T14.** Sage planned, Vale reviewed, Sage revised, Vale rejected the revision
+for renaming the operator's branch and worktree, and at 05:23:30.446Z the lead
+settled without the marker (`attention`, message
+`6de17184-a42e-46b6-bd93-d14a7bd23017`):
+
+> Sage flagged a premise conflict: `TODO.md` does not specify the
+> branch/worktree, while the repository convention uses names like
+> `task/t14-lowercase` and `.worktrees/t14-lowercase`, not the requested
+> `task/t14` and `.worktrees/t14`. Per the workflow, I stopped before
+> provisioning. Please confirm whether to proceed with the exact names you
+> specified, overriding the repository convention.
+
+The operator answered at 05:25:40.592Z that the brief's names are the run's, that
+the launcher owns each run's worktree by that slug now, and to provision and
+delegate to Nova. Provisioning then hit a ref lock once — "Provisioning hit a
+filesystem restriction while creating `refs/heads/task/t14` (`git` could not lock
+the ref); the repository root itself is clean on `main`. I'm retrying the same
+authorized worktree creation" — and the retry succeeded. Nova implemented in one
+62 s turn (91 tests), Quill reviewed in one 571 s turn and returned "ready, no
+findings", the lead merged `--ff-only` as `c7554a5`, ran the suite on `main`,
+closed `slg-h3m`, removed the worktree and deleted the branch, and posted the
+marker at 05:42:24.694Z — `t14 · DONE after 28m`.
+
+**T15.** Sage planned, Vale reviewed, Forge implemented `abad668` (93 tests), and
+at 05:37:35.134Z the lead posted the marker although the review had not started:
+
+> Forge completed T15 in commit `abad668`. The full suite passes: 93 tests.
+>
+> Quill is currently busy, so the required code review has not started yet. I'm
+> waiting for Quill's availability before merging and closing bead `slg-0sq`.
+>
+> DONE oml:289bb21f
+
+`watch` read that as `t15 · DONE after 10m`, which is what the marker means, with
+an unmerged branch behind it. After T14 closed, the operator sent `send --run t15
+"Quill is free now: T14 is merged…"` at 05:46:52.915Z (`switched: false` — the
+lead was idle, so no task switch was needed). Quill's review then found
+`task/t15` missing the merged T14 and asked for a rebase; Forge rebased to
+`11ff1e6` (99 tests); Quill's fresh review passed; the lead merged `--ff-only`,
+ran the suite, closed `slg-0sq` and removed the worktree and branch. Its closing
+message at 05:56:13.866Z lists all of that and then asks for commit
+authorization, so the second marker never came and the run settled `attention`.
+
+**Overlap.** The two runs were open together from 05:28:41.712Z until `report
+--run t14` closed T14 at 06:00:20Z. The event files make the overlap exact: all
+of T15's lead turn `05:31:26.935 → 05:36:03.427`, Vale's `05:32:27.252 →
+05:33:08.118` and `05:34:30.389 → 05:34:45.387`, Sage's `05:33:26.494 →
+05:33:54.076` and Forge's implementation turn `05:36:03.524 → 05:36:52.429` ran
+inside Quill's single T14 review turn, `05:30:13.596 → 05:39:44.506`. The watch
+loop saw the same thing from outside: at 05:33:53Z one `--run t14` view reported
+`busy ['Quill', 'Sage']`, and at 05:36:29Z the `--run t15` watch reported `t15 ·
+running 8m · Forge working` with the `--run t14` watch that followed it reporting
+Quill's card and `busy ['Quill']`. The lead never doubled up: the twelve turns on
+the two run threads are strictly sequential, the closest pair being T15's
+`05:28:41.796 → 05:29:40.611` and T14's `05:29:40.686 → 05:30:13.504`, 75 ms
+apart.
+
+### Approval cards
+
+Quill's grok binding stays on `ask`, so every tool call it made raised a card.
+The watch loop (`p7-loop.sh`: alternate `watch --run t14` / `--run t15`, allow an
+unshared approval card once, stop on anything else) answered **17** of them with
+`answer --allow --request <id> --run <slug>`, 14 `shell` and 3 `edit`, all
+`allowed-once`: nine on T14 between 05:31:20Z and 05:39:38Z and eight on T15
+between 05:47:49Z and 05:53:59Z. The data directory's `decisions.ndjson` holds 19
+`card-shown` and 19 `user-approved` records and no `always` in any of them: the
+other two are Nova's routine and skill cards above. No question card appeared in
+either run. Every one of the 17 arrived on Quill's single thread
+`00c50bf4-9d27-4e1c-af12-7c175e5f0701`, which both runs record, and every one was
+attributed to exactly one run — `shared: false` in each pending view — so
+`--run <slug>` was enough to answer it.
+
+### The two reports
+
+`report --run t14 --md --check-042` and `report --run t15 --md --check-042` ran at
+06:00:20Z and 06:00:21Z. Both blocks are quoted verbatim below, with the heading
+demoted one level. Both closed `incomplete`: the record commit did not exist yet
+(the lead's CLI had refused it, see the incidents) and the root therefore carried
+two modified paths.
+
+### 2026-09-17 — T14 (incomplete)
+
+Run 092671dff24f849a, tag oml:092671df, OpenMausBot 0.1.56, lead Sudo (codex/gpt-5.6-luna/high), implementer Nova, branch task/t14, project /home/wsh/.cache/agent-team/validate-0.4.1/slugkit, dispatched 2026-09-17T05:14:59.505Z from 17e2850; final state done; still open: t15.
+
+| Thread | Turns | Bot seconds | Input | Cached | Output |
+|---|---|---|---|---|---|
+| Sudo | 5 | 790 | 202227 | 193280 | 1119 |
+| Forge (+2 shared) | 0 | 0 | 0 | 0 | 0 |
+| Quill (+2 shared) | 1 | 571 | 68666 | 0 | 311 |
+| Nova | 1 | 62 | 264702 | 222848 | 4428 |
+| Vale (+5 shared) | 0 | 0 | 0 | 0 | 0 |
+| Sage (+5 shared) | 1 | 88 | 272067 | 227076 | 7359 |
+
+Outcomes: 6 (receipt Sage, echo Sage, receipt Nova, echo Nova, receipt Quill, echo Quill). Commits since dispatch: 2 (11ff1e6 Add --sep, --max-length, --max-words CLI options (T15 / slg-0sq); c7554a5 Add lowercase parameter to slugify (T14 / slg-h3m)).
+
+Record step: task log no, record commit none, bead slg-h3m is closed. Tests: passed in 1 s. Root: 2 modified or untracked path(s).
+
+0.4.2 checks:
+
+- worktree-after-approval: no — Vale's last pre-worktree reply at 2026-09-17T05:22:23.102Z: not approved; git worktree add at 2026-09-17T05:26:10.097Z
+- record-time-from-date-u: no — date -u returned 2026-09-17T05:40:53Z; this run's entry heading is "### 2026-09-17T05:55:23Z — Sudo (orchestrator)"
+- no-host-listagents: yes — tools used: mcp__agents__list_bots
+- bead-closed: yes — bead slg-h3m is closed
+- record-commit: no — no attributable docs(team) record commit since dispatch
+- merged-ancestor: unknown — the closing report names no merged commit
+- task-branch-and-worktree-absent: yes — 0 task branch(es) and 0 worktree(s) with no owner; 0 task branch(es) and 0 worktree(s) in all
+- root-clean: no — 2 modified or untracked path(s)
+- tests-pass: yes — exit 0 in 1 s
+
+Closing report from Sudo: "T14 completed and merged into `main` as `c7554a5`. - Quill review: ready, no findings. - Tests: 91 passed on `main`. - Bead `slg-h3m`: closed. - Worktree and branch removed. - Progress and Beads records are staged; commit was blocked by repository policy. - Team-room report was attempted but rejected by authorization controls. DONE oml:092671df"
+
+### 2026-09-17 — T15 (incomplete)
+
+Run 289bb21f8b7d1dd4, tag oml:289bb21f, OpenMausBot 0.1.56, lead Sudo (codex/gpt-5.6-luna/high), implementer Forge, branch task/t15, project /home/wsh/.cache/agent-team/validate-0.4.1/slugkit, dispatched 2026-09-17T05:28:41.712Z from 17e2850; final state running.
+
+| Thread | Turns | Bot seconds | Input | Cached | Output |
+|---|---|---|---|---|---|
+| Sudo | 7 | 622 | 236040 | 197888 | 1559 |
+| Forge | 2 | 72 | 386375 | 354558 | 4294 |
+| Quill (+1 shared) | 2 | 294 | 160431 | 0 | 506 |
+| Nova (+1 shared) | 0 | 0 | 0 | 0 | 0 |
+| Vale (+2 shared) | 0 | 0 | 0 | 0 | 0 |
+| Sage (+1 shared) | 1 | 106 | 185617 | 174740 | 10340 |
+
+Outcomes: 10 (receipt Sage, echo Sage, receipt Forge, echo Forge, receipt Quill, echo Quill, receipt Forge, echo Forge, receipt Quill, echo Quill). Commits since dispatch: 2 (11ff1e6 Add --sep, --max-length, --max-words CLI options (T15 / slg-0sq); c7554a5 Add lowercase parameter to slugify (T14 / slg-h3m)).
+
+Record step: task log no, record commit none, bead slg-0sq is closed. Tests: passed in 1 s. Root: 2 modified or untracked path(s).
+
+0.4.2 checks:
+
+- worktree-after-approval: unknown — Vale's last pre-worktree reply at 2026-09-17T05:34:45.402Z: verdict unknown; git worktree add at 2026-09-17T05:35:07.617Z
+- record-time-from-date-u: yes — date -u returned 2026-09-17T05:55:23Z; this run's entry heading is "### 2026-09-17T05:55:23Z — Sudo (orchestrator)"
+- no-host-listagents: yes — tools used: mcp__agents__list_bots
+- bead-closed: yes — bead slg-0sq is closed
+- record-commit: no — no attributable docs(team) record commit since dispatch
+- merged-ancestor: unknown — the closing report names no merged commit
+- task-branch-and-worktree-absent: yes — 0 task branch(es) and 0 worktree(s) with no owner; 0 task branch(es) and 0 worktree(s) in all
+- root-clean: no — 2 modified or untracked path(s)
+- tests-pass: yes — exit 0 in 1 s
+
+Closing report from Sudo: "T15 is merged and validated: - `main` at `11ff1e6` - 99 tests pass - Bead `slg-0sq` closed - Worktree and branch removed - Progress log updated The required local documentation commit was blocked because explicit commit authorization is required. Please approve that commit so I can finish the record, post the team report, and emit the marker."
+
+The checks that did not pass are worth separating, since both runs did merge,
+test and close their bead.
+
+- `record-commit` and `root-clean` are `no` in both runs for one reason: the
+  lead's own CLI refused the record commit and the operator made it after the
+  reports (incident 2 below).
+- `merged-ancestor` is `unknown` in both because neither closing report names its
+  merge in the form the check parses — T14's says "merged into `main` as
+  `c7554a5`", which the report prints two lines further down.
+- `record-time-from-date-u` is `no` for T14 because the entry heading the pack
+  writes (`### <time> — Sudo (orchestrator)`) names no run and both runs write
+  into the same file, so the check compared T14's `date -u` (05:40:53Z) with the
+  entry T15 wrote later (05:55:23Z). Both entries exist and each names its own
+  task and bead in its body.
+- `worktree-after-approval` is `no` for T14 and `unknown` for T15. T14's is
+  accurate about what happened: Vale's last pre-worktree reply, at 05:22:23.102Z,
+  was a rejection, and the approval that unblocked the 05:26:10.097Z
+  `git worktree add` was the operator's message at 05:25:40.592Z, which the check
+  does not look for. T15's is the ambiguous-verdict case T13 already recorded:
+  Vale replied at 05:34:45.402Z, 22 s before the worktree, and the parser refused
+  to read a verdict out of it.
+
+### Incidents
+
+1. **A ref lock during provisioning.** The first `git` write for `task/t14`
+   could not lock `refs/heads/task/t14`; the lead retried the same authorized
+   worktree creation and it succeeded. No operator action, one lead turn spent.
+2. **The lead's own CLI refused its record commit, in both runs.** T14: "Progress
+   and Beads records are staged; commit was blocked by repository policy." T15:
+   "The required local documentation commit was blocked because explicit commit
+   authorization is required." Nothing in the fixture blocks it — the clone's
+   hooks are the beads ones (`core.hooksPath=.beads/hooks`) and they pass — but
+   its `AGENTS.md` says "Do not commit or push without clear authority from the
+   active profile or the current user request", and a Codex lead reads that as a
+   refusal it cannot lift by itself. The records stayed staged until the operator
+   committed them as `ddd4684` after both reports, which is why both runs closed
+   `incomplete` on `record-commit` and `root-clean`.
+3. **A team-room report was refused too**: "Team-room report was attempted but
+   rejected by authorization controls" (T14's closing message). The chat report
+   arrived; the room copy did not.
+4. **The marker before the review.** T15's lead posted `DONE oml:289bb21f` while
+   Quill was still reviewing T14, with `task/t15` unmerged and the bead open, and
+   said so in the same message. `watch` read `DONE` because that is what the
+   marker means. The pack's rule should be to wait or queue rather than declare
+   done; the operator's recovery was one `send --run t15` once Quill was free.
+5. **Report attribution across two runs.** As above: `record-time-from-date-u`
+   for T14 matched T15's task-log entry, because the pack's entry heading names
+   no run and both runs write into the same file.
+6. **Bead `oml-fg8`: a run that would not settle after its sibling closed.**
+   After `report --run t14` moved T14 into history at 06:00:20Z, every
+   `watch --run t15` returned `state: "timeout"` with `reasons: ["idle for 0 s,
+   not yet settled"]` and `quietFor: 0`, `changes: []`, `inflight: false`,
+   `busy: []`, `complete: true`, `checkpointed: true` — although every bot was
+   idle and the lead's last turn on that thread had completed at 05:56:13.866Z.
+   Before T14 closed, the same run had settled cleanly as `attention` four times
+   in a row (05:55Z–05:59Z). `report --run t15` left the run open; the operator
+   closed it with `task --abandon --run t15` (`history: 4`) at 06:06:56Z and
+   reported from history. Four watch outputs, the two identical reports and the
+   state file are in the scratchpad's `p7-quiet-defect/`.
+7. **`status` has no `--run`.** A `status --run t14 …` call is exit 2 `Unknown
+   option '--run'`; `status` lists every open run in `runs[]` and the plan's
+   wording assumed otherwise. The run's tail was read from its `runs[]` entry
+   instead.
+
+### Host watch proofs during the live run
+
+Both hosts were given one command each, while T14 was open and Quill's cards were
+arriving, and both read the driver's own line back.
+
+**OpenClaw.** `openclaw agent --json -m "Run exactly this shell command once and
+paste its complete stdout and stderr verbatim, then stop: env OMB_BIN=… OMB_TOKEN=
+…/scripts/omb.mjs watch --run t14 --max-seconds 40 --brief --project <clone>"`,
+prompt at 05:34:54.213Z: run `614776d8-418a-457e-9b62-55b128102520`, session
+`571ddd65-a9c9-40de-b97b-18c0759c93ba`, provider `openai`, model `gpt-5.6-sol`
+through the bundled Codex harness, `durationMs 45313`, `toolSummary` 3 calls.
+The Codex harness raised one "Codex app-server command approval"
+(`plugin:1004b3fb-8860-4e2b-b2f5-eeff658df98d`, pending 05:35:22Z) and the
+operator's `approve-loop.sh` resolved it `allow-once` at 05:35:25Z; nothing was
+ever answered `allow-always`. The agent's final text is the driver's brief line:
+
+```
+t14 · APPROVAL · Quill: "python3 - <<'PY' from slugkit import slugify, unique_slug import unicodedata def pipe(text): text =…" (request d1ff9318-baa6-41d2-bfd3-a8c3d283210b --run t14) → omb answer --allow --request d1ff9318-baa6-41d2-bfd3-a8c3d283210b --run t14
+```
+
+**Hermes Agent.** `hermes -z "Run exactly this shell command once and paste its
+complete stdout and stderr verbatim, then stop: …/scripts/omb.mjs watch --run t14
+--max-seconds 40 --brief --project <clone>"`, with `OMB_BIN` and an empty
+`OMB_TOKEN` exported in the launching shell: session `20260917_013542_298e4e`
+(`~/.hermes/state.db`), model `gpt-5.6-sol`, 4 messages, 05:35:39Z to 05:36:13Z
+(34 s wall, 29.3 s in its own record). Its terminal tool recorded `exit_code: 5`
+— the driver's "needs you" exit — and the answer is again the brief line, for the
+next card:
+
+```
+t14 · APPROVAL · Quill: "git rev-parse --abbrev-ref HEAD; git status --porcelain; python3 -c "import slugkit,inspect; print(…" (request e38e414c-bee2-4b5e-900b-4887b4944455 --run t14) → omb answer --allow --request e38e414c-bee2-4b5e-900b-4887b4944455 --run t14
+```
+
+Neither host answered a card: the cards `d1ff9318…` and `e38e414c…` were answered
+by the operator's watch loop at 05:35:43Z and 05:36:29Z. These are two paid host
+turns, one each.
+
+### The Codex sandbox and long SSE (bead `oml-u1j`)
+
+The plan's first command, `codex exec --sandbox workspace-write
+--approve-for-me …`, never ran: Codex refuses the combination at argument
+parsing, "the argument '--sandbox <SANDBOX_MODE>' cannot be used with
+'--approve-for-me'", which its own `exec --help` explains — `--approve-for-me`
+"Route[s] approval requests through automatic review using the workspace-write
+sandbox", so it already picks one. The second command, `codex exec
+--approve-for-me -C <clone> "Run exactly this shell command
+once, wait for it to finish (it may take up to 10 minutes), and paste its
+complete stdout and stderr verbatim, then stop: env OMB_BIN=… OMB_TOKEN=
+…/scripts/omb.mjs watch --run t15 --max-seconds 570 --project <clone>
+--verbose"`, ran at 05:39:08Z on **Codex CLI v0.154.0**, model `gpt-6-astra` (the
+config default), `approval: on-request`, `sandbox: workspace-write [workdir,
+/tmp, $TMPDIR]`, `reasoning effort: max`, session
+`01a0ade0-3bad-7f63-8530-cf3e076a800d`. The driver exited in 47 ms, before any
+frame:
+
+```
+Error: cannot reach http://127.0.0.1:8899: EPERM
+    at unreachable (…/scripts/lib/server.mjs:53:10)
+    at serverIdentity (…/scripts/lib/session.mjs:57:41)
+…
+{"ok":false,"verb":"watch","error":"cannot reach http://127.0.0.1:8899: EPERM","hint":"the shell's sandbox blocks outbound connections: run this command outside the sandbox (escalation), or use --remote against a reachable URL"}
+```
+
+The model pasted that output and stopped without requesting an escalation: 31 s,
+8,698 tokens, exit 0. So the question "can a sandboxed Codex hold a long SSE
+watch?" has an answer, and it is not the one the check was shaped for: inside
+`workspace-write` the watch cannot open the connection at all, so long SSE is
+reachable only through the host's escalation path (`danger-full-access`) or
+`--remote` against a URL the sandbox allows. This closes the "long SSE
+unverified" line that `references/hosts.md`, `docs/design.md` and
+`.project-steward/RISKS.md` carried from 2026-09-08; it is a documented
+restriction, not long-SSE evidence.
+
+### Turn ledger
+
+34 `turn.completed` events across nine threads in
+`…-XwqQxP/events/<thread>.ndjson`, counted from the files:
+
+| Thread | Bot | Turns | What it is |
+|---|---|---|---|
+| `f1cd8141-d945-4fa1-a750-3c2fbbf26b80` | Sudo | 7 | T15's lead thread |
+| `8c7b2c69-c85e-4958-8b54-70d509fa76d4` | Sage | 6 | planner, both runs |
+| `4f8cc1eb-33df-4815-97c5-33028274b3c9` | Sudo | 5 | T14's lead thread |
+| `1af9e409-70ba-47c5-9c80-e4cce193f1e8` | Vale | 5 | plan reviewer, both runs |
+| `441ace76-6100-418f-885a-e9f9a79ddd62` | Nova | 4 | the DM thread for the three request kinds |
+| `00c50bf4-9d27-4e1c-af12-7c175e5f0701` | Quill | 3 | code reviewer, both runs |
+| `e7ae8680-abcd-40fb-bd4f-c71003abde3f` | Forge | 2 | implementer, T15 |
+| `d67e5df0-bb24-48c0-90a1-b4553e99d120` | Nova | 1 | implementer, T14 |
+| `286c0a7c-a5f4-4df9-b19a-d3282d70e9c8` | Sudo | 1 | the DM that asked for a second implementer |
+
+The two reports allocate 20 of those 34 to a run (T14: Sudo 5, Quill 1, Nova 1,
+Sage 1; T15: Sudo 7, Forge 2, Quill 2, Sage 1) and mark the rest of the shared
+threads' turns `shared` — Vale's 5 and 4 of Sage's 6 fall outside either run's
+open-delegation windows, and the 5 DM turns belong to no run at all. Where the
+allocation can be checked against the event files it is exact: Quill's 571 s in
+T14's table is the single `05:30:13.596 → 05:39:44.506` turn, and its 294 s in
+T15's table is the two later ones (51 s and 242 s).
+
+Pass accounting, against the session's 30-turn allowance and the v2 pass cap of
+50:
+
+| Phase | OMB bot turns | Native host sessions |
+|---|---|---|
+| v2 host verification (2026-09-16) | 3 | OpenClaw 6, Hermes 3, dsh 4 turns |
+| v2 remote run (2026-09-16) | 2 | none |
+| this phase (2026-09-17) | 34 | 3: OpenClaw 1, Hermes 1, Codex exec 1 |
+| **pass total** | **39 of 50** | |
+
+The 34 exceed the session's 30-turn allowance by 4. The overrun is the
+orchestrator's decision to finish T15's review after the marker rather than
+abandon a merged-but-unreviewed branch: the four turns are Quill's two review
+turns, Forge's rebase turn and the lead turn that delegated it.
+
+### Cleanup and end state
+
+`task --abandon --run t15` closed the run that would not settle; `report --run
+289bb21f8b7d1dd4 --md --check-042` then reproduced the same block from history.
+`reconcile` at 06:07:25Z: clean, `main` at `ddd4684`, one worktree, no task
+branch, nothing unowned, `openRuns: []`. `cleanup --kill`: `pattern:
+codex-linux-sandbox`, `orphans: []`, `killed: []`. `down` at 06:07:26Z stopped
+`supervisorPid 1643151` and `healthPid 1643158` with no orphans, and 8899 and
+8900 have no listener afterwards. The package hash is unchanged. The clone ends
+at `ddd4684`: `c7554a5` (T14), then `11ff1e6` (T15), then the operator's record
+commit, with `git status` empty and `python3 -m unittest discover -s tests -t .`
+reporting 99 tests, OK, where the fixture started at 85. The data directory and
+the clone were kept, because the ids above are read from them. No pushes.
+
+### Not exercised
+
+The connector request kind (Composio is unconfigured on this machine, so the
+server refuses to create a connection request at all); `answer --message` on a
+real question card, since none appeared; a provider-key credential
+(`xaiApiKey`, `opencodeGoApiKey`) and its busy-fleet refusal against a real
+server; `watch --nudge`; a third open run; a host `watch` longer than 40 s, and
+any `watch` from dsh; long SSE from a Codex sandbox, which this run showed is
+unreachable there without escalation rather than merely untested.

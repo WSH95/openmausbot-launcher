@@ -239,6 +239,12 @@ room), `state --set`, macOS lifecycle. `pair` was deferred in v1 and landed on
    without touching the server. Both take `--run <ref>` and refuse to guess
    when several runs are open. There is no `--force`.
 
+Known gap from the first real parallel run (bead `oml-fg8`, 2026-09-17): after
+`report --run <a>` closed the first of two open runs, every `watch --run <b>`
+returned `timeout` with `idle for 0 s, not yet settled` although every bot was
+idle and that run had settled as `attention` minutes earlier, so the operator
+had to close it with `task --abandon --run <b>` and report it from history.
+
 The brief's last paragraph, from `dev-team.md`'s template: "When the task
 is finished, end your closing report with a line containing only
 `DONE oml:<runId8>`." The marker is run-specific and anchored
@@ -703,7 +709,7 @@ task through my OpenMausBot team and relay its questions to me."`,
 |---|---|---|---|---|
 | Claude Code | `ln -s <repo>/skills/openmausbot-launcher ~/.claude/skills/openmausbot-launcher` | Bash, `${CLAUDE_SKILL_DIR}/scripts/omb.mjs` | `--max-seconds 100` (120 s default), or 570 in background with a 600 s timeout | command checks verified; see evidence for watch coverage |
 | Grok Build | reads `~/.claude/skills`, nothing more | bash tool | 100 | command checks verified |
-| Codex | `ln -s … ~/.agents/skills/openmausbot-launcher` (also `~/.codex/skills`); `$openmausbot-launcher` | shell under sandbox; loopback HTTP and `up` may need escalation | 100 | command checks verified with escalation; long SSE unverified |
+| Codex | `ln -s … ~/.agents/skills/openmausbot-launcher` (also `~/.codex/skills`); `$openmausbot-launcher` | shell under sandbox; loopback HTTP and `up` need escalation | 100, outside the sandbox | command checks verified with escalation; long SSE settled 2026-09-17: inside `workspace-write` the watch exits in 47 ms with `cannot reach <url>: EPERM`, so it needs `danger-full-access` or `--remote` (`--approve-for-me` selects that same sandbox and refuses `--sandbox`) |
 | DSH 0.1.5-rc.1 | `~/.agents/skills` (non-recursive; the tier numbers are unverified) | shell, script path; `--remote --url http://127.0.0.1:<port>` for live verbs | 100, shell limit not measured | command checks verified 2026-09-16; its PID namespace defeats the local identity check |
 | OpenClaw 2026.9.4 | `~/.agents/skills` (default state only) or `openclaw skills install <path>`; keep `tools.exec.mode` at `ask`, never `allowlist`; an allowlist entry matches a command path, not every form the agent types | the agent's shell under the bundled Codex harness; one approval card per command, `approvals resolve <id> allow-once` | 1500 in background, or automations | command checks, the Telegram path and automations verified 2026-09-16; the 10 s exec yield is not |
 | Hermes Agent | `skills.external_dirs: [~/.agents/skills]` is required (the default scan missed it) or a `~/.hermes/skills/` copy; `hermes skills trust` for project installs | terminal tool, script path, no sandbox | 240 in cron via the `.sh` adapter; the terminal tool's own `timeout`/`lifetime_seconds` are 180 and 300 | command checks and the cron adapter verified 2026-09-16 |
@@ -928,7 +934,11 @@ hold the record; the devpack gate `atw-07l.27` is met. The suite grew from
    (finding 24); `status` exits 1 with a network error naming the URL, where
    before finding 26 it exited 3 with a misleading identity error. The same
    commands pass under `danger-full-access` or against a user-started server
-   that `up` attaches to. Long SSE inside the sandbox remains unverified.
+   that `up` attaches to. Long SSE inside the sandbox is settled as of
+   2026-09-17 and the answer is that it is unreachable: `codex exec
+   --approve-for-me` (0.154.0) ran `watch --max-seconds 570` against a live run
+   and the driver exited after 47 ms with `cannot reach
+   http://127.0.0.1:8899: EPERM` and its escalation hint.
 2. OpenClaw, verified 2026-09-16 on 2026.9.4: `--announce` does not deliver an
    empty output (the run records `deliverySuppressionReason: "empty"`), and
    `openclaw approvals allowlist add --agent <agent> <path>` takes a command
