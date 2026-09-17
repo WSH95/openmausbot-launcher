@@ -1100,9 +1100,20 @@ function defaultInstances() {
 // election protocol that retires a dead owner, the private desktop delegation
 // and its token-bearing file names are upstream's and are not imitated here.
 const LEASE_NAME = "openmausbot-server.lease"; // S: data-dir-lease.mjs:6
+const LEASE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/; // S: data-dir-lease.mjs:12
 /** Alive for the lease's purpose: EPERM is a process this account cannot signal. S: data-dir-lease.mjs:82-92. */
 function leaseOwnerAlive(pid) {
   try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; }
+}
+/** The public shape of an owner record. A record that is not this is invalid,
+ * never a dead owner to retire. S: data-dir-lease.mjs:24-41. */
+function validLeaseOwner(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v)
+    && v.version === 1
+    && Number.isInteger(v.pid) && v.pid > 0 && v.pid <= 0x7fffffff
+    && typeof v.host === "string" && v.host.length > 0 && v.host.length <= 255 && !/[\r\n\0]/.test(v.host)
+    && typeof v.token === "string" && LEASE_UUID.test(v.token)
+    && typeof v.createdAt === "number" && Number.isFinite(v.createdAt) && v.createdAt > 0;
 }
 /**
  * Claim the directory before any state is loaded (S: server/index.ts:335-339).
@@ -1116,19 +1127,45 @@ function leaseOwnerAlive(pid) {
 function acquireLease(dataDir) {
   fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   const file = path.join(dataDir, LEASE_NAME);
+  const invalid = "The OpenMausBot data-directory lease is invalid; refusing to start to protect its state."; // S: :69
   const owner = { version: 1, pid: process.pid, host: os.hostname(), token: randomUUID(), createdAt: Date.now() };
+  const read = () => {
+    let raw;
+    try { raw = fs.readFileSync(file, "utf8"); } catch (e) { if (e.code === "ENOENT") return null; throw e; }
+    let record;
+    try { record = JSON.parse(raw); } catch { throw new Error(invalid); }
+    if (!validLeaseOwner(record)) throw new Error(invalid);
+    return record;
+  };
   for (;;) {
     try { fs.writeFileSync(file, `${JSON.stringify(owner)}\n`, { flag: "wx", mode: 0o600 }); return release; }
     catch (e) { if (e.code !== "EEXIST") throw e; }
-    let current;
-    try { current = JSON.parse(fs.readFileSync(file, "utf8")); }
-    catch (e) { if (e.code === "ENOENT") continue; throw new Error("The OpenMausBot data-directory lease is invalid; refusing to start to protect its state."); } // S: :69
+    const current = read();
+    if (!current) continue;
     if (current.host !== owner.host) throw new Error(`This OpenMausBot data directory is already owned by a process on another machine. Lease record: ${JSON.stringify(file)}.`); // S: :323-326
     if (leaseOwnerAlive(current.pid)) throw new Error(`OpenMausBot is already using this data directory (process ${current.pid}). Close the other instance first.`); // S: :328-331
-    try { fs.unlinkSync(file); } catch (e) { if (e.code !== "ENOENT") throw e; } // S: :168-180
+    retire(current);
+  }
+  /**
+   * Retire one dead owner, and only one contender at a time: the recovery
+   * claim is created exclusively, so a second contender that saw the same dead
+   * record cannot unlink the lease the first one has meanwhile published, and
+   * is told what upstream tells it (S: :333-335). Upstream's own election, its
+   * delegated child capability and its token-bearing candidate names are its
+   * own; this models only that a dead owner is retired exactly once
+   * (S: :168-180).
+   */
+  function retire(dead) {
+    const claim = `${file}.recovery`;
+    try { fs.writeFileSync(claim, `${owner.pid}\n`, { flag: "wx", mode: 0o600 }); }
+    catch (e) { throw e.code === "EEXIST" ? new Error("A stale OpenMausBot data-directory lease is already being recovered; try again shortly.") : e; }
+    try {
+      const current = read();
+      if (current && current.token === dead.token && !leaseOwnerAlive(current.pid)) fs.unlinkSync(file);
+    } finally { try { fs.unlinkSync(claim); } catch {} }
   }
   function release() { // S: :346-359 — a lease another process owns is never released
-    try { if (JSON.parse(fs.readFileSync(file, "utf8")).token === owner.token) fs.unlinkSync(file); } catch {}
+    try { if (read()?.token === owner.token) fs.unlinkSync(file); } catch {}
   }
 }
 
@@ -1151,17 +1188,25 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     // A captured startup log replayed above this run's own output, so a test can
     // reach a hint that scans for a signature far above the display tail.
     if (process.env.OMB_FAKE_LOG_PRELUDE) process.stdout.write(fs.readFileSync(process.env.OMB_FAKE_LOG_PRELUDE, "utf8"));
+    console.log(`server process ${process.pid}`); // so a test can wait for the process a failed startup left behind
     let release;
     // The uncaught DataDirLeaseError (S: data-dir-lease.mjs:16-22) reaches the
     // inherited stderr and the supervisor forwards the non-zero exit (S: cli.ts:480).
     try { release = acquireLease(o.dataDir); } catch (e) { console.error(e.message); process.exit(1); }
     process.on("exit", release); // registered only after a successful acquisition: S: index.ts:339-352
+    // A held startup: the directory is leased and nothing is listening yet, so
+    // a test can overlap two failing startups on one data directory.
+    if (process.env.OMB_FAKE_HOLD) {
+      const until = Date.now() + 60_000;
+      while (fs.existsSync(process.env.OMB_FAKE_HOLD) && Date.now() < until) await new Promise((r) => setTimeout(r, 20));
+    }
     const f = await createFake({ port: o.port, dataDir: o.dataDir, webhookPort: Number(process.env.OMB_WEBHOOK_PORT || o.port + 1) }); // S: index.ts:320
     const stop = () => { f.close().then(() => process.exit(0)); };
     process.on("SIGTERM", stop); process.on("SIGINT", stop);
     console.log(`child listening on ${f.url}`);
     if (f.webhookPort) console.log(`openmausbot webhook receiver on http://127.0.0.1:${f.webhookPort}`); // S: index.ts:4876
   } else if (o.command === "serve") {
+    console.log(`supervisor process ${process.pid}`);
     const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "child", "--port", String(o.port), "--data-dir", o.dataDir], { env: { ...process.env, OMB_DATA_DIR: o.dataDir, OMB_PORT: String(o.port), OMB_WEBHOOK_PORT: process.env.OMB_WEBHOOK_PORT || String(o.port + 1) }, stdio: ["ignore", "inherit", "inherit"] }); // S: cli.ts:438
     let exited = null;
     child.on("exit", (code) => { exited = code ?? 1; });
