@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { verb, run, VERBS } from "../skills/openmausbot-launcher/scripts/lib/cli.mjs";
+import { verb, run, VERBS, Fail } from "../skills/openmausbot-launcher/scripts/lib/cli.mjs";
 import "../skills/openmausbot-launcher/scripts/lib/verbs/lifecycle.mjs";
 import "../skills/openmausbot-launcher/scripts/lib/verbs/pair.mjs";
 import "../skills/openmausbot-launcher/scripts/lib/verbs/repo.mjs";
@@ -19,6 +19,22 @@ test("no verb, an unknown verb, and an unknown option are usage errors (exit 2) 
   r = await run(["doctor", "--bogus"]);
   assert.equal(r.code, 2); const out = JSON.parse(r.output);
   assert.equal(out.ok, false); assert.equal(out.verb, "doctor"); assert.match(out.error, /^Unknown option '--bogus'/);
+});
+
+test("--brief renders a failure's own brief, and only a failure that carries one", async (t) => {
+  const named = "test-brief-failure"; const plain = "test-plain-failure";
+  t.after(() => { VERBS.delete(named); VERBS.delete(plain); });
+  verb(named, { handler: () => { throw Object.assign(new Fail(3, "refusing to stop: 2 busy bot(s)"), { brief: "down · refused · 2 busy · 0 unknown", others: { counts: {}, projects: [{ folder: "/secret/client-a" }] }, hint: "pass --stop-others" }); } });
+  verb(plain, { handler: () => { throw new Fail(3, "the bot is working"); } });
+  let r = await run([named, "--brief"]);
+  assert.equal(r.code, 3); assert.equal(r.output, "down · refused · 2 busy · 0 unknown");
+  r = await run([named]);
+  assert.equal(r.code, 3);
+  assert.deepEqual(JSON.parse(r.output), { ok: false, verb: named, error: "refusing to stop: 2 busy bot(s)", hint: "pass --stop-others", others: { counts: {}, projects: [{ folder: "/secret/client-a" }] } });
+  assert.equal(JSON.parse(r.output).brief, undefined, "a brief is rendered, never carried in the JSON");
+  r = await run([plain, "--brief"]);
+  assert.equal(r.code, 3);
+  assert.deepEqual(JSON.parse(r.output), { ok: false, verb: plain, error: "the bot is working" }, "a failure with no brief of its own is unchanged");
 });
 
 test("Node error codes produce an ordinary CLI failure without invalid exit codes", async (t) => {

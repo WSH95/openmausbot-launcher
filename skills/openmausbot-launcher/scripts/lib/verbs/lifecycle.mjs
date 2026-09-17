@@ -10,7 +10,7 @@ import { openRuns } from "../runs.mjs";
 import { gitAvailable, gitTopLevel, gitPath } from "../git.mjs";
 import * as srv from "../server.mjs";
 import { scanOrphans } from "../proc.mjs";
-import { membership, foreignFolders, observeOthers, describeOthers, cap } from "../others.mjs";
+import { membership, foreignFolders, observeOthers, describeOthers, briefOthers, cap } from "../others.mjs";
 
 const num = (v, d) => (v === undefined ? d : Number(v));
 
@@ -208,7 +208,10 @@ verb("down", {
     // the last look and the signal is accepted.
     const { others, blocking } = await observeOthers({ client, cfg, environmentId: server.environmentId });
     if (blocking && !flags["stop-others"]) {
-      throw new Fail(EXIT.PRECONDITION, `refusing to stop: ${describeOthers(others)}`, { hint: "finish or abandon that work where it runs, or stop this server anyway with down --stop-others", others });
+      throw new Fail(EXIT.PRECONDITION, `refusing to stop: ${describeOthers(others)}`, {
+        hint: "finish or abandon that work where it runs, or stop this server anyway with down --stop-others",
+        others, brief: `down · refused · ${briefOthers(others)}`,
+      });
     }
     const overrode = blocking ? describeOthers(others) : "";
     const unknowns = others.counts.unknown ? ` · ${others.counts.unknown} unknown` : "";

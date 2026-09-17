@@ -40,9 +40,12 @@ export async function run(argv) {
     return { code, output: JSON.stringify({ ok: code === EXIT.OK || out.ok === true, verb: name, ...out.result }) };
   } catch (e) {
     if (flags.verbose) process.stderr.write(`${e.stack}\n`);
+    const code = e instanceof Fail ? e.code : EXIT.ERROR;
+    // A refusal the phone can read, when the failure brought one of its own.
+    if ((flags.brief || flags.md) && typeof e.brief === "string") return { code, output: e.brief };
     // Named fields only: a failure's own properties are never spread onto the
     // output, so a new one is carried on purpose or not at all.
-    return { code: e instanceof Fail ? e.code : EXIT.ERROR, output: JSON.stringify({ ok: false, verb: name, error: e.message, ...(e.status ? { status: e.status } : {}), ...(e.saveOutcome ? { saveOutcome: e.saveOutcome } : {}), ...(e.hint ? { hint: e.hint } : {}), ...(e.others ? { others: e.others } : {}), ...(e.log ? { log: e.log } : {}) }) };
+    return { code, output: JSON.stringify({ ok: false, verb: name, error: e.message, ...(e.status ? { status: e.status } : {}), ...(e.saveOutcome ? { saveOutcome: e.saveOutcome } : {}), ...(e.hint ? { hint: e.hint } : {}), ...(e.others ? { others: e.others } : {}), ...(e.log ? { log: e.log } : {}) }) };
   }
 }
 

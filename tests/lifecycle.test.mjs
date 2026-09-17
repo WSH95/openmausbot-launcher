@@ -526,6 +526,25 @@ test("down counts a same-section helper as this team's, and a numbered section a
   assert.equal(r.json.others, undefined);
 });
 
+test("a refused down answers --brief in counts, and keeps the folders only in its JSON", { skip: !linux && "needs /proc" }, async (t) => {
+  const { dir } = makeRepo();
+  const pids = reaper(t);
+  const s = await ownedServer(t, pids, dir);
+  const stranger = (await s.control({ op: "bot", name: "Stranger", section: "Other team" })).bot;
+  const secret = foreignProject({ version: 2, rev: 1, server: { environmentId: s.environmentId }, runs: openRun(null), history: [] });
+  await s.setCwd(stranger.id, secret);
+  await s.control({ op: "activity", botId: stranger.id, activity: "working" });
+  await s.control({ op: "failRoute", route: "^/api/team-map", count: 1 });
+  const brief = await s.down("--brief");
+  assert.equal(brief.code, 3, brief.stdout + brief.stderr);
+  assert.equal(brief.stdout.trim(), "down · refused · 1 busy, 1 other project(s) · 1 unknown");
+  assert.equal(brief.stdout.includes(secret), false, "a brief never prints a folder");
+  const json = await s.down();
+  assert.equal(json.code, 3);
+  assert.deepEqual(json.json.others.projects, [{ folder: secret, runs: ["t10 (abcdef12, dispatched)"] }], "the JSON form still names the project the operator has to visit");
+  assert.equal((await s.down("--stop-others")).code, 0);
+});
+
 test("cleanup --down propagates a down refusal before it does any further work", { skip: !linux && "needs /proc" }, async (t) => {
   const { dir } = makeRepo();
   const pids = reaper(t);
