@@ -687,6 +687,18 @@ test("connection: the authorization link is handed over once, and the resume wai
   assert.equal(reads.filter((x) => x.startsWith("POST") && x.endsWith("/resume")).length, resumesBefore, "status already resumed the family; no redundant resume POST");
   assert.equal((await f.snapshot()).wakes.filter((w) => w.kind === "connector").length, 1, "the bot is woken once, when the last app is connected");
   assert.equal((await runOmb(["status", "--project", dir], { env })).json.pending.length, 0);
+  // That wake can fail to start, which marks every card in the request
+  // unresumed with the error (S: server/index.ts:6624-6631). The run is then
+  // waiting on a resume nobody has asked for, and says so.
+  await f.control({ op: "connectorResumeFailed", messageId: slack.id, error: "the turn could not be started" });
+  r = await runOmb(["status", "--project", dir], { env });
+  assert.deepEqual(r.json.pending, []);
+  assert.deepEqual(r.json.resumable.map((p) => p.handle).sort(), [github.id, slack.id].sort());
+  assert.equal(r.json.resumable.find((p) => p.handle === slack.id).connector.status, "connected", "a failed wake leaves the connection where it was");
+  assert.match(r.json.brief, new RegExp(`CONNECT · Sudo needs (Slack|GitHub) \\(connected\\) → omb answer --resume --request (${slack.id}|${github.id})`));
+  r = await runOmb(["answer", "--resume", "--request", slack.id, "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.resumed, true);
+  assert.equal((await f.snapshot()).wakes.filter((w) => w.kind === "connector").length, 2, "the resume is what finally hands the run back to the bot");
 });
 
 test("connection: error hints do not deny card changes or a wake already caused by status", async (t) => {

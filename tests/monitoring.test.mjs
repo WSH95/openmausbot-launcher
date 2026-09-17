@@ -94,6 +94,24 @@ test('a settled card whose wake failed is attention, and a connection whose sibl
   assert.equal(settled(snap).state, 'done', 'a resumed connection leaves nothing behind');
 });
 
+test('a connection whose wake failed stays attention beside a sibling that is still pending', async () => {
+  // `markConnectorResumeFailed` patches every card sharing the resume key to
+  // `resumed:false` with the error and leaves `status` where it was
+  // (S: server/index.ts:6624-6631), so a live connection can carry an error
+  // while a sibling in the same request has not been connected at all. The
+  // sibling's own attention says nothing about the failed wake: answering it
+  // resumes nothing, and only `--resume` finishes the family.
+  const failed = { id: 'a', at: 1500, role: 'bot', kind: 'connector', connector: { slug: 'slack', label: 'Slack', description: 'c', status: 'connected', resumeKey: 'rk', resumed: false, error: 'the turn could not be started' } };
+  const waiting = { id: 'b', at: 1501, role: 'bot', kind: 'connector', connector: { slug: 'github', label: 'GitHub', description: 'c', status: 'required', resumeKey: 'rk' } };
+  const snap = await monitoring.snapshot(scripted({ threads: { lt: [user, done], wt: [failed, waiting] } }), { team, task });
+  assert.deepEqual(snap.resumable.map((p) => p.handle), ['a']);
+  assert.deepEqual(monitoring.stuckResumable(snap).map((p) => p.handle), ['a'], 'the error is what keeps it counted while its sibling is pending');
+  const ev = settled(snap);
+  assert.equal(ev.state, 'needs-user');
+  assert.deepEqual(ev.pending.map((p) => p.handle), ['b', 'a'], 'both steps are listed: connect the one that is waiting, resume the one whose wake failed');
+  assert.match(monitoring.brief(monitoring.evaluate({ ...snap, pending: [] }, task, { now: 100_000, quiet: { since: 0 }, quietMs: 1 }), snap, task, 100_000), /CONNECT · Worker needs Slack \(connected\) → omb answer --resume --request a/);
+});
+
 test('foreign resumable cards remain selectable but do not block or change another run evidence', async () => {
   const card = { id: 'foreign-secret', at: 1600, role: 'bot', kind: 'secret', secret: { target: 'ttsKey', label: 'ElevenLabs API key', provided: true, resumed: false, error: 'wake failed' } };
   const location = { threadId: 'wt', botId: 'worker' };

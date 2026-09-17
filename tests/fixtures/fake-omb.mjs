@@ -973,6 +973,25 @@ export async function createFake(opts = {}) {
         }
         throw Object.assign(new Error("no such credential request"), { status: 404 });
       }
+      // The turn that continues after the last app is connected can fail to
+      // start; every card in that request then carries the error, unresumed,
+      // with its status left where it was. S: index.ts:6624-6631.
+      case "connectorResumeFailed": {
+        const error = String(op.error ?? "the turn could not be started").slice(0, 180);
+        for (const [thread, list] of state.threads) {
+          const named = list.find((m) => m.id === op.messageId && m.kind === "connector");
+          const resumeKey = op.resumeKey ?? named?.connector?.resumeKey;
+          if (!resumeKey) continue;
+          const family = list.filter((m) => m.kind === "connector" && m.connector?.resumeKey === resumeKey);
+          if (!family.length) continue;
+          for (const message of family) {
+            message.connector = { ...message.connector, resumed: false, error };
+            broadcast({ kind: "message.patch", threadId: thread, message });
+          }
+          return { messageIds: family.map((m) => m.id) };
+        }
+        throw Object.assign(new Error("no such connection request"), { status: 404 });
+      }
       case "providerBusy": state.providerBusy = op.busy !== false; return; // S: index.ts:11679
       // A config write whose answer is lost after the value was persisted, and
       // one that dies before it. The config is durable before the provider
