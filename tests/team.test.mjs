@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { startFake, makeRepo, runOmb, ROOT } from "./helpers.mjs";
+import { startFake, makeRepo, runOmb, tmpDir, ROOT } from "./helpers.mjs";
 import { statePaths, loadState, updateState } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
 import { parseEngineSpec, parseFacts, renderFacts, replaceFactsBlock } from "../skills/openmausbot-launcher/scripts/lib/team.mjs";
 
@@ -112,7 +112,8 @@ test("bind sets cwd, models, and approval only where they differ, skips grok aut
   r = await runOmb(["bind", "--project", dir], { env });
   assert.equal(r.code, 0, "an equal pinned room cwd is skipped, not patched");
   const other = makeRepo();
-  r = await runOmb(["bind", "--project", other.dir, "--state", path.join(dir, ".omb", "state.json")], { env });
+  // Binding this team to another project moves its default folder on purpose, so it needs --take-over.
+  r = await runOmb(["bind", "--project", other.dir, "--take-over", "--state", path.join(dir, ".omb", "state.json")], { env });
   assert.equal(r.code, 3); assert.match(r.json.conflicts[0].error, /fixed after its first turn/);
   await f.control({ op: "newEnvironment" });
   r = await runOmb(["bind", "--project", dir], { env });
@@ -169,6 +170,153 @@ test("bind --approval-for overrides the team approval per bot; --peer-approval s
   assert.equal(r.code, 2); assert.equal(r.json.error, "no team bot named nobody");
   r = await runOmb(["bind", "--project", dir, "--approval-for", "nova=full"], { env });
   assert.equal(r.code, 2); assert.equal(r.json.error, '--approval-for wants <bot>=ask|auto, got "nova=full"');
+});
+
+/** Every PATCH the driver sends, so a preflight refusal can be shown to have sent none. */
+function patchLog(f) {
+  const seen = [];
+  f.server.on("request", (req) => { if (req.method === "PATCH") seen.push(req.url); });
+  return seen;
+}
+/** Project A with the dev team imported and bound, and project B with the same team adopted. */
+async function twoProjects(f) {
+  const a = makeRepo(); const b = makeRepo();
+  assert.equal((await runOmb(["import", PKG, "--project", a.dir, "--url", f.url], { env })).code, 0);
+  assert.equal((await runOmb(["bind", "--project", a.dir], { env })).code, 0);
+  assert.equal((await runOmb(["import", "--adopt", "Dev team", "--lead", "Sudo", "--project", b.dir, "--url", f.url], { env })).code, 0);
+  return { a, b };
+}
+const cwdOf = async (f, name) => (await bots(f)).find((x) => x.name === name);
+
+test("bind refuses a team whose members are configured for another project's folder, before any mutation", async (t) => {
+  const f = await startFake(); t.after(() => f.close()); env.OMB_DATA_DIR = f.dataDir;
+  const { a, b } = await twoProjects(f);
+  const exclude = path.join(b.dir, ".git", "info", "exclude");
+  fs.rmSync(exclude); // adopt wrote it; the guard must refuse before ensureExclude writes it again
+  const patches = patchLog(f);
+  const r = await runOmb(["bind", "--project", b.dir], { env });
+  assert.equal(r.code, 3, r.stdout);
+  assert.match(r.json.error, /configured for another folder/);
+  assert.ok(r.json.error.includes(`Sudo → ${a.dir} (exists)`), r.json.error);
+  assert.ok(r.json.error.includes("Dev Room"), r.json.error);
+  assert.match(r.json.hint, /bind from that project, or pass --take-over/);
+  assert.deepEqual(patches, [], "no PATCH reached the server");
+  assert.equal(fs.existsSync(exclude), false, "the git exclude file was not touched");
+  assert.equal(loadState(statePaths(b.dir)).project?.defaultBranch, undefined, "the state was not written");
+  const dry = await runOmb(["bind", "--project", b.dir, "--dry-run"], { env });
+  assert.equal(dry.code, 3, dry.stdout); assert.match(dry.json.error, /configured for another folder/);
+  assert.deepEqual(patches, []);
+});
+
+test("a missing or unreadable configured folder still needs --take-over: absence is not proof the team is unused", async (t) => {
+  const f = await startFake(); t.after(() => f.close()); env.OMB_DATA_DIR = f.dataDir;
+  const { b } = await twoProjects(f);
+  const gone = path.join(tmpDir("oml-gone-"), "moved-away");
+  const blocked = path.join(tmpDir("oml-blocked-"), "file", "inner"); // realpath stops at ENOTDIR, which is not absence
+  fs.writeFileSync(path.join(path.dirname(path.dirname(blocked)), "file"), "");
+  const team = loadState(statePaths(b.dir)).team;
+  const set = async (name, cwd) => { const bot = (await bots(f)).find((x) => x.name === name); await fetch(`${f.url}/api/bots/${bot.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ cwd }) }); };
+  for (const bot of team.bots) await set(bot.name, gone);
+  await fetch(`${f.url}/api/groups/${team.rooms[0].id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ cwd: gone }) });
+  let r = await runOmb(["bind", "--project", b.dir], { env });
+  assert.equal(r.code, 3, r.stdout); assert.ok(r.json.error.includes(`${gone} (missing)`), r.json.error);
+  await set("Sudo", blocked);
+  r = await runOmb(["bind", "--project", b.dir], { env });
+  assert.equal(r.code, 3, r.stdout); assert.ok(r.json.error.includes(`${blocked} (unreadable)`), r.json.error);
+});
+
+test("bind --take-over moves the team's default folder, lists only what changed, and keeps every other refusal", async (t) => {
+  const f = await startFake(); t.after(() => f.close()); env.OMB_DATA_DIR = f.dataDir;
+  const { a, b } = await twoProjects(f);
+  const team = loadState(statePaths(b.dir)).team;
+  const sage = team.bots.find((x) => x.name === "Sage");
+  await f.control({ op: "activity", botId: sage.id, activity: "working" });
+  let r = await runOmb(["bind", "--project", b.dir, "--take-over"], { env });
+  assert.equal(r.code, 3, r.stdout); assert.match(r.json.error, /bots are working: Sage/, "--take-over bypasses only the folder guard");
+  await f.control({ op: "activity", botId: sage.id, activity: "idle" });
+  const dry = await runOmb(["bind", "--project", b.dir, "--take-over", "--dry-run"], { env });
+  assert.equal(dry.code, 0, dry.stdout);
+  assert.ok(dry.json.wouldTakeOver.some((e) => e.name === "Sudo" && e.from === a.dir), JSON.stringify(dry.json.wouldTakeOver));
+  assert.equal((await cwdOf(f, "Sudo")).cwd, a.dir, "a dry run moves nothing");
+  r = await runOmb(["bind", "--project", b.dir, "--take-over"], { env });
+  assert.equal(r.code, 0, r.stdout);
+  assert.deepEqual(r.json.conflicts, []);
+  assert.ok(r.json.tookOver.some((e) => e.name === "Sudo" && e.from === a.dir), JSON.stringify(r.json.tookOver));
+  assert.ok(r.json.tookOver.some((e) => e.name === "Dev Room" && e.from === a.dir), JSON.stringify(r.json.tookOver));
+  assert.equal((await cwdOf(f, "Sudo")).cwd, b.dir);
+  const again = await runOmb(["bind", "--project", b.dir], { env });
+  assert.equal(again.code, 0, "the team is this project's now, with no flag"); assert.deepEqual(again.json.tookOver, []);
+});
+
+test("a pinned room refuses its own move and stays a conflict, in the dry run too", async (t) => {
+  const f = await startFake(); t.after(() => f.close()); env.OMB_DATA_DIR = f.dataDir;
+  const { a, b } = await twoProjects(f);
+  const team = loadState(statePaths(b.dir)).team;
+  await f.control({ op: "pinRoom", groupId: team.rooms[0].id });
+  const dry = await runOmb(["bind", "--project", b.dir, "--take-over", "--dry-run"], { env });
+  assert.equal(dry.code, 3, dry.stdout);
+  assert.match(dry.json.conflicts[0].error, /fixed after its first turn/);
+  assert.equal(dry.json.conflicts[0].room, "Dev Room");
+  assert.ok(!dry.json.wouldTakeOver.some((e) => e.name === "Dev Room"), "a pinned room is a would-be conflict, not a would-be move");
+  const r = await runOmb(["bind", "--project", b.dir, "--take-over"], { env });
+  assert.equal(r.code, 3, r.stdout);
+  assert.match(r.json.conflicts[0].error, /fixed after its first turn/);
+  assert.ok(r.json.tookOver.some((e) => e.name === "Sudo" && e.from === a.dir), "the bots that did move are reported");
+  assert.ok(!r.json.tookOver.some((e) => e.name === "Dev Room"), "a refused move is never a takeover");
+  const noRoom = await runOmb(["bind", "--project", b.dir, "--no-room"], { env });
+  assert.equal(noRoom.code, 0, "a room outside the mutation set blocks nothing");
+});
+
+test("bind's folder guard reads the project through symlinks, descendants and worktrees, and ignores untouched helpers", async (t) => {
+  const f = await startFake(); t.after(() => f.close()); env.OMB_DATA_DIR = f.dataDir;
+  const { dir, git } = makeRepo();
+  const patches = patchLog(f);
+  assert.equal((await runOmb(["import", PKG, "--project", dir, "--url", f.url], { env })).code, 0);
+  assert.equal((await runOmb(["bind", "--project", dir], { env })).code, 0, "a fresh import binds with no flag");
+  const link = path.join(tmpDir("oml-link-"), "spelling");
+  fs.symlinkSync(dir, link);
+  const team = loadState(statePaths(dir)).team;
+  const sudo = team.bots.find((x) => x.key === "sudo");
+  await fetch(`${f.url}/api/bots/${sudo.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ cwd: link }) });
+  await fetch(`${f.url}/api/groups/${team.rooms[0].id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ cwd: link }) });
+  await f.control({ op: "pinRoom", groupId: team.rooms[0].id });
+  patches.length = 0;
+  let r = await runOmb(["bind", "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout);
+  assert.deepEqual(patches, [], "another spelling of this project is this project: no PATCH, so no 409 from the pinned room");
+  const helper = await f.control({ op: "bot", name: "Helper", section: "Dev team", cwd: "/nowhere/else" });
+  assert.equal(helper.bot.section, "Dev team");
+  r = await runOmb(["bind", "--project", dir], { env });
+  assert.equal(r.code, 0, "a same-section helper bind never touches does not block");
+  const nested = path.join(dir, "packages", "inner");
+  fs.mkdirSync(nested, { recursive: true });
+  await fetch(`${f.url}/api/bots/${sudo.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ cwd: nested }) });
+  r = await runOmb(["bind", "--project", dir], { env });
+  assert.equal(r.code, 3, r.stdout); assert.ok(r.json.error.includes(nested), r.json.error);
+  const wt = path.join(tmpDir("oml-wt-"), "wt");
+  git("worktree", "add", "-q", "-b", "wt", wt);
+  await fetch(`${f.url}/api/bots/${sudo.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ cwd: wt }) });
+  r = await runOmb(["bind", "--project", dir], { env });
+  assert.equal(r.code, 3, r.stdout); assert.ok(r.json.error.includes(wt), "a linked worktree is another checkout");
+});
+
+test("facts refuses a lead configured for another folder, and import --adopt reports the folders it found", async (t) => {
+  const f = await startFake(); t.after(() => f.close()); env.OMB_DATA_DIR = f.dataDir;
+  const { a, b } = await twoProjects(f);
+  const adopt = await runOmb(["import", "--adopt", "Dev team", "--lead", "Sudo", "--project", b.dir, "--url", f.url], { env });
+  assert.equal(adopt.code, 0, adopt.stdout);
+  assert.ok(adopt.json.configuredElsewhere.some((e) => e.name === "Sudo" && e.folder === a.dir && e.state === "exists"), JSON.stringify(adopt.json.configuredElsewhere));
+  const observer = makeRepo();
+  const remote = await runOmb(["import", "--adopt", "Dev team", "--lead", "Sudo", "--project", observer.dir, "--url", f.url, "--remote"], { env });
+  assert.equal(remote.code, 0, remote.stdout);
+  assert.ok(remote.json.configuredElsewhere.every((e) => e.state === undefined), "a server path is never tested against the observer's filesystem");
+  let r = await runOmb(["facts", "--project", b.dir, "--test", "npm test"], { env });
+  assert.equal(r.code, 3, r.stdout);
+  assert.ok(r.json.error.includes(`the lead is configured for ${a.dir}`), r.json.error);
+  assert.match(r.json.hint, /bind this project first, or bind --take-over/);
+  assert.equal((await cwdOf(f, "Sudo")).cwd, a.dir);
+  r = await runOmb(["facts", "--project", a.dir, "--test", "npm test"], { env });
+  assert.equal(r.code, 0, "an equal folder is allowed");
 });
 
 test("facts never adopts a test or setup command that only the lead's block names; flags and stored facts win, with provenance", async (t) => {

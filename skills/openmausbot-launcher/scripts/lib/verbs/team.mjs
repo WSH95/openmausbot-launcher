@@ -10,6 +10,7 @@ import { openRuns, runLabel } from "../runs.mjs";
 import { defaultBranch, gitTopLevel } from "../git.mjs";
 import * as srv from "../server.mjs";
 import { parseEngineSpec, specString, sameSelection, findBot, isReviewer, sameName, parseFacts, renderFacts, replaceFactsBlock, FACTS_MARKER } from "../team.mjs";
+import { sameFolder, configuredOutside, outsideFolders, describeFolders, cap } from "../others.mjs";
 
 const MAX_DESCRIPTION = 4000;
 const EXECUTABLE_FACTS = ["test", "setup"];
@@ -32,7 +33,7 @@ verb("import", {
     if (!flags.adopt) requireDataDir(cfg, "import");
     const keepOwned = await protectServerSelection(cfg, cfg.url);
     const env = await serverIdentity(cfg, client);
-    let team;
+    let team; let elsewhere = null;
     if (flags.adopt) {
       const fleet = await client.get("/api/bots?messages=0");
       const bots = fleet.bots ?? [];
@@ -43,6 +44,11 @@ verb("import", {
       const ids = new Set(members.map((b) => b.id));
       const lead = pickLead(members, flags.lead ?? (named ? named.name : undefined));
       const rooms = (fleet.groups ?? []).filter((g) => !g.dm && g.memberIds?.length && g.memberIds.every((id) => ids.has(id)));
+      // Adoption is not refused over a folder — it is how a second project
+      // reaches a team at all — but it says which members a bind would have to
+      // move. A remote observer never tests a server path against its own
+      // filesystem, so its list carries folders without an existence state.
+      elsewhere = outsideFolders([...members, ...rooms].map((x) => ({ name: x.name, cwd: x.cwd })), cfg.projectDir, { canonicalise: cfg.mode === "local" });
       team = { package: null, section, environmentId: env?.environmentId ?? null, adoptedAt: new Date().toISOString(), lead: teamRecord(lead, null), rooms: rooms.map((g) => ({ id: g.id, name: g.name, threadId: g.threadId })), bots: members.map((b) => teamRecord(b, null)) };
     } else {
       if (cfg.mode === "remote") throw new Fail(EXIT.PRECONDITION, "import runs on the server's machine", { hint: "use import --adopt from a remote host" });
@@ -74,11 +80,12 @@ verb("import", {
       const section = bots.find((b) => b.section)?.section ?? res.name ?? null;
       team = { package: { path: path.resolve(file), name: pkg.package?.name ?? null, release: pkg.package?.release ?? null }, section, environmentId: env?.environmentId ?? null, importedAt: new Date().toISOString(), lead, rooms: groups.map((g) => ({ id: g.id, name: g.name, threadId: g.threadId })), bots: mapped };
     }
-    if (cfg.dryRun) return { result: { ...team, dryRun: true }, brief: `import · dry run · would adopt ${team.section}` };
+    const found = elsewhere ? { configuredElsewhere: cap(elsewhere), configuredElsewhereCount: elsewhere.length } : {};
+    if (cfg.dryRun) return { result: { ...team, ...found, dryRun: true }, brief: `import · dry run · would adopt ${team.section}` };
     // Adopt is the attach path a bind may never follow: a local checkout gets the same exclude entries so reconcile stays clean.
     const exclude = flags.adopt && cfg.mode === "local" && gitTopLevel(cfg.projectDir) !== null ? ensureExclude(cfg.projectDir, [".worktrees/", ".omb/"]) : null;
     await save( (doc) => { doc.team = team; doc.server = { ...(keepOwned ? doc.server : {}), url: cfg.url, owned: keepOwned, environmentId: env.environmentId, healthPid: env.healthPid, healthStart: env.healthStart, version: env.version, dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null }; return doc; });
-    return { result: { ...team, ...(exclude ? { exclude } : {}) }, brief: `import · ${team.section} · lead ${team.lead.name} · ${team.bots.length} bots, ${team.rooms.length} room(s)` };
+    return { result: { ...team, ...found, ...(exclude ? { exclude } : {}) }, brief: `import · ${team.section} · lead ${team.lead.name} · ${team.bots.length} bots, ${team.rooms.length} room(s)` };
   }),
 });
 
@@ -95,7 +102,7 @@ function pickLead(bots, leadRef, chiefName) {
 }
 
 verb("bind", {
-  options: { default: { type: "string" }, reviewers: { type: "string" }, model: { type: "string", multiple: true }, approval: { type: "string" }, "approval-for": { type: "string", multiple: true }, "peer-approval": { type: "string", multiple: true }, "no-room": { type: "boolean" } },
+  options: { default: { type: "string" }, reviewers: { type: "string" }, model: { type: "string", multiple: true }, approval: { type: "string" }, "approval-for": { type: "string", multiple: true }, "peer-approval": { type: "string", multiple: true }, "no-room": { type: "boolean" }, "take-over": { type: "boolean" } },
   handler: stateCommand(async ({ flags, cfg, save }) => {
     if (cfg.mode === "remote") throw new Fail(EXIT.PRECONDITION, "bind needs the project checkout on the server's machine");
     requireDataDir(cfg, "bind");
@@ -129,21 +136,45 @@ verb("bind", {
     const busy = live.filter((b) => b.busy);
     if (busy.length) throw new Fail(EXIT.PRECONDITION, `bots are working: ${busy.map((b) => b.name).join(", ")}`, { hint: "bind when the team is idle" });
     const projectDir = cfg.projectDir;
+    // The mutation set, unchanged: the recorded bots the fleet still has and
+    // the recorded rooms, none of them with --no-room. A same-section helper
+    // this bind never touches is not part of it and blocks nothing.
+    const rooms = flags["no-room"] ? [] : (team.rooms ?? []).map((room) => ({ room, group: (fleet.groups ?? []).find((g) => g.id === room.id) }));
+    // A configured folder that is not this project's is another project's
+    // team, even when that folder is gone: absence is not proof it is unused.
+    // The whole bind refuses before ensureExclude and before every PATCH.
+    const outside = [
+      ...outsideFolders(live, projectDir),
+      ...outsideFolders(rooms.filter((r) => r.group).map((r) => ({ name: r.room.name, cwd: r.group.cwd })), projectDir),
+    ];
+    if (outside.length && !flags["take-over"]) {
+      throw new Fail(EXIT.PRECONDITION, `${outside.length} team member(s) are configured for another folder: ${describeFolders(outside)}`, {
+        hint: "bind from that project, or pass --take-over to move the team's default folder for new tasks here on purpose (it does not move existing task sessions and establishes no exclusive ownership)",
+      });
+    }
+    const moved = [];
     const results = { rooms: [], bots: [], conflicts: [], skipped: [], exclude: [] };
     if (!cfg.dryRun) results.exclude = ensureExclude(projectDir, [".worktrees/", ".omb/"]);
-    if (!flags["no-room"]) {
-      for (const room of team.rooms ?? []) {
-        const g = (fleet.groups ?? []).find((x) => x.id === room.id);
-        if (!g) { results.conflicts.push({ room: room.name, error: "the room no longer exists" }); continue; }
-        if (g.cwd === projectDir) { results.rooms.push({ room: room.name, cwd: projectDir, changed: false }); continue; }
-        try { await client.patch(`/api/groups/${room.id}`, { cwd: projectDir }); results.rooms.push({ room: room.name, cwd: projectDir, changed: true }); }
-        catch (e) { if (e instanceof HttpError) results.conflicts.push({ room: room.name, status: e.status, error: e.body?.error ?? e.message }); else throw e; }
+    for (const { room, group: g } of rooms) {
+      if (!g) { results.conflicts.push({ room: room.name, error: "the room no longer exists" }); continue; }
+      // The same canonical equality decides the guard and the PATCH, so a room
+      // configured through another spelling of this project draws no 409.
+      if (sameFolder(g.cwd, projectDir)) { results.rooms.push({ room: room.name, cwd: projectDir, changed: false }); continue; }
+      // A suppressed PATCH discovers no server-side refusal, so the dry run
+      // names the one it can see: a pinned room rejects even an equal folder
+      // (index.ts:9564-9567).
+      if (cfg.dryRun && g.pinnedCwd !== undefined) { results.conflicts.push({ room: room.name, status: 409, error: "the room's working folder is fixed after its first turn" }); continue; }
+      try {
+        await client.patch(`/api/groups/${room.id}`, { cwd: projectDir });
+        results.rooms.push({ room: room.name, cwd: projectDir, changed: true });
+        if (g.cwd) moved.push({ name: room.name, from: g.cwd });
       }
+      catch (e) { if (e instanceof HttpError) results.conflicts.push({ room: room.name, status: e.status, error: e.body?.error ?? e.message }); else throw e; }
     }
     for (const bot of live) {
       const entry = { bot: bot.name, changes: [] };
       try {
-        if (bot.cwd !== projectDir) { await client.patch(`/api/bots/${bot.id}`, { cwd: projectDir }); entry.changes.push("cwd"); }
+        if (!sameFolder(bot.cwd, projectDir)) { await client.patch(`/api/bots/${bot.id}`, { cwd: projectDir }); entry.changes.push("cwd"); if (bot.cwd) moved.push({ name: bot.name, from: bot.cwd }); }
         const wanted = overrides.get(bot.id) ?? (isReviewer(bot) && reviewerSpec ? reviewerSpec : defaultSpec);
         let selection = bot.modelSelection;
         if (wanted && !sameSelection(wanted, bot.modelSelection)) { const r = await client.patch(`/api/bots/${bot.id}/model`, wanted); selection = r?.bot?.modelSelection ?? wanted; entry.changes.push(`model ${specString(wanted)}`); }
@@ -176,7 +207,9 @@ verb("bind", {
       });
     }
     const code = results.conflicts.length ? EXIT.PRECONDITION : EXIT.OK;
-    return { code, ok: code === EXIT.OK, result: { project: projectDir, dryRun: cfg.dryRun, ...results, roster: results.bots.map((b) => `${b.bot}: ${b.model ?? "unchanged"} (${b.approvalMode ?? "unset"})`) },
+    // Takeover promises nothing atomic: only the moves that succeeded are listed.
+    const takeOver = cfg.dryRun ? { wouldTakeOver: cap(moved) } : { tookOver: cap(moved) };
+    return { code, ok: code === EXIT.OK, result: { project: projectDir, dryRun: cfg.dryRun, ...results, ...takeOver, roster: results.bots.map((b) => `${b.bot}: ${b.model ?? "unchanged"} (${b.approvalMode ?? "unset"})`) },
       brief: `bind · ${projectDir} · ${results.bots.map((b) => `${b.bot} ${b.model}`).join(", ")}${results.conflicts.length ? ` · ${results.conflicts.length} conflict(s)` : ""}` };
   }),
 });
@@ -192,6 +225,11 @@ verb("facts", {
     const fleet = await client.get("/api/bots?messages=0");
     const lead = (fleet.bots ?? []).find((b) => b.id === team.lead.id);
     if (!lead) throw new Fail(EXIT.PRECONDITION, `the lead ${team.lead.name} no longer exists on the server`);
+    // The lead's description is shared: rewriting it from another project would
+    // retarget that project's team without any bind. An unset or equal folder
+    // stays allowed, as it must be before the first bind.
+    const away = configuredOutside(lead.cwd, cfg.projectDir);
+    if (away) throw new Fail(EXIT.PRECONDITION, `the lead is configured for ${away.folder} (${away.state})`, { hint: "bind this project first, or bind --take-over" });
     const description = lead.description ?? "";
     const inBlock = description.includes(FACTS_MARKER) ? parseFacts(description.slice(description.indexOf(FACTS_MARKER))) : {};
     // Executable fields never come from the lead's block: report runs `test`

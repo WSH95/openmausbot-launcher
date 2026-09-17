@@ -71,7 +71,16 @@ project's Project Steward Stop hook would replace a Claude bot's report:
 set `auto_handoff_mode = "off"` in its `config.toml` and exclude
 `.project-steward/runtime/` before any task. `bind` sets the working
 folder, models, and approval level only where they differ, and refuses
-while a bot works. Both `bind` and a local `import --adopt` add
+while a bot works. Give each project its own server: an explicit `--port`
+(two apart) and `--data-dir`, or `--fresh`. Without a flag, a saved state or
+an environment override every project shares `127.0.0.1:8799` and
+`~/.openmausbot`, which means attaching to whoever started first. On a shared
+server `bind` and `facts` refuse a team that is configured for another
+project's folder, even a missing one; bind from that project, or pass
+`bind --take-over` to move the team's default folder for new tasks here on
+purpose — it does not move tasks that are already running and gives this
+project no exclusive claim, and a room whose folder is already pinned stays a
+conflict. Both `bind` and a local `import --adopt` add
 `.worktrees/` and `.omb/` to the repository's git exclude file, in a linked
 worktree too. `--approval-for <bot>=ask|auto` overrides `--approval` for one
 bot; `--peer-approval <bot>=on|off` sets `approvePeerComms`, which makes that

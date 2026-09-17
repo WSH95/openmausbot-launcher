@@ -129,7 +129,9 @@ export async function createFake(opts = {}) {
   });
   const publicGroup = (g) => ({
     id: g.id, name: g.name, threadId: g.threadId, memberIds: [...g.memberIds], section: g.section,
-    cwd: g.cwd, dm: g.dm === true, busyBotId: g.busyBotId ?? null, working: g.working === true,
+    // S: index.ts:1568-1569 publicGroupState spreads the whole record, so the
+    // group list at index.ts:8628 exposes `pinnedCwd` as stored.
+    cwd: g.cwd, pinnedCwd: g.pinnedCwd, dm: g.dm === true, busyBotId: g.busyBotId ?? null, working: g.working === true,
     defaultResponder: g.defaultResponder,
   });
   const messagesFor = (threadId) => { if (!state.threads.has(threadId)) state.threads.set(threadId, []); return state.threads.get(threadId); };
