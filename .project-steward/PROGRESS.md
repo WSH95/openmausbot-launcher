@@ -3,6 +3,28 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-17 — v2 pass, phase 6: `answer` settles skill, routine, secret and connector requests (code, no bot turns)
+`answer` moved into its own module and now settles the four request kinds it
+used to hand back at exit 5: routine proposals (`--confirm`/`--cancel`, a
+revalidation refusal reported in the server's words), learned skills
+(`--allow --reviewed <sha256>`/`--deny`, the hash checked against the card
+before anything is posted), credentials (`--provide` from a user-owned file
+through `--secret-stdin` or from `OMB_SECRET` exported in the user's own
+shell, `PUT /api/config` and then the card's `provided` route; `--resume`
+finishes a saved card without the value; `--dismiss`) and connections
+(`--connect` returns the one-time link at exit 5, `--resume` refreshes only
+authorized siblings, `--dismiss` wakes nobody). A provider key (`xaiApiKey`,
+`opencodeGoApiKey`) is refused while any bot on the server is busy, because
+saving it restarts every provider; a settled card whose wake failed keeps its
+run at `needs-user` under `resumable`. Two Codex reviews (seven, then five
+findings) and then, under the two-rounds rule, a Codex `gpt-6-astra` rescue
+(18 commits, audit `docs/review/2026-09-16-answer-kinds-rescue.md`) and an
+Opus completeness review (one verification gap, closed by `5217d71`).
+Commits `c94b6ef`..`5217d71` (35 from `186baf2`); `npm test` 399/399;
+DECISIONS 0015. Not yet a real run: Phase 7 exercises routine, skill and
+secret on the real server; the connector kind stays fake-only unless
+Composio is configured.
+
 ### 2026-09-16 — watch rescue follow-up after the first drain repair
 The independent audit of `0492520` reproduced additional final-await,
 checkpoint cancellation, quiet-reset, card-lifecycle, historical-read,

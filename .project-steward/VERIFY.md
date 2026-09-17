@@ -492,3 +492,25 @@ occur in the driver. Ran `node --test tests/team.test.mjs tests/report.test.mjs
 tests/report-evidence.test.mjs` outside the socket-restricted sandbox:
 **50 passed, 0 failed, 0 skipped**, 7.119 s. `git diff --check` passed.
 Only documentation and task scope changed; no new bot runs or package edits.
+
+## v2 pass, phase 6 (2026-09-17)
+
+`answer` for skill, routine, secret and connector requests,
+`186baf2..5217d71` (35 commits):
+
+- `npm test` on the controller's machine after each round: 368/368 at
+  `f407866`, 370/370 at `c9d05f9`, 376/376 at `aba96d0`, 398/398 at
+  `f3cb59b`, **399 passed, 0 failed, 0 skipped** at `5217d71` (86.4 s).
+- `git diff --check 186baf2..5217d71`: clean.
+- Codex `gpt-5.6-sol` reviews: `186baf2..c9d05f9` (seven findings, session
+  `01a0ad15-d95a-7392-82d1-be51476b4654`) and `c9d05f9..aba96d0` (five
+  findings, session `01a0ad66-1dc9-7703-a4fc-950d80bdf134`); Codex
+  `gpt-6-astra` rescue, session `01a0ad75-223b-7be0-b36b-22d990b6d3c1`
+  (18 commits, `aba96d0..f3cb59b`); Opus 5 completeness review:
+  COMPLETE_WITH_GAPS with one verification gap (the connector half of the
+  failed-wake rule had no pinning test), closed by `5217d71` with a mutation
+  check both ways.
+- An independent secret-leak canary (`--provide --secret-stdin --verbose`
+  against the fake): the value was absent from stdout, stderr, `state.json`,
+  `/__fake/state`, the transcript, `GET /api/config` and every file on disk.
+- No real bot turn was spent; fake-server runs are not evidence.

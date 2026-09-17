@@ -53,6 +53,13 @@ regressions; the bead stays open until the real two-run exercise (Phase 7).
 Its backend task record was not updated in this follow-up; this task
 prohibits Beads commands. The existing task remains the reconciliation point.
 
+Phase 6 (`answer` for skill, routine, secret and connector requests,
+`oml-170`) is merged on `main` at `5217d71` (35 commits from `186baf2`, 399
+tests; audit `docs/review/2026-09-16-answer-kinds-rescue.md`, DECISIONS
+0015). The bead stays open until Phase 7's real checks of routine, skill and
+secret on the server; the connector kind is fake-only unless Composio is
+configured.
+
 ## Later
 
 OpenClaw, Hermes and DSH are verified as of 2026-09-16 (see the v2 pass).
