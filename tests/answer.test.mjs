@@ -61,7 +61,7 @@ test("skill, routine, credential and connection requests refuse every ordinary r
   const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
   const posts = [];
   f.server.on("request", (req) => { if (req.method === "POST" && req.url.endsWith("/respond")) posts.push(req.url); });
-  for (const kind of ["skill", "routine"]) {
+  for (const kind of ["skill"]) {
     await f.control({ op: "card", threadId: run.json.leadThreadId, kind, requestId: kind });
     for (const mode of [["--allow"], ["--deny"], ["--message", "yes"]]) {
       const r = await runOmb(["answer", ...mode, "--request", kind, "--project", dir], { env });
@@ -70,6 +70,53 @@ test("skill, routine, credential and connection requests refuse every ordinary r
     }
   }
   assert.deepEqual(posts, [], "even a rejected response POST is forbidden for unsupported requests");
+});
+
+test("routine: a confirmation applies the operation, a cancel rejects it, and a textual answer never reaches the server", async (t) => {
+  const { f, dir } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const lt = run.json.leadThreadId;
+  const posts = [];
+  f.server.on("request", (req) => { if (req.method === "POST" && req.url.endsWith("/respond")) posts.push(req.url); });
+  await f.control({ op: "card", threadId: lt, kind: "routine", requestId: "rt1", name: "Nightly" });
+  let r = await runOmb(["answer", "--message", "sure", "--request", "rt1", "--project", dir], { env });
+  assert.equal(r.code, 2, r.stdout); assert.match(r.json.error, /routine confirmation: use --confirm or --cancel/);
+  assert.deepEqual(posts, [], "the server would reject a textual answer; the driver never sends one");
+  r = await runOmb(["answer", "--confirm", "--cancel", "--request", "rt1", "--project", dir], { env });
+  assert.equal(r.code, 2); assert.match(r.json.error, /pass one of/);
+  r = await runOmb(["answer", "--confirm", "--request", "rt1", "--project", dir, "--dry-run"], { env });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.dryRun, true); assert.equal(r.json.behavior, "allow");
+  assert.deepEqual(posts, [], "a preview settles nothing");
+  r = await runOmb(["answer", "--confirm", "--request", "rt1", "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout);
+  assert.equal(r.json.cardKind, "routine"); assert.equal(r.json.title, "Schedule “Nightly”?");
+  assert.equal(r.json.outcome, "allowed-once"); assert.equal(r.json.routineAction, "create");
+  const listed = (await (await fetch(`${f.url}/api/routines`)).json()).routines;
+  assert.deepEqual(listed.map((x) => x.id), [r.json.resultId], "the confirmation is what created the routine");
+  r = await runOmb(["answer", "--confirm", "--request", "rt1", "--project", dir], { env });
+  assert.equal(r.code, 3, "a settled card is no longer pending");
+  await f.control({ op: "card", threadId: lt, kind: "routine", requestId: "rt2", name: "Weekly" });
+  r = await runOmb(["answer", "--cancel", "--request", "rt2", "--project", dir, "--brief"], { env });
+  assert.equal(r.stdout, "answer · Sudo · deny → rejected\n");
+  assert.deepEqual((await (await fetch(`${f.url}/api/routines`)).json()).routines.map((x) => x.name), ["Nightly"]);
+});
+
+test("routine: a refused revalidation is reported in the server's words and leaves the card holding it", async (t) => {
+  const { f, dir } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const lt = run.json.leadThreadId;
+  await f.control({ op: "card", threadId: lt, kind: "routine", requestId: "rt1", name: "Once", pastOnce: true });
+  let r = await runOmb(["answer", "--confirm", "--request", "rt1", "--project", dir], { env });
+  assert.equal(r.code, 3, r.stdout);
+  assert.equal(r.json.status, 409);
+  assert.equal(r.json.error, "That one-time schedule is now in the past. Ask the bot to propose a new time.");
+  assert.match(r.json.hint, /held/);
+  assert.equal((await thread(f, lt)).find((m) => m.card?.requestId === "rt1").card.held, r.json.error);
+  await f.control({ op: "card", threadId: lt, kind: "routine", requestId: "rt2", action: "pause", name: "Gone", routineId: "no-such-routine" });
+  r = await runOmb(["answer", "--confirm", "--request", "rt2", "--project", dir], { env });
+  assert.equal(r.code, 3, r.stdout); assert.equal(r.json.status, 404); assert.equal(r.json.error, "That routine no longer exists");
+  r = await runOmb(["answer", "--cancel", "--request", "rt2", "--project", dir], { env });
+  assert.equal(r.code, 0, "a held card can still be cancelled"); assert.equal(r.json.outcome, "rejected");
 });
 
 test("a connection and a credential card are named by the message they arrived on", async (t) => {
