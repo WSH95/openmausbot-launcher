@@ -563,12 +563,50 @@ test("connection: the authorization link is handed over once, and the resume wai
   assert.equal(r.json.pending.length, 1, "the connected card no longer needs the user");
   assert.equal(r.json.pending[0].handle, github.id);
   await f.control({ op: "connectorAccount", messageId: github.id, status: "ACTIVE" });
+  const resumesBefore = reads.filter((x) => x.startsWith("POST") && x.endsWith("/resume")).length;
   r = await runOmb(["answer", "--resume", "--request", slack.id, "--project", dir], { env });
   assert.equal(r.code, 0, r.stdout);
   assert.equal(r.json.resumed, true); assert.equal(r.json.connected, true); assert.equal(r.json.status, "ACTIVE");
   assert.deepEqual(r.json.siblings.map((s) => s.connected), [true, true]);
+  assert.equal(reads.filter((x) => x.startsWith("POST") && x.endsWith("/resume")).length, resumesBefore, "status already resumed the family; no redundant resume POST");
   assert.equal((await f.snapshot()).wakes.filter((w) => w.kind === "connector").length, 1, "the bot is woken once, when the last app is connected");
   assert.equal((await runOmb(["status", "--project", dir], { env })).json.pending.length, 0);
+});
+
+test("connection: error hints do not deny card changes or a wake already caused by status", async (t) => {
+  const { f, dir } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const made = await f.control({ op: "connector", threadId: run.json.leadThreadId, items: [{ slug: "slack", status: "connected" }, { slug: "slack" }] });
+  await f.control({ op: "connectorAccount", messageId: made.messages[0].id, status: "ACTIVE" });
+  let r = await runOmb(["answer", "--connect", "--request", made.messages[1].id, "--project", dir], { env });
+  assert.equal(r.code, 3); assert.equal(r.json.status, 400);
+  assert.equal(r.json.hint.includes("keeps whatever status"), false, "authorize failure changed required to failed");
+  const live = await f.control({ op: "connector", threadId: run.json.leadThreadId, items: [{ slug: "github", status: "connected" }, { slug: "notion", status: "connected" }] });
+  for (const m of live.messages) await f.control({ op: "connectorAccount", messageId: m.id, status: "ACTIVE" });
+  const drop = (req, res) => { if (req.url.includes(`${live.messages[1].id}/status?`)) res.dropped = true; };
+  f.server.prependListener("request", drop);
+  r = await runOmb(["answer", "--resume", "--request", live.messages[0].id, "--project", dir], { env });
+  f.server.off("request", drop);
+  assert.equal(r.code, 1);
+  assert.equal((await f.snapshot()).wakes.filter((w) => w.kind === "connector").length, 1);
+  assert.match(r.json.hint, /may already have resumed/);
+});
+
+test("connection: failed or dismissed siblings stop status reads and identify the available next step", async (t) => {
+  const { f, dir } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const made = await f.control({ op: "connector", threadId: run.json.leadThreadId, items: [{ slug: "slack", status: "authorizing" }, { slug: "github", status: "failed" }] });
+  const [slack, github] = made.messages;
+  const reads = [];
+  f.server.on("request", (req) => { if (req.method === "GET" && req.url.includes("/status?")) reads.push(req.url); });
+  let r = await runOmb(["answer", "--resume", "--request", slack.id, "--project", dir], { env });
+  assert.equal(r.code, 3); assert.match(r.json.hint, new RegExp(`--connect --request ${github.id}`));
+  assert.deepEqual(reads, []);
+  await runOmb(["answer", "--dismiss", "--request", github.id, "--project", dir], { env });
+  r = await runOmb(["answer", "--resume", "--request", slack.id, "--project", dir], { env });
+  assert.equal(r.code, 3); assert.match(r.json.error, /dismissed/);
+  assert.match(r.json.hint, /omb send/);
+  assert.deepEqual(reads, [], "a dismissed sibling still belongs to the family although it left pending");
 });
 
 test("connection: a dismissal leaves the bot asleep, and authorizing needs the owner", async (t) => {

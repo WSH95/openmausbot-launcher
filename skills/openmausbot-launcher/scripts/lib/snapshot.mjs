@@ -266,7 +266,7 @@ const getWithinDeadline = (client, route, deadline, signal) => withinDeadline(
 );
 
 /** Page every run thread to the dispatch boundary (including timestamp ties). */
-async function readTail(client, threadId, { sentAt, deadline, signal }) {
+export async function readTail(client, threadId, { sentAt, deadline, signal }) {
   let all = []; let before = null;
   const seen = new Set();
   for (;;) {

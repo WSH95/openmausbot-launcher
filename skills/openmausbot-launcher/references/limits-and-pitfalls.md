@@ -239,6 +239,13 @@ historical reports append a reanalysis instead of replacing the original.
   admin scope; reading a status, resuming and dismissing are client scope
   (`request-auth.ts:219-220`), so a paired phone can finish a connection it
   cannot start.
+- **Connection status reads can wake the bot.** Resume reads every sibling
+  from the request's thread, including settled cards omitted from a run's
+  pending view (`index.ts:6618-6622`). A required or failed sibling needs
+  authorization first; a dismissed sibling prevents the whole family from
+  resuming (`:6687-6697`). After polling, the driver reads the family again
+  and posts resume only if needed. A later read failure does not undo a wake
+  already triggered by an earlier status read (`:12255-12276`).
 - **A provided credential is stored on the server.** `PUT /api/config`
   persists it in the server's own `config.json` under the path that
   credential id owns (`config.ts:570-633`,

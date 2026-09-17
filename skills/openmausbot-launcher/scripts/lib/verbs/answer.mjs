@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import { verb, EXIT, Fail, VERBS } from "../cli.mjs";
 import { createClient, refused, HttpError } from "../http.mjs";
-import { snapshot, BUSY } from "../snapshot.mjs";
+import { snapshot, readTail, pendingMessage, BUSY } from "../snapshot.mjs";
 import { openRuns } from "../runs.mjs";
 import { stateCommand, requireSameEnvironment } from "../session.mjs";
 import { requireTeam, runFor, sendIdFor, deliverToLead } from "./run.mjs";
@@ -137,7 +137,7 @@ verb("answer", {
     if (kind === "routine") return routine(client, cfg, target, behavior);
     if (kind === "skill") return skill(client, cfg, target, behavior, flags.reviewed);
     if (kind === "secret") return secret(client, cfg, target, behavior, flags, runFlag);
-    if (kind === "connector") return connector(client, cfg, snap, target, behavior, runFlag);
+    if (kind === "connector") return connector(client, cfg, target, behavior, runFlag);
     if (cfg.dryRun) return { result: { dryRun: true, requestId: target.requestId, threadId: target.threadId, behavior } };
     const res = await client.post(`/api/threads/${target.threadId}/respond`, { requestId: target.requestId, behavior, ...(behavior === "answer" ? { message: flags.message } : {}) });
     const outcome = res.outcome ?? "unknown";
@@ -160,19 +160,23 @@ verb("answer", {
  * them is connected and none was dismissed (`index.ts:6687-6697`), so each
  * mode reports the whole family, not just the card that was named.
  */
-async function connector(client, cfg, snap, target, mode, runFlag = "") {
+async function connector(client, cfg, target, mode, runFlag = "") {
   const own = target.connector ?? {};
   const route = (p, action, query = "") => `/api/bots/${p.botId}/connector-cards/${p.messageId}/${action}${query}`;
-  const family = [...snap.pending, ...(snap.resumable ?? [])]
-    .filter((p) => p.kind === "connector" && p.threadId === target.threadId && p.connector?.resumeKey === own.resumeKey)
-    .sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
+  // The server considers ALL siblings on this thread (index.ts:6618-6622),
+  // including dismissed/resumed cards and cards another run remembers.
+  // A run's pending/resumable view intentionally omits some of those.
+  const readFamily = async () => (await readTail(client, target.threadId, { sentAt: null, deadline: performance.now() + 15_000 }))
+    .filter((m) => m.kind === "connector" && m.connector?.resumeKey === own.resumeKey)
+    .map((m) => pendingMessage(m, target));
+  const family = await readFamily();
   const listed = (p) => ({ messageId: p.messageId, slug: p.connector?.slug ?? null, label: p.connector?.label ?? null, alias: p.connector?.alias ?? null, status: p.connector?.status ?? null });
   const base = { messageId: target.messageId, threadId: target.threadId, bot: target.botName, kind: "connector", label: own.label ?? null, slug: own.slug ?? null, alias: own.alias ?? null };
   if (mode === "connect") {
     if (cfg.dryRun) return { result: { dryRun: true, ...base, action: "connect", siblings: family.map(listed) } };
     let res;
     try { res = await client.post(route(target, "authorize"), { threadId: target.threadId }); }
-    catch (e) { throw refused(e, "nothing was authorized; the card keeps whatever status it had"); }
+    catch (e) { throw refused(e, "authorization did not finish; refresh status to see the card's current state"); }
     // The link is returned to this caller and never written to the transcript
     // (index.ts:12231-12233): it is handed to the user now or not at all.
     return {
@@ -194,6 +198,9 @@ async function connector(client, cfg, snap, target, mode, runFlag = "") {
   // connected or failed is stored as `authorizing` (index.ts:12269-12274). So
   // reading a card nobody has authorized would move it out of `required`, the
   // brief would start asking for a resume, and its link would never be opened.
+  if (family.some((p) => p.connector?.dismissed)) throw new Fail(EXIT.PRECONDITION, "an app in this request was dismissed; the family cannot resume", {
+    hint: `the bot is not woken; omb send "…"${runFlag} to tell it to continue without that app or request a new connection`,
+  });
   const unopened = family.filter((p) => !["authorizing", "connected"].includes(p.connector?.status));
   if (unopened.length) {
     const name = (p) => `${p.connector?.label ?? p.connector?.slug}${p.connector?.alias ? ` (${p.connector.alias})` : ""}`;
@@ -206,14 +213,23 @@ async function connector(client, cfg, snap, target, mode, runFlag = "") {
   // A dry run therefore does not make it.
   if (cfg.dryRun) return { result: { dryRun: true, ...base, action: "resume", siblings: family.map(listed), note: "a status read refreshes the cards and can resume the bot, so it is not previewed" } };
   const siblings = [];
+  const statusFailure = (e, label) => {
+    const hint = `${label} could not be checked; earlier status reads may already have resumed the bot. Refresh status, then retry omb answer --resume --request ${target.messageId}${runFlag} if it is still unresumed`;
+    return Object.assign(refused(e, hint), { hint });
+  };
   for (const p of family) {
     try {
       const st = await client.get(route(p, "status", `?threadId=${encodeURIComponent(p.threadId)}`));
       siblings.push({ ...listed(p), connected: st.connected === true, pending: st.pending === true, status: st.status ?? null });
-    } catch (e) { throw refused(e, `${p.connector?.label ?? p.messageId} could not be checked; nothing was resumed`); }
+    } catch (e) { throw statusFailure(e, p.connector?.label ?? p.messageId); }
   }
   let resumed = true;
-  if (family.some((p) => p.connector?.resumed !== true)) {
+  // Status itself can mark every sibling resumed. Re-read the cards before
+  // deciding whether the explicit resume is still needed (index.ts:12276).
+  let refreshed;
+  try { refreshed = await readFamily(); }
+  catch (e) { throw statusFailure(e, "the connection family"); }
+  if (!refreshed.length || refreshed.some((p) => p.connector?.resumed !== true)) {
     try { resumed = (await client.post(route(target, "resume"), { threadId: target.threadId })).resumed === true; }
     catch (e) { throw refused(e, `every app in this request resumes together: ${siblings.filter((s) => !s.connected).map((s) => s.label).join(", ") || "one of them"} is not connected yet`); }
   }
