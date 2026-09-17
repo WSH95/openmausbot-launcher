@@ -432,6 +432,24 @@ test("credential: a config write that never answered is checked, not assumed to 
   assert.equal((await (await fetch(`${f.url}/api/config`)).json()).imageGen.configured, false);
 });
 
+test("credential: provider error text never echoes the submitted value, including verbose stderr", async (t) => {
+  const { f, dir } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const card = await f.control({ op: "secret", threadId: run.json.leadThreadId, target: "ttsKey" });
+  const value = "dummy-voice-key-never-echo";
+  for (const status of [400, 503]) {
+    await f.control({ op: "configPutError", status });
+    const r = await runOmb(["answer", "--provide", "--secret-stdin", "--verbose", "--request", card.message.id, "--project", dir], { env, stdin: ` ${value} \n` });
+    assert.equal(r.code, 3);
+    for (const text of [r.stdout, r.stderr, JSON.stringify(await f.snapshot()), fs.readFileSync(path.join(dir, ".omb", "state.json"), "utf8"), JSON.stringify(await thread(f, run.json.leadThreadId))]) {
+      assert.equal(text.includes(value), false, "no secret in errors, state, cards or the fake transcript");
+    }
+    assert.match(r.json.error, /provider rejected <redacted>/);
+    assert.equal(r.json.status, status);
+    assert.deepEqual((await f.snapshot()).wakes, []);
+  }
+});
+
 test("credential: an ambiguous replacement cannot verify the new value from an already configured target", async (t) => {
   const { f, dir } = await setup(t);
   await addImplementer(f, dir);

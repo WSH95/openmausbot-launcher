@@ -26,6 +26,14 @@ export function createClient({ url, token = null, dryRun = false, timeoutMs = 15
     // preview says which route would be called and nothing else, so a dry run
     // cannot put a secret on stdout or into a transcript.
     if (dryRun && method !== "GET") return { dryRun: true, method, path, body: SECRET_BODY.test(path) ? "<redacted>" : body };
+    // Voice validation can forward provider-supplied text (server/tts/elevenlabs.ts:42-55).
+    // Keep those words, but never let the submitted credential enter an error
+    // object, whose message and stack are both printable by the CLI.
+    const values = SECRET_BODY.test(path)
+      ? [body?.xai?.key, body?.box?.token, body?.opencodeGo?.apiKey, body?.tts?.key, body?.imageGen?.key]
+        .filter((v) => typeof v === "string" && v.length).flatMap((v) => [v, v.trim()]).filter(Boolean)
+      : [];
+    const redact = (s) => values.reduce((text, value) => text.split(value).join("<redacted>"), s);
     let res; let text;
     try {
       const timeout = AbortSignal.timeout(Math.max(0, Math.floor(perCall)));
@@ -34,11 +42,12 @@ export function createClient({ url, token = null, dryRun = false, timeoutMs = 15
       text = await res.text();
     } catch (e) {
       const cause = e.cause?.code ?? e.cause?.errors?.find((x) => x.code)?.code ?? /\b(E[A-Z]{3,})\b/.exec(String(e.cause?.message ?? ""))?.[1] ?? (e.name === "TimeoutError" ? "TimeoutError" : (e.cause?.message ?? e.message));
-      const err = new Fail(EXIT.ERROR, `${method} ${path}: ${cause === "TimeoutError" || e.name === "TimeoutError" ? `no answer within ${perCall} ms` : `${cause}`}`, { hint: cause === "ECONNREFUSED" ? `nothing is listening at ${u.origin}` : undefined });
+      const err = new Fail(EXIT.ERROR, redact(`${method} ${path}: ${cause === "TimeoutError" || e.name === "TimeoutError" ? `no answer within ${perCall} ms` : `${cause}`}`), { hint: cause === "ECONNREFUSED" ? `nothing is listening at ${u.origin}` : undefined });
       err.network = true; throw err;
     }
     let parsed = null;
     try { parsed = text ? JSON.parse(text) : null; } catch { parsed = { raw: text }; }
+    if (values.length) parsed = JSON.parse(JSON.stringify(parsed), (_key, value) => typeof value === "string" ? redact(value) : value);
     if (!res.ok) throw new HttpError(method, path, res.status, parsed);
     return parsed;
   }

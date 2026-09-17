@@ -741,6 +741,13 @@ export async function createFake(opts = {}) {
     const recorder = body.features?.skillRecorder;
     if (!saved.length && typeof recorder !== "boolean") return json(res, 400, { error: "nothing to save" }); // :11678
     if (state.providerBusy) return json(res, 409, { error: "provider settings are already being updated" }); // :11679
+    // Fault injection for provider-supplied error text. Real voice validation
+    // returns it as a 400 (S: index.ts:11899-11903; tts/elevenlabs.ts:42-55,66-75).
+    // Keep only the flag/status in fixture state, never the echoed value.
+    if (state.configPutError) {
+      const status = state.configPutError; state.configPutError = null;
+      return json(res, status, { error: `checking that key failed: provider rejected ${body.tts?.key?.trim()}` });
+    }
     if (state.configPutFails > 0) { state.configPutFails--; res.destroy(); return; }
     // Only the fact that something was saved is kept: a fixture that stored
     // the value could leak it through /__fake/state or a test's assertion.
@@ -918,6 +925,7 @@ export async function createFake(opts = {}) {
       // two are indistinguishable to the client and must not be guessed.
       case "configPutHangs": state.configPutHangs = op.count ?? 1; return;
       case "configPutFailsBeforeSaving": state.configPutFails = op.count ?? 1; return;
+      case "configPutError": state.configPutError = op.status ?? 400; return;
       case "phoneSaving": { // S: index.ts:12191-12195
         if (op.saving === false) state.phoneSaving.delete(op.messageId); else state.phoneSaving.add(op.messageId);
         return;
