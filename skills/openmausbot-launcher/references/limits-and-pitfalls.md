@@ -26,6 +26,8 @@ they are named where they are used.
 | Bot description | ≤ 4000 chars | `shared/bot-profile.ts:5`, `bot-profile.ts:50` | The `Project facts` block lives inside it; `facts` refuses at 4000 before sending. |
 | Package limits | tagline ≤ 160, agent description ≤ 4000, playbook instructions ≤ 24000 | `bot-package.ts:47,68,118` | A long tagline is a 400 at import, not a truncation. The rendered playbook mount is also capped at 24000 (`installed-playbooks.ts:4`). |
 | Delegation receipts | 100 entries, pruned after 48 h | `delegations.ts:98-99,113-129` | Fleet-wide and lossy: accumulate the ids seen rather than recounting the file. |
+| Open proposal cards | 8 per thread, per kind | `index.ts:6303-6339` | The ninth is refused with 429 `confirm or cancel an existing learned-skill card first` (or `… routine proposal first`). A bot that keeps proposing while nobody answers stops being able to propose at all: settle them with `answer`. |
+| Staged skills | `MAX_STAGED_SKILLS = 20` per bot | `skills.ts:68,1240` | Then `confirm or reject an existing staged skill first (max 20)`. A denied card releases its stage. |
 | Message page | `limit` default 50, clamped to 200; a non-integer or negative value is a 400 | `index.ts:1937-1946,8646` | A long thread needs `before` paging; asking for more than 200 silently returns 200. |
 | Event replay | 500 frames, heartbeat 15 s | `index.ts:2014,2016-2020` | A cursor older than the buffer gets `resumed:false`, which means hydrate. |
 
@@ -214,5 +216,36 @@ historical reports append a reanalysis instead of replacing the original.
   from here: wait for the lead to go idle.
 - **Tokens never in argv.** They come from `OMB_TOKEN` or the 0600 file at
   `~/.config/openmausbot-launcher/tokens.json`, so nothing lands in a process
-  list or a transcript.
+  list or a transcript. A credential answered with `answer --provide` is the
+  same: `OMB_SECRET` or `--secret-stdin`, and there is no flag that takes a
+  value.
+- **`answer` on a learned-skill card denies it unless it allows it.** Every
+  behaviour other than `allow` rejects the staged write
+  (`index.ts:6470-6504`), so `--message` on one of those cards would throw
+  the skill away while reading like a remark. The driver refuses it (exit 2).
+  An allow needs `--reviewed <sha256>` equal to the card's own hash, which is
+  the sha256 of the preview text (`skills.ts:1250`) — read that preview to
+  the user first; it is the whole skill.
+- **Connected apps need Composio.** A bot raises a connection request only
+  through the Composio MCP bridge, and the server refuses to create one with
+  409 `connected apps are not enabled for this bot` when no project key and
+  no broker are configured (`composio.ts:254-262`, `index.ts:8361-8363`).
+  Without that, `answer --connect` has nothing to act on. Authorizing is
+  admin scope; reading a status, resuming and dismissing are client scope
+  (`request-auth.ts:219-220`), so a paired phone can finish a connection it
+  cannot start.
+- **A provided credential is stored on the server.** `PUT /api/config`
+  persists it in the server's own `config.json` under the path that
+  credential id owns (`config.ts:570-633`,
+  `shared/credential-request.ts:52-65`) and the answer is a set of
+  configured-or-not booleans, never the value (`index.ts:7125-7157`). The
+  driver's `--provide` therefore changes a machine-wide setting, not just
+  that card. `boxToken` is refused outright: saving it makes the server list
+  and verify the cloud computers on that account and fail the whole write
+  when it cannot (`index.ts:11752-11790`).
+- **`doctor --server` reports only the names it strips.** It reads
+  `/proc/<pid>/environ` and names the ones in `STRIPPED_ENV` —
+  `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, `OMB_TOKEN`,
+  `OMB_SECRET` — and no others, and never a value. `unknown` means the
+  environment was unreadable, not that it was clean.
 - `send --bot <specialist> --run <ref>` is refused with exit 3 when another open run records the same specialist thread, unless a complete snapshot attributes that bot to the selected run alone; pass `--thread <id>` to override deliberately. `interrupt` has the same guard.

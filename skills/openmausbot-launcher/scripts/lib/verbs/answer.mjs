@@ -94,7 +94,7 @@ verb("answer", {
     if (modes.length > 1) throw new Fail(EXIT.USAGE, `pass one of ${MODE_FLAGS}`);
     const task = runFor(cfg, flags);
     if (!modes.length) {
-      if (!bare) throw new Fail(EXIT.USAGE, 'usage: answer --allow|--deny|--message "<text>" [--request ID]  |  answer "<text>"');
+      if (!bare) throw new Fail(EXIT.USAGE, 'usage: answer <mode> [--request ID]  |  answer "<text>"', { hint: `modes: ${MODE_FLAGS}; a learned skill also needs --reviewed <sha256>, a credential OMB_SECRET or --secret-stdin` });
       const out = await VERBS.get("send").handler({ flags: { ...flags }, positionals: [bare], verb: "send" });
       return { result: { viaSend: true, ...out.result }, brief: out.brief };
     }

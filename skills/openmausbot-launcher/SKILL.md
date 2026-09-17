@@ -165,7 +165,7 @@ that timeout even when the returned verdict remains verified.
 | `state` | Meaning | What you do |
 |---|---|---|
 | `done` (0) | The lead's last text carries this run's marker line | Read the closing report to the user; then `report` (section 6). Done means the lead closed the run, not that everything passed |
-| `needs-user` (5) | A card, connector, or credential request is pending, or a bot is waiting on you | Relay `pending[]` verbatim and answer with section 5 |
+| `needs-user` (5) | A card, connection, or credential request is pending, or a bot is waiting on you | Relay `pending[]` verbatim and answer with section 5; `pending[].handle` is what `--request` takes |
 | `attention` (5) | Settled without the marker: the lead stopped early (Premise fails, BLOCKED, a plain question) | Read `lead.text` to the user; answer with `send` |
 | `stalled` (6) | A teammate's outcome is newer than the lead's last text and the lead stays idle (a dropped wake), or no change for 40 min | `omb send "status?"` wakes the lead; if it stays silent, `interrupt`, then ask the user |
 | `failed` (6) | The lead is dead or its turn failed to dispatch | Read the tail (`status --tail 10`), tell the user |
@@ -208,11 +208,28 @@ line. Relay the lead's own words; do not paraphrase decisions.
 - The server answers `unavailable` when a card died with the bot's turn;
   a textual answer then falls back to chat automatically, an allow or deny
   does not: tell the bot in chat what you decided.
-- Connector, credential, skill, and routine requests are reported as
-  unsupported with the route they need; hand them to the user. Skill and
-  routine cards never receive a response POST from this driver. Read
-  `pending[].cardKind`, full `text`, `options`, and payload metadata;
-  upstream options messages have no `card.kind`. The brief is a summary.
+- A routine proposal: read `pending[].title` and `subtitle` to the user, then
+  `omb answer --confirm --request <id>` or `--cancel`. A refusal is the
+  server's own words about what changed under the card; the card keeps them
+  in `held`.
+- A learned skill: read `pending[].skillRequest.preview` to the user — that is
+  the whole skill — then `omb answer --allow --reviewed <sha256> --request
+  <id>`, with the `sha256` from the same card. Anything else denies it, so
+  there is no way to comment: `--message` is refused.
+- A credential: ask the user for it, then
+  `OMB_SECRET='…' omb answer --provide --request <messageId>`, or pipe it with
+  `--secret-stdin`. Never put it in the command line, in chat, or in your own
+  notes; the driver sends it to the server's settings and tells the card, and
+  the value appears in no output. `--dismiss` lets the bot continue without
+  it. `boxToken` is refused here: provide it in the app.
+- A connected app: `omb answer --connect --request <messageId>` returns a link
+  once, for the user to open (exit 5). When they are done,
+  `omb answer --resume --request <messageId>`; one request can ask for several
+  apps and they resume together, so a resume refuses until every one of them
+  is connected. `--dismiss` does **not** wake the bot; tell it with `send`.
+- Read `pending[].cardKind`, full `text`, `options`, and payload metadata;
+  upstream options messages have no `card.kind`. The brief is a summary and
+  names the command for that kind.
 - `omb interrupt [--run <ref>]` stops that run's current turn; nothing else.
   A turn the lead is running on another run's thread cannot be reached from
   here at all ("the bot switched tasks before it could be interrupted"): wait

@@ -56,7 +56,16 @@ paired device` (`request-auth.ts:293-309,364-370`); reads still work.
 | `POST /api/bots/:id/tasks` | `{title?}` | 201 `{bot, task{threadId,title,createdAt}}` (`index.ts:11105-11119`) | 409 `this bot is working — let it finish before starting a task`; 409 `this bot is securely saving a credential — try again when it finishes` |
 | `POST /api/bots/:id/tasks/:threadId` | — | 200 `{bot}`, that task is now the bot's active one (`index.ts:11120-11140`) | 404 `no such bot`; 404 `no such task`; 409 `this bot is working — stop it before switching tasks` — switching mid-turn would lose ownership of the process; 409 `this bot is securely saving a credential…`. Client scope may call it (`request-auth.ts:210-211`) |
 | `POST /api/bots/:id/messages` | `{text, threadId?, sendId?}` | 202 receipt, see below (`index.ts:10738-10870`) | 400 `text required`; 400 `threadId must be a task id`; 409 `the bot switched tasks before it could receive the message` (`10756,10794,10826`); 409 `the target task no longer exists`; 409 `sendId already belongs to another message` (`10767,10782`); 409 `the running turn ended before the steered message could be recorded` — a late steer whose turn settled first (`10832-10835`) |
-| `POST /api/threads/:id/respond` | `{requestId, behavior, message?}` | 200 `{ok:true, outcome}`, outcome ∈ `allowed-once` \| `rejected` \| `answered` \| `unavailable` (`contracts.ts:162`, `index.ts:10972-11033`) | 400 `behavior must be allow, deny, or answer` |
+| `POST /api/threads/:id/respond` | `{requestId, behavior, message?, reviewedSha256?}` | 200 `{ok:true, outcome}`, outcome ∈ `allowed-once` \| `rejected` \| `answered` \| `unavailable` (`contracts.ts:162`, `index.ts:10972-11033`); a settled skill or routine card answers `{ok:true, outcome, alreadySettled:true}` (`:6458-6468`, `:4811-4818`); a confirmed routine adds `routineAction` and `resultId` (`:4823-4829`) | 400 `behavior must be allow, deny, or answer`. Skill cards (`:6438-6597`): 403 `this skill request belongs to a different bot`; 409 `this proposal was created by an older build — deny it and ask the bot to create it again`; 409 `reviewedSha256 must match the skill shown on the approval card`; 422 `the skill preview changed after review — deny and recreate it`; 422 `the staged skill no longer matches this approval card`; 409 `the learned-skill approval card is no longer available`; an apply failure is 422 and lands on `card.held`. Routine cards (`routine-requests.ts:800-930`): 400 `Routine confirmations must be confirmed or cancelled`; 400 `This routine request id does not match its confirmation card`; 403 `This routine request belongs to another conversation`; 404 `That routine no longer exists`; 409 `That routine changed after this confirmation card was prepared. Ask the bot to review it and propose the action again.`; 409 `That one-time schedule is now in the past. Ask the bot to propose a new time.`; 409 `This routine confirmation card is no longer available` — every one of these is also written onto the card as `held` (`:896-908`) |
+| `GET /api/routines` | `from?`, `to?` | 200 `{routines, runs}` (`index.ts:8438-8447`) — how a confirmed proposal is verified; `DELETE /api/routines/:id` removes one. Client scope (`request-auth.ts:241-243`) | — |
+| `POST /api/bots/:id/connector-cards/:messageId/authorize` | `{threadId}` | 200 `{url}` — the browser link, returned to this caller only and never stored in the transcript (`index.ts:12231-12244`); the card becomes `authorizing` | 404 `no such connection request`; 409 `Add an account alias so the existing connection is not replaced`; 409 `<toolkit> already has the maximum of N accounts` (`composio.ts:928-935`); admin only |
+| `GET /api/bots/:id/connector-cards/:messageId/status` | `?threadId=` | 200 `{connected, pending, status}` (`index.ts:12255-12276`). **This read mutates**: it refreshes the stored card from the provider and resumes the bot itself when the last app in the request is live | 404 `no such connection request`; client scope |
+| `POST /api/bots/:id/connector-cards/:messageId/(resume\|dismiss)` | `{threadId}` | `resume` 200 `{resumed:true}` once every card sharing the `resumeKey` is connected and undismissed (`:6687-6697`); `dismiss` 200 `{dismissed:true}` and the bot is **not** woken (`:12284-12287`) | `resume` 409 `finish connecting every requested app first`; 404 `no such connection request`; client scope |
+| `POST /api/bots/:id/secret-cards/:messageId/provided` | `{threadId}` | 200 `{provided:true, resumed}` and the bot is woken with `OpenMausBot credential update: the user securely provided …` (`index.ts:12196-12206`, `:6778-6780`) | 404 `no such credential request`; 409 `this credential is currently being saved from a phone`; 409 `this credential request was dismissed`; 409 `<label> was not saved yet` unless the value is already in the config; 409 `this credential request is no longer available`; admin only |
+| `POST /api/bots/:id/secret-cards/:messageId/(resume\|dismiss)` | `{threadId}` | `dismiss` 200 `{dismissed:true, resumed}` and wakes the bot with `… the user declined …` (`:6781`); `resume` 200 `{resumed}` (`:12208-12222`) | `resume` 409 `this credential request is not ready to resume`; 409 `<label> is no longer configured`; client scope (`request-auth.ts:218`) |
+| `POST /api/bots/:id/secret-cards/:messageId/provide` | an HPKE envelope | the paired phone's route; the headless server has no private key for it (`phone-secret.ts:393-403`) | 403 `Secure phone entry must come from a paired phone` for anything else (`index.ts:12158-12160`) — never used from here |
+| `PUT /api/config` | `{xai{key}\|box{token}\|opencodeGo{apiKey}\|tts{key}\|imageGen{key}\|features{…}\|…}` | 200 `configStatus()` — configured-or-not booleans and non-secret settings, never a value (`index.ts:7125-7157`, `11675-12059`). `saveConfig` writes the server's own `config.json`, then `syncCredentialEnv` and a reload make the credential live at once (`:11962-11968`) | 400 from `parseConfigPatch` (the path and zod's text); 400 `nothing to save`; 409 `provider settings are already being updated`; a `box.token` change first inventories the cloud computers on that account and can answer 503 (`:11752-11790`); admin only |
+| `GET /api/config` | — | 200 the same booleans; a client session loses the SSH alias, the email and browser partition ids (`index.ts:11661-11673`) | client scope |
 | `POST /api/bots/:id/interrupt` | `{threadId?}` | 200 `{ok:true}` (`index.ts:11035-11091`) | 409 `this bot is running a routine in another conversation`; 409 `this bot is working in channel <name>`; 409 `the bot switched tasks before it could be interrupted` |
 | `PATCH /api/bots/:id` | `{cwd\|description\|approvalMode\|approvePeerComms\|…}` | 200 `{bot}` (`index.ts:9986-10321`) | 400 `description must be at most 4000 characters` (`bot-profile.ts:50`); 409 `stop this bot's turn before changing its approval level` — busy **and** the level actually changes (`10160-10163`); 403 `This approval-level change can only be made from the packaged desktop app` for `full` or `custom` (`10186-10190`); 409 `wait for the approval-level change to finish before changing this setting` (`10016`); 403 for a client session touching anything but display fields (`9992-9994`). `cwd` has no busy guard (`10127-10131`); a never-PATCHed bot carries no `approvalMode` field (`store.ts:1303-1335`) and runs as `ask` (`shared/approval-mode.ts:32-43`); `approvePeerComms` is read back on `GET /api/bots` (`index.ts:1159-1168`); 400 `approvePeerComms must be true or false` (`10212-10217`) |
 | `PATCH /api/bots/:id/model` | `{instanceId, model, effort?}` | 200 `{bot}` (`index.ts:9919-9953`) | 409 `the bot is working — stop it before changing models` — only when the selection actually changes (`1050-1057`); 409 `wait for the approval-level change to finish before changing models` (`9930-9932`); 400 `unsupported model field: …`; 400 `effort "…" is not recognized`; admin only |
@@ -177,16 +186,39 @@ Permission cards have `tool` and may have `held`, `approvalScope`, or
 `allowKey`; question cards omit `tool` (`index.ts:2881-2896,2917-2945`).
 Classify `routineRequest` and `skillRequest` before testing `tool`.
 
-Learned-skill cards contain the bot/staged ids, name, action, gist, preview,
-and sha256; allowing one requires the matching `reviewedSha256`, otherwise
-409 (`index.ts:6420-6430,6466-6526`). Routine cards use Confirm/Cancel and
-carry a versioned proposal with request/bot/thread ids, creation time, and
-structured `operation` (`routine-requests.ts:119-157,745-751`). Their
-response rejects `answer` with 400; a successful allow returns
-`routineAction` and `resultId` (`routine-requests.ts:812-818`,
-`index.ts:4799-4828`). Both are intercepted before ordinary adapter answers
-(`index.ts:10981-11013`). The v1 driver reports these payloads and refuses
-all answer modes before posting; the fake models the real staged protocol.
+Learned-skill cards are `Enable skill "<name>"?` / `Update skill "<name>"?`
+with options `["Enable"|"Update","Deny"]` and `tool: "stage_skill"`
+(`index.ts:6372-6431`); the payload carries the bot and staged ids, name,
+action, gist, source, preview, its sha256 and any warnings. The hash is the
+sha256 of the preview text (`skills.ts:1250`) and allowing one requires it
+back as `reviewedSha256` (`index.ts:6513-6519`). **Any behaviour other than
+allow rejects the staged skill** (`:6470-6504`), so there is no way to
+comment on one.
+
+Routine cards use `["Confirm","Cancel"]` with `tool: "schedule_routine"` for
+a create and `"manage_routine"` otherwise (`routine-requests.ts:534,581`),
+and carry a versioned proposal with request/bot/thread ids, creation time and
+a structured `operation` (`:119-157,742-752`). Their response rejects
+`answer` with 400; a successful confirmation returns `routineAction` and
+`resultId` (`:812-818`, `index.ts:4823-4829`).
+
+Both are intercepted before ordinary adapter answers (`index.ts:10980-11013`).
+A thread holds at most 8 open cards of each kind: the ninth proposal is
+refused with 429 `confirm or cancel an existing learned-skill card first` or
+`… routine proposal first` (`:6303-6339`).
+
+Connection requests are `kind: "connector"` messages, not cards: `connector`
+carries `slug`, `label`, `description`, `status` ∈
+`required|authorizing|connected|failed`, a `resumeKey` shared by every app in
+one request, and an optional account `alias` (`store.ts:69-82`). They have no
+`requestId`, so the message id names them. Credential requests are
+`kind: "secret"`: `secret` carries the allowlisted `target`, its `label`,
+`description`, `placeholder`, `helpUrl` and a `requestKey` (`store.ts:84-99`),
+and the message text is the same handoff sentence for every one of them
+(`index.ts:6742-6744`). The five targets are `xaiApiKey`, `boxToken`,
+`opencodeGoApiKey`, `ttsKey` and `openaiImageApiKey`
+(`shared/credential-request.ts:6-38`); the value goes to the config path that
+id owns (`:52-65`) and never into the transcript.
 
 - `from` is set only on a bot message in a group thread
   (`index.ts:2731-2732`) and on a delegation echo (`index.ts:3389`). Direct

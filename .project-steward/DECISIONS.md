@@ -247,3 +247,38 @@ delegation window at its timestamp, so later turns on a shared specialist
 read as `shared` rather than being billed to the interrupted run: the
 report under-counts on that side of the error. Both were confirmed by an
 Opus completeness review that watched the regressions fail at `0492520`.
+
+## 0015 — 2026-09-16 — A credential answered from the environment or stdin, and boxToken refused
+
+`answer` now settles the four request kinds it used to hand back at exit 5
+(bead `oml-170`). Three of them are ordinary decisions. The credential one
+is not: the value is the user's secret, and the launcher is a command line.
+
+So there is no flag that takes it. `answer --provide` reads `OMB_SECRET`, or
+stdin with `--secret-stdin`, exactly one of the two; it strips one trailing
+newline, deletes `OMB_SECRET` from its own environment the moment it reads
+it, and `OMB_SECRET` joins the names `up` strips from a server it starts. A
+dry run never reads the value at all and the HTTP client redacts the body of
+a config write, so a preview cannot print one. With no value the verb exits
+5 and asks for the credential by its label rather than guessing. The
+consequence to accept: `PUT /api/config` persists the credential in the
+server's own `config.json` (`config.ts:570-633`), so providing one from here
+changes a machine-wide setting, not only that card — which is why the save
+and the card are reported separately when the second step fails.
+
+`boxToken` is refused with exit 3 and pointed at the app. Saving it makes
+the server list and verify the cloud computers on that account and fail the
+whole write when it cannot (`index.ts:11752-11790`). That is a conversation
+with a provider, not a settings write, and it belongs where the person can
+see what it did.
+
+One further deviation from the plan, recorded because it was deliberate: the
+driver checks `--reviewed` against the card's `sha256` before posting, but
+does **not** pre-empt the server's own check that the preview still hashes to
+it. That check refuses before anything is applied (`index.ts:6520-6523`) and
+its words name the remedy, so the user gets the server's instruction at exit
+3 rather than a usage error this launcher invented.
+
+Recorded in `docs/design.md` (the `answer` row, Deferred to v2, Snapshot and
+evaluation), `SKILL.md` sections 4-5, and `references/api.md` and
+`limits-and-pitfalls.md`.
