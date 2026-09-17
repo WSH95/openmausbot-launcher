@@ -317,6 +317,7 @@ test("a wake that never fired keeps the run out of a terminal verdict and shows 
   assert.equal(r.code, 5, `${r.stdout}${r.stderr}`);
   assert.match(r.stdout, /CREDENTIAL · Sudo needs the ElevenLabs API key/);
   assert.match(r.stdout, /--resume/, "and the line says how to finish it, not that the run is done");
+  assert.ok(loadState(statePaths(dir)).runs[run.json.runId].cards[card.message.id], "the watch remembers whose card it is, so a later resume still knows");
   r = await runOmb(["answer", "--resume", "--request", card.message.id, "--project", dir], { env });
   assert.equal(r.code, 0, r.stdout);
   r = await runOmb(["watch", "--project", dir, "--max-seconds", "8", "--quiet-seconds", "1", "--drop-seconds", "1", "--poll", "1"], { env });
