@@ -42,11 +42,6 @@ removed.
 
 1. Leave `oml-hou` open until macOS work is requested and a Mac or an explicit
    implementation decision is available. `bd ready` shows nothing else.
-2. Nothing else is queued. The `oml-j4r` report attribution repairs have not
-   been seen on a real run that merges work and writes a record; the next
-   ordinary dev-team task run will exercise them, and its `report --md
-   --check-042` section belongs in `docs/evidence.md` as usual. Do not spend
-   bot turns for that alone.
 
 ## Blockers
 
@@ -104,7 +99,11 @@ decision.
 
 ## Warnings
 
-Never run `watch` below `--max-seconds 35` with the default quiet window; the
+The `oml-j4r` report attribution repairs are verified against the saved T13,
+T14 and T15 texts and the fake server; the V16/V17 probes merged nothing, so no
+real run has exercised them yet. This is not a task: the next ordinary dev-team
+run's `report --md --check-042` section will show them, and no bot turns should
+be spent for that alone. Never run `watch` below `--max-seconds 35` with the default quiet window; the
 driver now says so, but a shorter watch still cannot settle a run.
 `heldWatchTimers` finds the watch's timers by the callback names `wokeUp`,
 `reachDeadline` and `done` in `watch.mjs`; renaming them makes the deadline
