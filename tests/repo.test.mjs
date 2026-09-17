@@ -170,18 +170,52 @@ test("killOrphan rechecks cwd before the first signal", { skip: !linux }, async 
   assert.equal(result.killed, false); assert.match(result.why, /cwd/); assert.equal(procInfo(child.pid)?.alive, true);
 });
 
+/** Await `p`, or fail in real time: a test that holds the grace clock must never
+ * be able to wait forever on the loop that reads it. */
+async function realTimeBound(p, ms, what) {
+  let timer;
+  try { return await Promise.race([p, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(what)), ms); })]); }
+  finally { clearTimeout(timer); }
+}
+
 test("a process that changes cwd after SIGTERM is not escalated or reported dead", { skip: !linux }, async (t) => {
   const { killOrphan } = await import("../skills/openmausbot-launcher/scripts/lib/proc.mjs");
   const { procInfo } = await import("../skills/openmausbot-launcher/scripts/lib/server.mjs");
   const { dir } = makeRepo(); const worktreesDir = path.join(dir, ".worktrees");
   const cwd = path.join(worktreesDir, "gone"); fs.mkdirSync(cwd, { recursive: true });
-  const ready = path.join(dir, "ready");
-  const child = spawn(process.execPath, ["-e", `require('node:fs').writeFileSync(${JSON.stringify(ready)}, 'ready'); process.on('SIGTERM', () => process.chdir(${JSON.stringify(dir)})); setInterval(() => {}, 1000);`], { cwd, stdio: "ignore" });
+  const ready = path.join(dir, "ready"); const moved = path.join(dir, "moved");
+  // The handler is installed before readiness is announced, so no signal can
+  // land in the gap, and the second marker is written only once `chdir` has
+  // returned: the test waits for the cwd this recheck is about, not for 100 ms.
+  const child = spawn(process.execPath, ["-e", `const fs = require('node:fs');
+    process.on('SIGTERM', () => { process.chdir(${JSON.stringify(dir)}); fs.writeFileSync(${JSON.stringify(moved)}, 'moved'); });
+    fs.writeFileSync(${JSON.stringify(ready)}, 'ready');
+    setInterval(() => {}, 1000);`], { cwd, stdio: "ignore" });
   t.after(() => child.kill("SIGKILL"));
-  const until = Date.now() + 2000; while (!fs.existsSync(ready) && Date.now() < until) await sleep(10);
-  assert.ok(fs.existsSync(ready)); fs.rmdirSync(cwd);
-  const result = await killOrphan({ pid: child.pid, startTicks: procInfo(child.pid).startTicks, cwd, deleted: true }, { worktreesDir, graceMs: 100 });
-  assert.equal(result.killed, false); assert.match(result.why, /cwd/); assert.equal(procInfo(child.pid)?.alive, true);
+  const until = Date.now() + 5000; while (!fs.existsSync(ready) && Date.now() < until) await sleep(10);
+  assert.ok(fs.existsSync(ready), "the child installed its SIGTERM handler and announced readiness"); fs.rmdirSync(cwd);
+  const graceMs = 100;
+  // `killOrphan` runs in this process and reads this clock. Hold it inside the
+  // grace so its loop keeps sleeping while the child runs its handler, and the
+  // test never signals the child or awaits the change itself: that would only
+  // exercise the refusal before the first signal.
+  let clock = performance.now();
+  t.mock.method(performance, "now", () => clock);
+  const pending = killOrphan({ pid: child.pid, startTicks: procInfo(child.pid).startTicks, cwd, deleted: true }, { worktreesDir, graceMs });
+  pending.catch(() => {});
+  let result;
+  try {
+    const untilMoved = Date.now() + 5000; while (!fs.existsSync(moved) && Date.now() < untilMoved) await sleep(10);
+    assert.ok(fs.existsSync(moved), "the child changed cwd from its handler: the moved marker is missing");
+    clock += graceMs; // the grace ends with the sleep already in flight
+    result = await realTimeBound(pending, 5000, "killOrphan did not finish after the grace deadline");
+  } finally {
+    clock = Number.MAX_SAFE_INTEGER; t.mock.restoreAll(); // release the clock before draining
+    await pending.catch(() => {});
+  }
+  assert.equal(result.killed, false, JSON.stringify(result)); assert.match(result.why, /cwd/);
+  assert.equal(result.signal, "SIGTERM", "the recheck happened after the signal, not before it");
+  assert.equal(procInfo(child.pid)?.alive, true);
 });
 
 test("reconcile names where the default branch came from and hints when it is only the current branch", async () => {
