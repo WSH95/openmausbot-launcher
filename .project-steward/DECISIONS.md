@@ -303,3 +303,15 @@ its words name the remedy, so the user gets the server's instruction at exit
 Recorded in `docs/design.md` (the `answer` row, Deferred to v2, Snapshot and
 evaluation), `SKILL.md` sections 4-5, and `references/api.md` and
 `limits-and-pitfalls.md`.
+
+## 0016 — 2026-09-17 — Long SSE inside Codex's sandbox is a documented restriction, not a verified path
+
+Bead `oml-u1j` asked whether a long `watch` survives inside Codex's
+workspace-write sandbox. The real probe (session `01a0ade0…`) shows the
+driver cannot connect to loopback there at all: `EPERM` before the first
+frame, the sandbox hint printed, no escalation requested by the model. There
+is nothing to verify beyond that, so the bead closes as "documented
+restriction": inside the sandbox the launcher's network verbs need escalation
+(`danger-full-access`) or `--remote` to a reachable URL, and the docs say so.
+`--approve-for-me` implies workspace-write and cannot be combined with
+`--sandbox`.

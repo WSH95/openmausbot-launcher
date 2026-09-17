@@ -35,34 +35,24 @@ exercised in three tiers plus the full-team run T13 through the fixed driver
 (`docs/review/2026-09-08-m1-review.md`, "Resolution"; `VERIFY.md`, "M1 fix
 pass"). The devpack gate `atw-07l.27` is met.
 
-## v2 pass (2026-09-16, in progress)
+## v2 pass (2026-09-16/17, complete except macOS)
 
 Seven beads in one pass, hosts first: OpenClaw, Hermes Agent and DeepSeek
-Harness verified (`oml-n2f`, `oml-5bw` closed); the `pair` verb and a
-Tailscale remote run (`oml-xnn`); more than one run per team (`oml-no8`);
-`answer` for skill, routine, secret and connector requests (`oml-170`); long
-SSE inside Codex's sandbox (`oml-u1j`); macOS lifecycle only if a Mac turns
-up (`oml-hou`). Defect found on the way: `oml-60s`. The plan and its Codex
-review live in the session plan file; progress in `PROGRESS.md`.
-
-Phase 5 (several runs per team, `oml-no8`) is merged on `main` at `0492520`;
-the final follow-up audit is
-`docs/review/2026-09-16-watch-drain-followups.md`, which supersedes the first
-rescue audit. The repair checkpoint adds fake-server and boundary
-regressions; the bead stays open until the real two-run exercise (Phase 7).
-Its backend task record was not updated in this follow-up; this task
-prohibits Beads commands. The existing task remains the reconciliation point.
-
-Phase 6 (`answer` for skill, routine, secret and connector requests,
-`oml-170`) is merged on `main` at `5217d71` (35 commits from `186baf2`, 399
-tests; audit `docs/review/2026-09-16-answer-kinds-rescue.md`, DECISIONS
-0015). The bead stays open until Phase 7's real checks of routine, skill and
-secret on the server; the connector kind is fake-only unless Composio is
-configured.
+Harness verified (`oml-n2f`, `oml-5bw`); the `pair` verb and a Tailscale
+remote run (`oml-xnn`); more than one run per team (`oml-no8`); `answer` for
+skill, routine, secret and connector requests (`oml-170`); long SSE inside
+Codex's sandbox (`oml-u1j`, closed as a documented restriction); macOS
+lifecycle (`oml-hou`) left open for the user's decision. Defects found on the
+way: `oml-60s` and `oml-9kp` (fixed), `oml-2rc` (flaky tests, open),
+`oml-fg8` (a run that never settles after its sibling closes, open). The
+real session on 2026-09-17 merged T14 and T15 through two overlapping runs;
+evidence in `docs/evidence.md` "v2 validation". Progress in `PROGRESS.md`;
+every ruling in the SDD ledger under `.superpowers/sdd/`.
 
 ## Later
 
-OpenClaw, Hermes and DSH are verified as of 2026-09-16 (see the v2 pass).
-The remaining v2 beads cover pairing, macOS lifecycle, unsupported request
-types, and parallel runs. Any proposed package changes belong to that
-package's project and are not prerequisites for launcher validation.
+Fix `oml-fg8` and the two report attribution gaps the real run exposed
+(`oml-j4r`: task-log headings that do not name the run; the merged-commit
+phrase).
+macOS lifecycle when a Mac or a decision turns up. Any proposed package
+changes belong to the dev pack's project and are not launcher prerequisites.

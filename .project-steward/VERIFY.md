@@ -514,3 +514,23 @@ Only documentation and task scope changed; no new bot runs or package edits.
   against the fake): the value was absent from stdout, stderr, `state.json`,
   `/__fake/state`, the transcript, `GET /api/config` and every file on disk.
 - No real bot turn was spent; fake-server runs are not evidence.
+
+## v2 pass, phase 7 (2026-09-17)
+
+The real-server session; see `docs/evidence.md` "v2 validation" and
+`docs/validation/2026-09-17-parallel-t14-t15.json`.
+
+- Driver at `5217d71`; `npm test` 399/399 before the session.
+- Real OpenMausBot 0.1.56, port 8899, data dir
+  `omb-launcher-data-v2run-20260917T050914-20260917T050915-XwqQxP`;
+  `down` verified, ports free, no orphan (`cleanup --kill`).
+- Request kinds: routine `c1cacd50…` → routine `b74e949f…` created and
+  deleted; skill `cd93ec72…` (sha256 `15077bc5…` = sha256(preview)) installed
+  and deleted; secret `62fcf731…` saved, resumed, cleared, no leak.
+- Runs `092671dff24f849a` (t14, merged `c7554a5`) and `289bb21f8b7d1dd4`
+  (t15, merged `11ff1e6`); reports `incomplete` on the record step; 34
+  `turn.completed` events; 17 Quill cards allowed once, 19 user-approved decisions, 0 always.
+- Hosts: OpenClaw run `614776d8…` (45 s, 1 escalation allow-once) and
+  Hermes (34 s) each read back a live `watch` brief.
+- Codex sandbox: session `01a0ade0…`, `EPERM` before connect, 31 s.
+- Package sha unchanged; clone `ddd4684`, 99 tests OK.

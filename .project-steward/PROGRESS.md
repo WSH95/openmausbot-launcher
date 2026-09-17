@@ -3,6 +3,31 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-17 — v2 pass, phase 7: the real-server session (34 bot turns, 3 native sessions)
+Real OpenMausBot 0.1.56 on the slugkit clone with the user's roster: the
+three request kinds the driver can settle without Composio were exercised
+on Nova (a routine confirmed, created and deleted; a learned skill allowed
+against the hash the operator verified, installed and deleted; a credential
+provided from a private file through stdin, saved, resumed and cleared, with
+the value absent from every launcher surface). The lead created a second
+implementer, Forge, which `import --adopt` and `bind` picked up before any
+dispatch. T14 (Nova) and T15 (Forge) ran as two open runs: T15 was dispatched
+while Nova worked, Forge's turn overlapped Quill's review of T14, lead turns
+serialized; 17 of Quill's approval cards allowed once (19 user-approved
+decisions with Nova's two, none "always"). T14 merged as `c7554a5`, T15 as
+`11ff1e6` after a rebase Quill asked for; both beads closed by the lead. Both
+reports read `incomplete` on the record step because the lead's Codex
+harness refused the record commit (the operator committed the staged records
+as `ddd4684`). OpenClaw and Hermes each ran a `watch` against the live run
+and read it back. Inside Codex's workspace-write sandbox the watch cannot
+connect at all (EPERM, no escalation requested), so long SSE there is a
+documented restriction, not evidence. New defect from the run: the last open
+run never settles after its sibling closes (`oml-fg8`, closed by abandon).
+Evidence: `docs/evidence.md` "v2 validation" and
+`docs/validation/2026-09-17-parallel-t14-t15.json`. Pass total: 39 of 50
+bot turns. Beads `oml-no8`, `oml-170`, `oml-u1j` closed on this evidence;
+`oml-hou` (macOS) stays open for the user's decision.
+
 ### 2026-09-17 — v2 pass, phase 6: `answer` settles skill, routine, secret and connector requests (code, no bot turns)
 `answer` moved into its own module and now settles the four request kinds it
 used to hand back at exit 5: routine proposals (`--confirm`/`--cancel`, a
