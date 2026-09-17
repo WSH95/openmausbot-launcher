@@ -539,7 +539,8 @@ export async function createFake(opts = {}) {
     if (typeof request.preview !== "string" || typeof request.sha256 !== "string") return json(res, 409, { error: "this proposal was created by an older build — deny it and ask the bot to create it again" }); // :6506-6512
     if (body.reviewedSha256 !== request.sha256) return json(res, 409, { error: "reviewedSha256 must match the skill shown on the approval card" }); // :6513-6519
     if (createHash("sha256").update(request.preview).digest("hex") !== request.sha256) return json(res, 422, { error: "the skill preview changed after review — deny and recreate it" }); // :6520-6523
-    if (request.stagedGone) return json(res, 422, { error: "the staged skill no longer matches this approval card" }); // :6532-6542
+    const staged = state.stagedSkills?.get(request.stagedId);
+    if (request.stagedGone || !staged || request.requestId !== body.requestId || request.threadId !== threadId || ["action", "name", "source", "sha256"].some((key) => staged[key] !== request[key])) return json(res, 422, { error: "the staged skill no longer matches this approval card" }); // S: index.ts:6532-6542,6561-6570
     state.skills.set(`${request.botId}/${request.name}`, request.preview);
     settle({ answered: "allow", dismissed: false, held: undefined }); decide("user-approved");
     return json(res, 200, { ok: true, outcome: "allowed-once" });
@@ -911,6 +912,11 @@ export async function createFake(opts = {}) {
             sha256: createHash("sha256").update(preview).digest("hex"), warnings, createdAt: now(),
             ...(op.stagedGone ? { stagedGone: true } : {}),
           };
+          // Staged metadata is independent of the approval payload, so edits
+          // to the card cannot rename or retarget the write (S: index.ts:6561-6570).
+          (state.stagedSkills ??= new Map()).set(card.skillRequest.stagedId, {
+            action, name, source: card.skillRequest.source, sha256: card.skillRequest.sha256,
+          });
         }
         if (kind === "routine") {
           // Valid stored proposal and card shape (S: routine-requests.ts:119-157, 515-583, 742-752).

@@ -54,6 +54,16 @@ test("fake skill settlement checks the trusted owner and provides verification a
   assert.equal((await call("DELETE", route)).body.error, 'no imported skill named "release-notes"');
 });
 
+test("fake skill approval binds the card to the independently staged operation", async (t) => {
+  const { card, respond } = await setup(t);
+  for (const field of ["requestId", "threadId", "name", "source", "action"]) {
+    const changed = card("skill", { name: "original" });
+    changed.skillRequest[field] = "changed";
+    const r = await respond(changed, "allow", { reviewedSha256: changed.skillRequest.sha256 });
+    assert.deepEqual(r, { status: 422, body: { error: "the staged skill no longer matches this approval card" } }, field);
+  }
+});
+
 test("fake routines retain the safe cancel escape for mismatched payloads and record decisions once", async (t) => {
   const { f, bot, card, call, respond } = await setup(t);
   for (const [field, value, status, error] of [
