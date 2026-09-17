@@ -62,6 +62,10 @@ const CREDENTIAL_PATCH = {
 };
 /** The section each target reports under in `configStatus()` (S: index.ts:7125-7157). */
 const CREDENTIAL_SECTION = { xaiApiKey: "xai", boxToken: "box", opencodeGoApiKey: "opencodeGo", ttsKey: "tts", openaiImageApiKey: "imageGen" };
+// Native system voice reports engine availability, not a stored ElevenLabs
+// key (server/tts/index.ts:28-36,57-63); that state cannot prove a key write.
+const configuredCredential = (status, target) => target === "ttsKey" && status?.tts?.provider === "system"
+  ? undefined : status?.[CREDENTIAL_SECTION[target]]?.configured;
 
 /**
  * The value, from the environment or from stdin — never from argv, where a
@@ -333,7 +337,7 @@ async function secret(client, cfg, target, mode, flags, runFlag = "") {
   // Config status is only a boolean, not a receipt for this write. An old
   // configured value cannot prove that a replacement survived a lost reply.
   const before = await client.get("/api/config");
-  const wasConfigured = before?.[CREDENTIAL_SECTION[card.target]]?.configured;
+  const wasConfigured = configuredCredential(before, card.target);
   const unknownSave = (said, status) => new Fail(EXIT.PRECONDITION, `it is unknown whether the ${label} was saved: ${said}`, {
     status, saveOutcome: "unknown",
     hint: `the replacement may or may not have been saved; choose omb answer --resume --request ${target.messageId}${runFlag} to wake the bot on whatever is stored, or provide the value again with omb answer --provide --secret-stdin --request ${target.messageId}${runFlag} < the file the user wrote`,
@@ -350,7 +354,7 @@ async function secret(client, cfg, target, mode, flags, runFlag = "") {
     let status;
     try { status = await client.get("/api/config"); }
     catch { throw unknownSave(said, e.status); }
-    const configured = status?.[CREDENTIAL_SECTION[card.target]]?.configured;
+    const configured = configuredCredential(status, card.target);
     if (wasConfigured !== false) throw unknownSave(said, e.status);
     if (configured === false) {
       throw new Fail(EXIT.PRECONDITION, `the ${label} was not saved: ${said}`, { status: e.status, hint: "the server's settings do not have it and the card is untouched; try again" });

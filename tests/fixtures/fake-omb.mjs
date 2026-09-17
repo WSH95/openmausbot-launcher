@@ -755,7 +755,9 @@ export async function createFake(opts = {}) {
   /** Configured-or-not booleans, never a value (S: index.ts:7125-7157). */
   const configStatus = () => ({
     xai: { configured: state.config.xai === true }, box: { configured: state.config.box === true },
-    opencodeGo: { configured: state.config.opencodeGo === true }, tts: { configured: state.config.tts === true },
+    opencodeGo: { configured: state.config.opencodeGo === true },
+    // Native voice readiness is not a credential boolean (S: tts/index.ts:28-36,57-63).
+    tts: { configured: state.voiceProvider?.provider === "system" ? state.voiceProvider.available : state.config.tts === true, ...(state.voiceProvider ? { provider: state.voiceProvider.provider } : {}) },
     imageGen: { configured: state.config.imageGen === true },
     features: { skillRecorder: state.config.skillRecorder === true },
   });
@@ -958,6 +960,7 @@ export async function createFake(opts = {}) {
       case "configPutHangs": state.configPutHangs = op.count ?? 1; return;
       case "configPutFailsBeforeSaving": state.configPutFails = op.count ?? 1; return;
       case "configPutError": state.configPutError = op.status ?? 400; return;
+      case "voiceProvider": state.voiceProvider = { provider: op.provider, available: op.available === true }; return;
       case "phoneSaving": { // S: index.ts:12191-12195
         if (op.saving === false) state.phoneSaving.delete(op.messageId); else state.phoneSaving.add(op.messageId);
         return;

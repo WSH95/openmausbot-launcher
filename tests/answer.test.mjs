@@ -484,6 +484,20 @@ test("credential: a config write that never answered is checked, not assumed to 
   assert.equal((await (await fetch(`${f.url}/api/config`)).json()).imageGen.configured, false);
 });
 
+test("credential: native voice readiness cannot verify whether an ElevenLabs key was saved", async (t) => {
+  const { f, dir } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const card = await f.control({ op: "secret", threadId: run.json.leadThreadId, target: "ttsKey" });
+  await f.control({ op: "voiceProvider", provider: "system", available: false });
+  await f.control({ op: "configPutHangs" });
+  const r = await runOmb(["answer", "--provide", "--secret-stdin", "--request", card.message.id, "--project", dir], { env, stdin: "dummy-voice-key\n" });
+  assert.equal(r.code, 3);
+  assert.equal(r.json.saveOutcome, "unknown", "the system voice configured flag is not the stored key");
+  assert.deepEqual((await f.snapshot()).wakes, []);
+  const resumed = await runOmb(["answer", "--resume", "--request", card.message.id, "--project", dir], { env });
+  assert.equal(resumed.code, 0, resumed.stdout, "the card route checks the actual key, which did land");
+});
+
 test("credential: provider error text never echoes the submitted value, including verbose stderr", async (t) => {
   const { f, dir } = await setup(t);
   const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });

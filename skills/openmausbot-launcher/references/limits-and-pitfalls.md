@@ -262,6 +262,9 @@ historical reports append a reanalysis instead of replacing the original.
   `saveOutcome: "unknown"` at exit 3, with no automatic wake. Choose
   `answer --resume --request <id>` to wake the bot on whatever is stored, or
   `--provide` again using the user's file or shell. A 4xx means not saved.
+  With native system voice selected, `tts.configured` reports engine
+  availability, not an ElevenLabs key (`tts/index.ts:28-36,57-63`); an
+  ambiguous voice-key write therefore also remains unknown.
 - **Saving a provider key restarts every provider.** A config write whose
   section is not on the no-reload list (`index.ts:12003-12014`) calls
   `reloadProviders`, which disposes the whole fleet, fails each in-flight
