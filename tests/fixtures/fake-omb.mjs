@@ -306,9 +306,9 @@ export async function createFake(opts = {}) {
     const p = url.pathname;
     if (state.delay.count > 0) { state.delay.count--; await new Promise((r) => setTimeout(r, state.delay.ms)); }
     if (state.dropNext > 0 && !p.startsWith("/__fake")) { state.dropNext--; res.dropped = true; }
-    // A named route that fails for the next N calls, for a reader whose failure
-    // must be told apart from an empty answer.
-    if (state.failRoute?.count > 0 && state.failRoute.re.test(p)) { state.failRoute.count--; return json(res, state.failRoute.status, { error: "the fake was told to fail this route" }); }
+    // A named route answered by the scenario for the next N calls: a failure a
+    // reader must tell apart from an empty answer, or a body it cannot read.
+    if (state.replyRoute?.count > 0 && state.replyRoute.re.test(p)) { state.replyRoute.count--; return json(res, state.replyRoute.status, state.replyRoute.body); }
     // A named route held until the test releases it: the barrier a scenario
     // needs to act while a verb is between two of its own requests.
     if (state.hold && !p.startsWith("/__fake") && state.hold.re.test(p)) {
@@ -1026,7 +1026,7 @@ export async function createFake(opts = {}) {
       case "clearDelegations": state.pendingDelegations = []; state.running = []; return;
       case "delay": state.delay = { count: op.count ?? 1, ms: op.ms ?? 1000 }; return;
       case "dropNext": state.dropNext = op.count ?? 1; return;
-      case "failRoute": state.failRoute = { re: new RegExp(op.route), status: op.status ?? 503, count: op.count ?? 1 }; return;
+      case "replyRoute": state.replyRoute = { re: new RegExp(op.route), status: op.status ?? (op.body === undefined ? 503 : 200), body: op.body ?? { error: "the fake was told to fail this route" }, count: op.count ?? 1 }; return;
       case "hold": state.hold = { re: new RegExp(op.route), waiting: 0, waiters: [] }; return;
       case "release": { const held = state.hold; state.hold = null; for (const resolve of held?.waiters ?? []) resolve(); return { released: held?.waiters.length ?? 0 }; }
       case "steer": state.steer = op.enabled !== false; state.lateSteerConflict = op.lateConflict === true; return;

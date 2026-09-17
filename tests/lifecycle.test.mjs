@@ -245,11 +245,20 @@ test("up names the folders the other bots on a shared server are configured for,
   await f.control({ op: "newEnvironment" });
   up = await runOmb(["up", "--project", dir, "--port", String(f.port)], { env });
   assert.deepEqual(up.json.otherConfiguredFolders, [elsewhere], "a team recorded for another environment hides no bot");
-  await f.control({ op: "failRoute", route: "^/api/bots", count: 1 });
+  await f.control({ op: "replyRoute", route: "^/api/bots", count: 1 });
   up = await runOmb(["up", "--project", dir, "--port", String(f.port)], { env });
   assert.equal(up.code, 0, up.stdout);
   assert.equal(up.json.otherConfiguredFoldersKnown, false, "a failed fleet read is unknown, not an unshared server");
   assert.equal(up.json.otherConfiguredFolders, undefined);
+  await f.control({ op: "replyRoute", route: "^/api/bots", body: { bots: [{ id: "ok", name: "Stranger", cwd: elsewhere }, null], groups: [null] }, count: 1 });
+  up = await runOmb(["up", "--project", dir, "--port", String(f.port)], { env });
+  assert.equal(up.code, 0, up.stdout + up.stderr);
+  assert.equal(up.json.otherConfiguredFoldersKnown, false, "an answer with entries it cannot read is incomplete, not empty");
+  assert.equal(up.json.otherConfiguredFolders, undefined);
+  await f.control({ op: "replyRoute", route: "^/api/bots", body: { bots: "not a list" }, count: 1 });
+  up = await runOmb(["up", "--project", dir, "--port", String(f.port)], { env });
+  assert.equal(up.code, 0, up.stdout + up.stderr);
+  assert.equal(up.json.otherConfiguredFoldersKnown, false, "and a body that is not the documented shape is never thrown");
 });
 
 test("up refuses a data directory another OpenMausBot holds and leaves that server alone", { skip: !linux && "needs /proc" }, async (t) => {
@@ -407,7 +416,7 @@ test("down refuses a server under work it can observe, and --stop-others overrid
   r = await s.down();
   assert.equal(r.code, 3, r.stdout);
   assert.deepEqual(r.json.others.projects, [{ folder: theirs, runs: ["t10 (abcdef12, dispatched)"] }], "the file's own server names this environment");
-  await s.control({ op: "failRoute", route: "^/api/team-map", count: 1 });
+  await s.control({ op: "replyRoute", route: "^/api/team-map", count: 1 });
   await s.control({ op: "activity", botId: stranger.id, activity: "working" });
   r = await s.down();
   assert.equal(r.code, 3, r.stdout);
@@ -534,7 +543,7 @@ test("a refused down answers --brief in counts, and keeps the folders only in it
   const secret = foreignProject({ version: 2, rev: 1, server: { environmentId: s.environmentId }, runs: openRun(null), history: [] });
   await s.setCwd(stranger.id, secret);
   await s.control({ op: "activity", botId: stranger.id, activity: "working" });
-  await s.control({ op: "failRoute", route: "^/api/team-map", count: 1 });
+  await s.control({ op: "replyRoute", route: "^/api/team-map", count: 1 });
   const brief = await s.down("--brief");
   assert.equal(brief.code, 3, brief.stdout + brief.stderr);
   assert.equal(brief.stdout.trim(), "down · refused · 1 busy, 1 other project(s) · 1 unknown");

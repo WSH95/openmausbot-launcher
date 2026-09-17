@@ -10,7 +10,7 @@ import { openRuns } from "../runs.mjs";
 import { gitAvailable, gitTopLevel, gitPath } from "../git.mjs";
 import * as srv from "../server.mjs";
 import { scanOrphans } from "../proc.mjs";
-import { membership, foreignFolders, observeOthers, describeOthers, briefOthers, cap } from "../others.mjs";
+import { membership, foreignFolders, fleetOf, observeOthers, describeOthers, briefOthers, cap } from "../others.mjs";
 
 const num = (v, d) => (v === undefined ? d : Number(v));
 
@@ -23,7 +23,11 @@ const SHARED_OWNED = "the server also carries bots configured for other folders:
 
 async function sharedServer(client, cfg, environmentId) {
   let fleet;
-  try { fleet = await client.get("/api/bots?messages=0"); } catch { return { otherConfiguredFoldersKnown: false }; }
+  // A body that is not the documented shape, or that carries an entry this
+  // cannot read, leaves an incomplete list: that is unknown, never an empty
+  // server, and never an exception out of an observation.
+  try { fleet = fleetOf(await client.get("/api/bots?messages=0")); } catch { return { otherConfiguredFoldersKnown: false }; }
+  if (fleet.dropped) return { otherConfiguredFoldersKnown: false };
   const { ours } = membership(cfg.state, environmentId);
   const folders = foreignFolders(fleet, { projectDir: cfg.projectDir, ours });
   return { otherConfiguredFoldersKnown: true, otherConfiguredFolders: cap(folders), otherConfiguredFolderCount: folders.length };
