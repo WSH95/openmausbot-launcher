@@ -186,6 +186,37 @@ test("a connection and a credential card are named by the message they arrived o
   assert.equal(r.code, 2, r.stdout); assert.match(r.json.error, /is a credential request: use --provide, --resume or --dismiss/);
 });
 
+test("answer rejects credential-only flags on other modes and unknown credential targets before mutation", async (t) => {
+  const { f, dir } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const card = f.apply({ op: "secret", threadId: run.json.leadThreadId, target: "ttsKey" }).message;
+  const writes = [];
+  f.server.on("request", (req) => { if (req.method !== "GET" && !req.url.startsWith("/__fake")) writes.push(req.url); });
+  let r = await runOmb(["answer", "--dismiss", "--secret-stdin", "--request", card.id, "--project", dir], { env });
+  assert.equal(r.code, 2); assert.match(r.json.error, /--secret-stdin.*--provide/);
+  assert.deepEqual(writes, []);
+  for (const target of ["unknown", "constructor", "toString"]) {
+    card.secret.target = target;
+    r = await runOmb(["answer", "--provide", "--secret-stdin", "--request", card.id, "--project", dir], { env, stdin: "dummy-key\n" });
+    assert.equal(r.code, 5, r.stdout);
+    assert.deepEqual(writes, [], "only the explicit credential allowlist can select a config patch");
+  }
+});
+
+test("credential: empty sources refuse and dry-run does not read a held stdin", async (t) => {
+  const { f, dir } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const card = await f.control({ op: "secret", threadId: run.json.leadThreadId, target: "openaiImageApiKey" });
+  const args = ["answer", "--provide", "--request", card.message.id, "--project", dir];
+  const dry = await runOmb([...args, "--secret-stdin", "--dry-run"], { env, stdin: new Promise(() => {}), timeoutMs: 5000 });
+  assert.equal(dry.code, 0, dry.stdout);
+  for (const opts of [{ env: { ...env, OMB_SECRET: "" } }, { env, stdin: "\n" }]) {
+    const r = await runOmb([...args, ...(opts.stdin === undefined ? [] : ["--secret-stdin"])], opts);
+    assert.equal(r.code, 2); assert.match(r.json.error, /empty/);
+  }
+  assert.equal((await (await fetch(`${f.url}/api/config`)).json()).imageGen.configured, false);
+});
+
 test("credential: the value reaches the server through the environment or stdin and appears nowhere else", async (t) => {
   const { f, dir, lead } = await setup(t);
   const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });

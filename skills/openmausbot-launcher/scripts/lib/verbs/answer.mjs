@@ -103,6 +103,7 @@ verb("answer", {
     const bare = positionals.join(" ").trim();
     const modes = modesIn(flags);
     if (modes.length > 1) throw new Fail(EXIT.USAGE, `pass one of ${MODE_FLAGS}`);
+    if (flags["secret-stdin"] && !modes.includes("provide")) throw new Fail(EXIT.USAGE, "--secret-stdin belongs to answer --provide on a credential request");
     const task = runFor(cfg, flags);
     // Every run-scoped verb refuses to guess once a second run is open, so a
     // command this verb hands back has to carry the run it was selected for.
@@ -287,7 +288,7 @@ async function secret(client, cfg, target, mode, flags, runFlag = "") {
       brief: `answer · ${target.botName} · ${label} resumed`,
     };
   }
-  const patch = CREDENTIAL_PATCH[card.target];
+  const patch = Object.hasOwn(CREDENTIAL_PATCH, card.target) ? CREDENTIAL_PATCH[card.target] : null;
   if (!patch) throw new Fail(EXIT.NEEDS_USER, `the driver does not know where to store ${card.target}`, { hint: "provide it in OpenMausBot's app" });
   // Saving a Box token makes the server inventory the cloud computers that
   // account owns and refuse the whole write when it cannot (index.ts:11752-11790).
