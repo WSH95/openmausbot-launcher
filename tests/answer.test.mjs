@@ -349,6 +349,34 @@ test("credential: a provider key is not saved while any bot is working, because 
   assert.equal((await f.snapshot()).providerReloads, 1, "an idle fleet takes the reload the save causes");
 });
 
+test("credential: a config write that never answered is checked, not assumed to have failed", async (t) => {
+  const { f, dir } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const lt = run.json.leadThreadId;
+  const refused = await f.control({ op: "secret", threadId: lt, target: "ttsKey" });
+  await f.control({ op: "providerBusy", busy: true });
+  let r = await runOmb(["answer", "--provide", "--secret-stdin", "--request", refused.message.id, "--project", dir], { env, stdin: "eleven-labs-key\n" });
+  assert.equal(r.code, 3, r.stdout);
+  assert.equal(r.json.error, "provider settings are already being updated");
+  assert.match(r.json.hint, /was not saved and the card is untouched/, "a refusal before the write is exactly what it says");
+  await f.control({ op: "providerBusy", busy: false });
+  // The server persists the config before the reload that can outlast the
+  // request (S: server/index.ts:12015-12042), so a lost answer is not proof
+  // that nothing was written.
+  await f.control({ op: "configPutHangs", count: 1 });
+  r = await runOmb(["answer", "--provide", "--secret-stdin", "--request", refused.message.id, "--project", dir], { env, stdin: "eleven-labs-key\n" });
+  assert.equal(r.code, 0, `${r.stdout}${r.stderr}`);
+  assert.equal(r.json.saveOutcome, "verified", "the driver read the settings back rather than guessing");
+  assert.equal(r.json.provided, true); assert.equal(r.json.resumed, true);
+  assert.equal((await (await fetch(`${f.url}/api/config`)).json()).tts.configured, true);
+  const lost = await f.control({ op: "secret", threadId: lt, target: "openaiImageApiKey" });
+  await f.control({ op: "configPutFailsBeforeSaving", count: 1 });
+  r = await runOmb(["answer", "--provide", "--secret-stdin", "--request", lost.message.id, "--project", dir], { env, stdin: "openai-key\n" });
+  assert.equal(r.code, 3, r.stdout);
+  assert.match(r.json.error, /the OpenAI API key was not saved/);
+  assert.equal((await (await fetch(`${f.url}/api/config`)).json()).imageGen.configured, false);
+});
+
 test("OMB_SECRET never reaches a server this launcher starts", () => {
   assert.equal(STRIPPED_ENV.includes("OMB_SECRET"), true);
 });

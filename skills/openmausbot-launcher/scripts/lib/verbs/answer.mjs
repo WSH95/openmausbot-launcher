@@ -2,7 +2,7 @@
 // "Answering"). One request, one mode, one call.
 import fs from "node:fs";
 import { verb, EXIT, Fail, VERBS } from "../cli.mjs";
-import { createClient, refused } from "../http.mjs";
+import { createClient, refused, HttpError } from "../http.mjs";
 import { snapshot, BUSY } from "../snapshot.mjs";
 import { openRuns } from "../runs.mjs";
 import { stateCommand, requireSameEnvironment } from "../session.mjs";
@@ -60,6 +60,8 @@ const CREDENTIAL_PATCH = {
   ttsKey: (value) => ({ tts: { key: value } }),
   openaiImageApiKey: (value) => ({ imageGen: { key: value } }),
 };
+/** The section each target reports under in `configStatus()` (S: index.ts:7125-7157). */
+const CREDENTIAL_SECTION = { xaiApiKey: "xai", boxToken: "box", opencodeGoApiKey: "opencodeGo", ttsKey: "tts", openaiImageApiKey: "imageGen" };
 
 /**
  * The value, from the environment or from stdin — never from argv, where a
@@ -293,11 +295,31 @@ async function secret(client, cfg, target, mode, flags) {
   // The hint must not be a command the value could be pasted into: whatever
   // an agent composes lands in its own transcript.
   if (value === null) throw new Fail(EXIT.NEEDS_USER, `ask the user for the ${label}`, { hint: `have them write it to a file only they can read (umask 077) and run: omb answer --provide --secret-stdin --request ${target.messageId} < that-file — or have them export OMB_SECRET in their own shell with 'read -rs OMB_SECRET && export OMB_SECRET' and run it there. Never put the value in a command, in chat or in your notes${card.helpUrl ? `; it comes from ${card.helpUrl}` : ""}` });
-  try { await client.put("/api/config", patch(value)); }
-  catch (e) { throw refused(e, `the ${label} was not saved and the card is untouched`); }
+  // The write itself is durable before the provider reload the server runs
+  // after it, and that reload can outlast an ordinary request
+  // (index.ts:12015-12042), so this one call gets a longer budget and a lost
+  // answer is never read as "nothing was written".
+  let saveOutcome = "saved";
+  try { await client.put("/api/config", patch(value), { timeoutMs: 60_000 }); }
+  catch (e) {
+    // A 4xx is the server refusing before it wrote anything.
+    if (e instanceof HttpError && e.status >= 400 && e.status < 500) throw refused(e, `the ${label} was not saved and the card is untouched`);
+    const said = e.body?.error ?? e.message;
+    let status;
+    try { status = await client.get("/api/config"); }
+    catch {
+      throw new Fail(EXIT.PRECONDITION, `it is unknown whether the ${label} was saved: ${said}`, {
+        hint: `the server's settings could not be read back; omb answer --resume --request ${target.messageId} finishes the card if the value did land, and says so if it did not — do that before asking the user for it again`,
+      });
+    }
+    if (status?.[CREDENTIAL_SECTION[card.target]]?.configured !== true) {
+      throw new Fail(EXIT.PRECONDITION, `the ${label} was not saved: ${said}`, { status: e.status, hint: "the server's settings do not have it and the card is untouched; try again" });
+    }
+    saveOutcome = "verified";
+  }
   try {
     const res = await client.post(route("provided"), { threadId: target.threadId });
-    return { result: { ...base, provided: res.provided === true, resumed: res.resumed === true, woken: true }, brief: `answer · ${target.botName} · ${label} saved, the card resumed` };
+    return { result: { ...base, saveOutcome, provided: res.provided === true, resumed: res.resumed === true, woken: true }, brief: `answer · ${target.botName} · ${label} saved, the card resumed` };
   } catch (e) {
     throw new Fail(EXIT.PRECONDITION, `the ${label} was saved, the card was not resumed: ${e.body?.error ?? e.message}`, {
       status: e.status,

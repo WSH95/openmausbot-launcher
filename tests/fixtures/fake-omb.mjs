@@ -88,7 +88,7 @@ export async function createFake(opts = {}) {
     // Cards and the settings they touch. `config` holds configured-or-not
     // booleans only: this fake never stores a credential value anywhere.
     routines: [], routineRuns: [], skills: new Map(), accounts: new Map(), config: {}, wakes: [], providerReloads: 0,
-    providerBusy: false, phoneSaving: new Set(),
+    providerBusy: false, phoneSaving: new Set(), configPutHangs: 0, configPutFails: 0,
   };
   const sse = new Set();
   let lastSeq = 0;
@@ -741,6 +741,7 @@ export async function createFake(opts = {}) {
     const recorder = body.features?.skillRecorder;
     if (!saved.length && typeof recorder !== "boolean") return json(res, 400, { error: "nothing to save" }); // :11678
     if (state.providerBusy) return json(res, 409, { error: "provider settings are already being updated" }); // :11679
+    if (state.configPutFails > 0) { state.configPutFails--; res.destroy(); return; }
     // Only the fact that something was saved is kept: a fixture that stored
     // the value could leak it through /__fake/state or a test's assertion.
     for (const section of saved) state.config[section] = true;
@@ -755,6 +756,7 @@ export async function createFake(opts = {}) {
         bot.activity = "idle"; broadcast({ kind: "bot", bot: publicBot(bot) });
       }
     }
+    if (state.configPutHangs > 0) { state.configPutHangs--; res.dropped = true; }
     return json(res, 200, configStatus());
   }
 
@@ -910,6 +912,12 @@ export async function createFake(opts = {}) {
         throw Object.assign(new Error("no such credential request"), { status: 404 });
       }
       case "providerBusy": state.providerBusy = op.busy !== false; return; // S: index.ts:11679
+      // A config write whose answer is lost after the value was persisted, and
+      // one that dies before it. The config is durable before the provider
+      // reload that can outlast the request (S: index.ts:12015-12042), so the
+      // two are indistinguishable to the client and must not be guessed.
+      case "configPutHangs": state.configPutHangs = op.count ?? 1; return;
+      case "configPutFailsBeforeSaving": state.configPutFails = op.count ?? 1; return;
       case "phoneSaving": { // S: index.ts:12191-12195
         if (op.saving === false) state.phoneSaving.delete(op.messageId); else state.phoneSaving.add(op.messageId);
         return;
