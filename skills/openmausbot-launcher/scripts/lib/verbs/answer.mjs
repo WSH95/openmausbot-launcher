@@ -420,7 +420,7 @@ async function routine(client, cfg, target, behavior) {
   if (cfg.dryRun) return { result: { dryRun: true, ...base, routineAction: action } };
   let res;
   try { res = await client.post(`/api/threads/${target.threadId}/respond`, { requestId: target.requestId, behavior }); }
-  catch (e) { throw refused(e, "the card now carries held with this text; read it to the bot, or cancel the card and ask it to propose the action again"); }
+  catch (e) { throw refused(e, "read the card's held text if present; revalidation failures are recorded there, while ownership refusals need not be. Cancel the card and ask the bot to propose the action again"); }
   const outcome = res.outcome ?? "unknown";
   return {
     result: { ...base, outcome, ...(res.alreadySettled ? { alreadySettled: true } : {}), routineAction: res.routineAction ?? null, resultId: res.resultId ?? null },

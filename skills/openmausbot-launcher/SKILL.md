@@ -211,8 +211,9 @@ line. Relay the lead's own words; do not paraphrase decisions.
   does not: tell the bot in chat what you decided.
 - A routine proposal: read `pending[].title` and `subtitle` to the user, then
   `omb answer --confirm --request <id>` or `--cancel`. A refusal is the
-  server's own words about what changed under the card; the card keeps them
-  in `held`.
+  server's own words. Revalidation failures leave `held` text on the card;
+  ownership or payload-id refusals need not. Read `held` if present, then
+  cancel and ask for a fresh proposal when the refusal requires it.
 - A learned skill: read `pending[].skillRequest.preview` to the user — that is
   the whole skill — then `omb answer --allow --reviewed <sha256> --request
   <id>`, with the `sha256` from the same card. Anything else denies it, so

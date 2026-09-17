@@ -113,6 +113,18 @@ test("routine: a refused revalidation is reported in the server's words and leav
   assert.equal(r.code, 0, "a held card can still be cancelled"); assert.equal(r.json.outcome, "rejected");
 });
 
+test("routine: ownership refusals do not claim that held was written", async (t) => {
+  const { f, dir } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const card = f.apply({ op: "card", threadId: run.json.leadThreadId, kind: "routine" }).message.card;
+  card.routineRequest.requestId = "mismatched-payload";
+  const r = await runOmb(["answer", "--confirm", "--request", card.requestId, "--project", dir], { env });
+  assert.equal(r.code, 3); assert.equal(r.json.status, 400);
+  assert.equal(card.held, undefined);
+  assert.equal(r.json.hint.includes("now carries held"), false);
+  assert.match(r.json.hint, /held.*if present/);
+});
+
 test("skill: an allow carries the hash the user reviewed, and a hash that is not this card's never reaches the server", async (t) => {
   const { f, dir, lead } = await setup(t);
   const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
