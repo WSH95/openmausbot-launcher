@@ -8,6 +8,46 @@ Run the relevant checks before marking work as verified in `HANDOFF.md`.
 | Tests | `npm test` | all pass |
 | Lint | `none` | clean |
 
+## Codex loopback permission profile (2026-09-17)
+
+The final suite ran under the repository's opt-in, least-privilege profile:
+
+```sh
+codex sandbox -C <worktree> --permission-profile omb-loopback-dev -- \
+  env NO_PROXY=127.0.0.1,localhost,127.0.0.2 \
+      no_proxy=127.0.0.1,localhost,127.0.0.2 npm test
+```
+
+Result: **404 passed, 0 failed, 0 skipped** in 90.591 s. The focused profile
+and HTTP contract run passed 14/14; the final documentation and skill
+contract run passed 9/9. `git diff --check` was clean and `SKILL.md` was 349
+lines, below its 500-line limit.
+
+The consumer template also loaded from a clean temporary `CODEX_HOME` in
+Codex CLI 0.154.0. A sandboxed Node probe imported the real HTTP client,
+listened on and called an ephemeral `127.0.0.1` port, and confirmed that an
+unlisted public request was blocked. Its result was
+`{"local":true,"publicBlocked":true,"noProxy":"127.0.0.1,localhost"}`.
+This was infrastructure validation with no OpenMausBot server and no bot
+turns; `docs/evidence.md` records the commands and scope.
+
+The implementation was developed test-first: the initial focused tests saw
+the loopback environment remain unchanged and both permission profiles
+missing. The repaired tests passed before the full run. Independent review
+found two gaps: layered legacy sandbox settings could override a selected
+profile without a warning, and the first contract check rejected
+`writable_roots` instead of permission profiles' `workspace_roots`. The
+operator docs, evidence scope, risks, decision record, and contract tests now
+cover both. The re-review reported no remaining findings and marked the tree
+ready to merge.
+
+The Codex skill-creator `quick_validate.py` exits 1 on the existing
+`compatibility` frontmatter key because that validator accepts a narrower
+optional-key set. The key predates this change at `c156e59`, is part of this
+cross-host skill's Agentskills metadata, and the repository's own frontmatter
+tests pass in the 404-test suite. It was preserved rather than changing the
+skill's compatibility declaration to satisfy one host-specific validator.
+
 ## Watch rescue follow-up (2026-09-16)
 
 Final source on `main` after `0492520`/`9b9fbe8`:

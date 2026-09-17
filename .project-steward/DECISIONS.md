@@ -315,3 +315,28 @@ restriction": inside the sandbox the launcher's network verbs need escalation
 (`danger-full-access`) or `--remote` to a reachable URL, and the docs say so.
 `--approve-for-me` implies workspace-write and cannot be combined with
 `--sandbox`.
+
+## 0017 — 2026-09-17 — Ship an opt-in Codex loopback profile, not a broad sandbox exception
+
+The default Codex workspace-write sandbox blocks both halves of local
+launcher operation: OpenMausBot cannot listen and the driver cannot connect.
+Granting `danger-full-access` for every command is wider than the launcher
+needs, while starting the server outside the sandbox fixes only the listener.
+
+The installable skill therefore carries
+`assets/codex/omb-loopback.config.toml` as a separate profile. It extends
+`:workspace`, enables Codex's network proxy, and allows only the literal
+hosts `127.0.0.1` and `localhost`. The skill never installs or selects the
+profile; the user copies and selects it on each machine, and can remove it
+without changing the skill. A legacy `sandbox_mode` or
+`[sandbox_workspace_write]` in any loaded config layer overrides the profile;
+the user migrates only configuration they control. A managed Codex policy may
+still reject it.
+
+Codex's proxy can replace Node's inherited proxy bypass. For loopback clients,
+the HTTP boundary now merges those two hosts with both existing `NO_PROXY`
+spellings, deduplicates them case-insensitively, and writes the same list to
+both variables before the first request. Remote clients do not change either
+variable. The repository-only `omb-loopback-dev` profile adds `127.0.0.2`
+for the fake proxy-host test; that address and profile are not shipped as
+consumer permissions. This follow-up is bead `oml-9mc` and uses no bot turns.

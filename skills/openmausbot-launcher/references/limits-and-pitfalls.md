@@ -89,9 +89,11 @@ than none: the hook fires in a degenerate state (dev pack `HANDOFF.md`,
   `docs/evidence.md`, 2026-09-08; review fixture
   `codex-ww-data-20260908T110446-DLKtHf/serve.log`, 25 lines). `up` scans the
   whole log for that signature and names the first matching line in its hint;
-  the 12-line `log` field is display only. Run `up` outside the sandbox with an
-  approved escalation, or start the server elsewhere and let `up` report
-  `attached`. The same sandbox can block outbound loopback connections; the
+  the 12-line `log` field is display only. This is the default sandbox mode's
+  behaviour, not a requirement to grant full access: the skill ships an
+  opt-in `assets/codex/omb-loopback.config.toml` profile that extends
+  `:workspace` and permits only `127.0.0.1` and `localhost`. The same default
+  sandbox can block outbound loopback connections; the
   driver then exits 1 `cannot reach http://127.0.0.1:<port>: EPERM` with the
   escalation hint, never exit 3 "identity could not be verified". `doctor
   --server` names the same cause in its `health` check and carries that hint,
@@ -103,10 +105,15 @@ than none: the hook fires in a degenerate state (dev pack `HANDOFF.md`,
   `codex exec --approve-for-me` (v0.154.0, `sandbox: workspace-write [workdir,
   /tmp, $TMPDIR]`) ran `watch --run <slug> --max-seconds 570 --verbose` against
   a live run and the driver exited after 47 ms with that same EPERM and hint,
-  so long SSE inside the sandbox needs `danger-full-access` or `--remote`
-  against a reachable URL. `--approve-for-me` is not a way around it: it routes
+  so long SSE under that default needs the bundled loopback profile, a scoped
+  escalation, or a reachable remote endpoint. `--approve-for-me` is not a way
+  around it: it routes
   approvals through automatic review using the workspace-write sandbox, and
-  Codex refuses `--sandbox` alongside it.
+  Codex refuses `--sandbox` alongside it. With the network proxy active,
+  Codex also replaces Node's inherited proxy bypass; the driver merges the
+  two exact local hosts into both `NO_PROXY` spellings before its first local
+  fetch and does not alter proxy routing for a remote URL. The profile must be
+  copied and selected by the user; a skill file cannot authorize itself.
 - The record step (`bd`, `git commit`) runs inside the lead's CLI sandbox. A
   failure there leaves the root dirty, and the next task's `reconcile`
   is what reports it.

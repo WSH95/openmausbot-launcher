@@ -39,7 +39,8 @@ define launcher acceptance. The design is [docs/design.md](docs/design.md).
 ## Layout
 
 - `skills/openmausbot-launcher/`: the installable unit (`SKILL.md`,
-  `scripts/omb.mjs` and its `lib/`, `references/`, `agents/openai.yaml`).
+  `scripts/omb.mjs` and its `lib/`, `references/`, `assets/`,
+  `agents/openai.yaml`).
 - `tests/`: `node:test` suites against `tests/fixtures/fake-omb.mjs`, an
   in-memory OpenMausBot that encodes the 0.1.56 HTTP contract.
 
@@ -51,6 +52,18 @@ npm test
 
 No dependencies; Node 24 or later.
 
+Inside Codex, the repository's `.codex/config.toml` defines the maintainer-only
+`omb-loopback-dev` permission profile. It includes `127.0.0.2` solely because
+`tests/pair.test.mjs` uses that address to model a proxied caller; the profile
+shipped to Skill users does not. Run the suite directly under that profile
+with the proxy bypass set inside the sandboxed command:
+
+```sh
+codex sandbox -C "$PWD" --permission-profile omb-loopback-dev -- \
+  env NO_PROXY=127.0.0.1,localhost,127.0.0.2 \
+      no_proxy=127.0.0.1,localhost,127.0.0.2 npm test
+```
+
 ## Install the skill
 
 ```
@@ -59,3 +72,7 @@ ln -s "$PWD/skills/openmausbot-launcher" ~/.agents/skills/openmausbot-launcher  
 ```
 
 `skills/openmausbot-launcher/references/hosts.md` has the per-host notes.
+Codex users can opt into the bundled least-privilege loopback profile at
+`skills/openmausbot-launcher/assets/codex/omb-loopback.config.toml`; the host
+notes explain how to install, select, verify, and remove it. The skill never
+changes a user's Codex configuration itself.

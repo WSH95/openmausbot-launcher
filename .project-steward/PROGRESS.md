@@ -3,6 +3,26 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-17 — portable Codex loopback profile (code and host probe, no bot turns)
+The installed skill now includes an opt-in Codex permission profile that
+extends `:workspace` and allows only `127.0.0.1` and `localhost`; it never
+edits or selects user configuration. The repository has a separate,
+non-default maintainer profile whose only extra host is `127.0.0.2` for the
+fake proxy scenario. The HTTP client preserves the caller's two proxy-bypass
+variables, deduplicates them case-insensitively, adds the two consumer hosts
+only for loopback URLs, and leaves remote clients unchanged. Host instructions
+cover install, selection, legacy sandbox precedence, smoke checks, rollback,
+managed-policy failure, and scoped fallbacks.
+
+Codex CLI 0.154.0 loaded the consumer template from a clean temporary home;
+the real HTTP client listened and connected locally while an unlisted public
+request remained blocked. The final profile-backed suite passed 404/404 in
+90.591 s, the focused contracts passed 14/14, the diff check was clean, and
+the skill remained 349 lines. Independent review's two findings (legacy
+sandbox precedence and the `workspace_roots` contract) were fixed; re-review
+reported no remaining findings and `Ready to merge: Yes`. Bead `oml-9mc`.
+No OpenMausBot server, bot turn, user configuration mutation, or push.
+
 ### 2026-09-17 — v2 pass, phase 7: the real-server session (34 bot turns, 3 native sessions)
 Real OpenMausBot 0.1.56 on the slugkit clone with the user's roster: the
 three request kinds the driver can settle without Composio were exercised

@@ -8,6 +8,14 @@ import { ROOT, OMB, SKILL_DIR } from "./helpers.mjs";
 const WORDS = { ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20 };
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), "utf8");
 
+function tomlTable(source, name) {
+  const lines = source.split("\n");
+  const start = lines.indexOf(`[${name}]`);
+  assert.ok(start >= 0, `missing TOML table [${name}]`);
+  const end = lines.findIndex((line, index) => index > start && /^\[.+\]$/.test(line));
+  return lines.slice(start + 1, end < 0 ? undefined : end).join("\n");
+}
+
 function registeredVerbs() {
   const r = spawnSync(process.execPath, [OMB], { encoding: "utf8" });
   assert.equal(r.status, 2, "no verb is a usage error");
@@ -59,4 +67,39 @@ test("the operator skill explains an unverified watch result and how to retry it
   assert.match(skill, /exit 4/);
   assert.match(skill, /call\s+`watch` again/);
   assert.ok(skill.split("\n").length < 500);
+});
+
+test("the Codex profile grants network access only to exact launcher loopback hosts", () => {
+  const profile = read("skills/openmausbot-launcher/assets/codex/omb-loopback.config.toml");
+  assert.match(profile, /^default_permissions = "omb-loopback"$/m);
+  assert.match(profile, /^network_proxy = true$/m);
+  assert.match(profile, /^extends = ":workspace"$/m);
+  assert.match(profile, /^enabled = true$/m);
+  assert.doesNotMatch(profile, /sandbox_mode|\[sandbox_workspace_write\]/);
+  assert.doesNotMatch(profile, /permissions\.omb-loopback\.(?:workspace_roots|filesystem)/);
+  assert.doesNotMatch(profile, /allow_local_binding|dangerously_|127\.0\.0\.2/);
+
+  const domains = [...tomlTable(profile, "permissions.omb-loopback.network.domains").matchAll(/^"([^"]+)" = "allow"$/gm)].map((match) => match[1]).sort();
+  assert.deepEqual(domains, ["127.0.0.1", "localhost"]);
+});
+
+test("the repository Codex profile keeps the fake proxy address maintainer-only", () => {
+  const profile = read(".codex/config.toml");
+  assert.match(profile, /^network_proxy = true$/m);
+  assert.doesNotMatch(profile, /^default_permissions\s*=/m, "ordinary repository sessions keep Codex's default permissions");
+  assert.match(profile, /^\[permissions\.omb-loopback-dev\]$/m);
+  assert.match(profile, /^extends = ":workspace"$/m);
+  assert.match(tomlTable(profile, "permissions.omb-loopback-dev.network"), /^enabled = true$/m);
+  assert.doesNotMatch(profile, /sandbox_mode|\[sandbox_workspace_write\]/);
+  assert.doesNotMatch(profile, /permissions\.omb-loopback-dev\.(?:workspace_roots|filesystem)/);
+  assert.doesNotMatch(profile, /allow_local_binding|dangerously_/);
+  const domains = [...tomlTable(profile, "permissions.omb-loopback-dev.network.domains").matchAll(/^"([^"]+)" = "allow"$/gm)].map((match) => match[1]).sort();
+  assert.deepEqual(domains, ["127.0.0.1", "127.0.0.2", "localhost"]);
+});
+
+test("the Codex instructions warn that legacy sandbox settings override permission profiles", () => {
+  const hosts = read("skills/openmausbot-launcher/references/hosts.md");
+  assert.match(hosts, /sandbox_mode/);
+  assert.match(hosts, /sandbox_workspace_write/);
+  assert.match(hosts, /ignores?\s+`default_permissions`/);
 });

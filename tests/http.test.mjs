@@ -4,6 +4,44 @@ import { startFake, freePort } from "./helpers.mjs";
 import { createClient, HttpError, precondition, refused } from "../skills/openmausbot-launcher/scripts/lib/http.mjs";
 import { Fail } from "../skills/openmausbot-launcher/scripts/lib/cli.mjs";
 
+function restoreEnv(name, value) {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
+
+test("a loopback client preserves proxy exclusions and adds only the launcher hosts", (t) => {
+  const beforeUpper = process.env.NO_PROXY;
+  const beforeLower = process.env.no_proxy;
+  t.after(() => {
+    restoreEnv("NO_PROXY", beforeUpper);
+    restoreEnv("no_proxy", beforeLower);
+  });
+
+  process.env.NO_PROXY = "corp.example, LOCALHOST";
+  process.env.no_proxy = "metadata.internal,CORP.EXAMPLE";
+  createClient({ url: "http://127.0.0.1:8799" });
+
+  const expected = "corp.example,LOCALHOST,metadata.internal,127.0.0.1";
+  assert.equal(process.env.NO_PROXY, expected);
+  assert.equal(process.env.no_proxy, expected);
+});
+
+test("a remote client leaves proxy exclusions unchanged", (t) => {
+  const beforeUpper = process.env.NO_PROXY;
+  const beforeLower = process.env.no_proxy;
+  t.after(() => {
+    restoreEnv("NO_PROXY", beforeUpper);
+    restoreEnv("no_proxy", beforeLower);
+  });
+
+  process.env.NO_PROXY = "corp.example";
+  delete process.env.no_proxy;
+  createClient({ url: "https://maus.example.com" });
+
+  assert.equal(process.env.NO_PROXY, "corp.example");
+  assert.equal(process.env.no_proxy, undefined);
+});
+
 test("get, bearer, errors, dry run, timeout, insecure refusal", async (t) => {
   const f = await startFake(); t.after(() => f.close());
   const c = createClient({ url: f.url });

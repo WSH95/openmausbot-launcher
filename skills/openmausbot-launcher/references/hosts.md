@@ -11,7 +11,7 @@ the hosts' own documentation and are marked so.
 |---|---|---|---|
 | Claude Code 2.1.263 | `ln -s <repo>/skills/openmausbot-launcher ~/.claude/skills/openmausbot-launcher` (or `.claude/skills/` in a project) | Bash: `${CLAUDE_SKILL_DIR}/scripts/omb.mjs <verb> …` — the host substitutes the path into the skill text at load time and the shell variable itself is unset, so use the path as it appears in the loaded skill; a permission prompt shows the script path | doctor, server doctor, status, send and reply verified 2026-09-08; trigger phrase "run T10 through the team", the substituted skill path, and the 100 s foreground plus 570 s background watches verified 2026-09-08 (M1 review) |
 | Grok Build 1.0.13 | none: it reads `~/.claude/skills` and `.claude/skills` | bash tool, same path | doctor, server doctor, status, send and reply verified 2026-09-08; started the real server detached and it outlived the Grok process (survival spike, M1 review) |
-| Codex CLI 0.153.4 | `ln -s <repo>/skills/openmausbot-launcher ~/.agents/skills/openmausbot-launcher` (also read: `~/.codex/skills`, a project's `.agents/skills`); `agents/openai.yaml` makes it `$openmausbot-launcher` | shell; under `workspace-write` every loopback call and `up` need escalation, see "Codex sandbox" | doctor, server doctor, status, send and reply verified 2026-09-08 with escalation; skill listing (`read-only`), state file writable (`workspace-write`), and the real-server survival spike (`danger-full-access`) verified 2026-09-08 (M1 review) |
+| Codex CLI 0.154.0 | `ln -s <repo>/skills/openmausbot-launcher ~/.agents/skills/openmausbot-launcher` (also read: `~/.codex/skills`, a project's `.agents/skills`); `agents/openai.yaml` makes it `$openmausbot-launcher`; install the opt-in profile below for loopback | shell; start Codex with `--profile omb-loopback`; default `workspace-write` still needs escalation for every loopback call and for `up` | the least-privilege profile loaded and allowed a local listener/client while blocking a public request on 2026-09-17; doctor, server doctor, status, send and reply were previously verified against real OMB with escalation |
 | DeepSeek Harness (dsh) 0.1.5-rc.1 | `~/.agents/skills/openmausbot-launcher`; discovery is not recursive (the tier numbers third-party posts quote are unverified) | shell, the script path directly; **add `--remote --url http://127.0.0.1:<port>` to every live verb** | doctor, server doctor, send and reply verified 2026-09-16; dsh runs its shell in its own PID namespace, so local identity checks fail and `status` exits 3 until `--remote` |
 | OpenClaw 2026.9.4 | `~/.agents/skills/openmausbot-launcher` (read in the default state) or `openclaw skills install <repo>/skills/openmausbot-launcher`; keep `tools.exec.mode` at `ask` or `auto`, never `allowlist`; the token for a chat channel goes in a 0600 file named by `channels.telegram.tokenFile` | the agent's shell under the bundled Codex harness; **every command raises one approval card**, resolved with `openclaw approvals resolve <id> allow-once` | doctor, server doctor, status, send and reply verified 2026-09-16 through that escalation; the Telegram phone path and automations verified the same day |
 | Hermes Agent (`pyproject` 0.21.3) | add `~/.agents/skills` to `skills.external_dirs` in `~/.hermes/config.yaml` (the documented default scan did not find the skill), or copy into `~/.hermes/skills/openmausbot-launcher`; project installs need `hermes skills trust` | terminal tool, the script path directly; no sandbox | doctor, server doctor, status, send and reply verified 2026-09-16; the cron adapter verified the same day |
@@ -37,15 +37,15 @@ quiet window before it can declare a run settled, so never go below
 |---|---|---|
 | Claude Code | Bash 120 s by default, up to 600 s with `timeout`; `run_in_background` for longer | `--max-seconds 100`, or `--max-seconds 570` in the background with a 600 s timeout |
 | Grok Build | similar to Claude Code | `--max-seconds 100` |
-| Codex CLI | the exec timeout of the sandbox | `--max-seconds 100`, and only outside the sandbox: inside `workspace-write` the watch cannot open the connection at all (2026-09-17) |
+| Codex CLI | the exec timeout of the sandbox | `--max-seconds 100` under the `omb-loopback` profile or an approved escalation; default `workspace-write` cannot open the connection (2026-09-17) |
 | OpenClaw | `exec` yields after 10 s and keeps the process running in the background; the process timeout still applies | `--max-seconds 1500` in the background, read the result through the process tool; or automations. On 2026-09-17 an OpenClaw agent ran `watch --run t14 --max-seconds 40 --brief` against a live run and read the approval line back (run `614776d8-418a-457e-9b62-55b128102520`, 45.3 s, one approval card resolved `allow-once`); the 10 s yield itself is still unobserved |
 | Hermes | cron jobs run a script to completion (verified 2026-09-16); the terminal tool takes a per-call timeout, over `terminal.timeout` (180 s) and `terminal.lifetime_seconds` (300 s) in `config.yaml` | `--max-seconds 240` from the cron adapter; raise the two config values before a longer watch. On 2026-09-17 `hermes -z` ran `watch --run t14 --max-seconds 40 --brief` against a live run through the terminal tool and read the approval line back (session `20260917_013542_298e4e`, 34 s, its tool recorded the driver's exit 5) |
 | DSH | not measured | `--max-seconds 100` |
 
-## Codex sandbox (verified 2026-09-08 and 2026-09-17 against real OpenMausBot 0.1.56)
+## Codex sandbox and the loopback profile
 
-Inside `--sandbox workspace-write` (Codex CLI 0.153.4, and 0.154.0 on
-2026-09-17):
+Inside the default `--sandbox workspace-write` (Codex CLI 0.153.4, and
+0.154.0 on 2026-09-17):
 
 - Listening sockets are denied: `up` exits 1 with `the server exited during
   startup`, the log shows `listen EPERM: operation not permitted`, and the
@@ -67,17 +67,90 @@ Inside `--sandbox workspace-write` (Codex CLI 0.153.4, and 0.154.0 on
   ("the argument '--sandbox <SANDBOX_MODE>' cannot be used with
   '--approve-for-me'") and it leaves the same sandbox in place.
 
-Two ways out:
+### Preferred least-privilege profile
 
-1. Run the network commands (`up`, `doctor --server`, `status`, `send`,
-   `watch`, …) through the host's escalation path. The detached-survival
-   spike against the real server passed from Codex under
-   `danger-full-access` (the server outlived the Codex process and `down`
-   stopped it from another shell) and from Grok Build; the native M1 check's
-   `doctor --server`, `status`, `send` and reply observation passed the same
-   way.
-2. Start the server elsewhere (a terminal, a `systemd --user` unit) and run
-   `up` to attach; `down` then refuses, stop it where you started it.
+The installable skill includes
+`assets/codex/omb-loopback.config.toml`. It extends Codex's `:workspace`
+profile, enables the network proxy, and allowlists only the exact literals
+`127.0.0.1` and `localhost`. It does not set `allow_local_binding`, allow a
+wildcard, or allow any public host. These choices follow Codex's
+[permission-profile guidance](https://learn.chatgpt.com/docs/permissions).
+The skill cannot grant this permission to itself and never edits
+`$CODEX_HOME`.
+
+For Codex CLI, copy the profile once on each machine and select it for the
+session:
+
+```sh
+mkdir -p "${CODEX_HOME:-$HOME/.codex}"
+cp <skill-dir>/assets/codex/omb-loopback.config.toml \
+  "${CODEX_HOME:-$HOME/.codex}/omb-loopback.config.toml"
+codex --profile omb-loopback -C <project>
+```
+
+Codex loads a separate `$CODEX_HOME/<name>.config.toml` only when the CLI is
+started with `--profile <name>`; this is the documented
+[separate-profile mechanism](https://learn.chatgpt.com/docs/config-file/config-sample).
+Permission profiles do not compose with legacy sandbox settings. If any
+loaded config layer contains `sandbox_mode`, contains
+`[sandbox_workspace_write]`, or the command passes `--sandbox`, Codex ignores
+`default_permissions` and uses the legacy sandbox instead. Check the user,
+project, selected-profile, and managed configuration on each machine. Remove
+or migrate legacy keys only from configuration you control; if policy owns
+them, use the scoped escalation or remote fallback. Managed
+`allowed_permission_profiles` is the documented exception that selects the
+profile system, although administrators are still told to remove legacy
+settings. This precedence is part of the same official permission-profile
+guidance linked above.
+
+For Codex Desktop, merge the template's `[features]` and
+`[permissions.omb-loopback]` tables into the active
+`$CODEX_HOME/config.toml` without replacing unrelated settings. Then select
+`omb-loopback` in the permissions control if the installed build exposes it;
+otherwise add `default_permissions = "omb-loopback"` before starting the
+task. Keep a copy of the prior setting so it can be restored.
+
+Codex's proxy sets Node's environment-proxy mode and can replace an inherited
+proxy bypass list. Before its first local request, this driver merges
+`127.0.0.1` and `localhost` with the existing `NO_PROXY` and `no_proxy`
+entries, writes the same deduplicated list to both names, and leaves remote
+URLs on the proxy. No command prefix is required.
+
+Use Codex's own sandbox runner for a profile-only smoke check. The first
+command must print `200`; the second must print `blocked`:
+
+```sh
+codex sandbox --profile omb-loopback --permission-profile omb-loopback -- \
+  node -e 'const h=require("node:http");const s=h.createServer((q,r)=>r.end("ok"));s.listen(0,"127.0.0.1",()=>h.get("http://127.0.0.1:"+s.address().port,r=>{console.log(r.statusCode);r.resume();r.on("end",()=>s.close())}))'
+codex sandbox --profile omb-loopback --permission-profile omb-loopback -- \
+  node -e 'fetch("https://example.com").then(()=>process.exit(1),()=>console.log("blocked"))'
+```
+
+Then run `up` and `doctor --server` from a Codex session started with the
+profile. An `EPERM` means the session did not load the profile, the installed
+Codex version does not support it, legacy sandbox settings overrode it, or
+managed policy refused it. Organization requirements can restrict which
+permission profiles are selectable.
+
+To roll back a CLI-only installation, stop using `--profile omb-loopback` and
+remove only `$CODEX_HOME/omb-loopback.config.toml`. For a Desktop merge,
+restore the previous `default_permissions` and remove only the
+`permissions.omb-loopback` tables and the `network_proxy` value if nothing
+else uses it.
+
+When the profile is unavailable, run live launcher commands (`up`, `doctor
+--server`, `status`, `send`, `watch`, and the rest) through the host's scoped
+escalation path. The detached-survival spike against real OpenMausBot passed
+under `danger-full-access`, and the native M1 command sequence passed through
+the same escalation. Starting the server in a terminal or user service avoids
+the listening restriction but not the client's blocked connection; the
+client still needs the profile, escalation, or a reachable remote endpoint
+from an environment whose network policy allows it.
+
+Repository maintainers have a separate `omb-loopback-dev` profile in the
+root `.codex/config.toml`. Its extra `127.0.0.2` rule exists only for the fake
+proxy-host scenario in `tests/pair.test.mjs`; that profile and address are not
+part of the installable skill.
 
 All three native hosts executed the formal doctor/status/send sequence in
 a fresh temporary project on real OpenMausBot 0.1.56. The operator supplied
@@ -95,10 +168,10 @@ Grok used its auto permission mode. These are the tested configurations.
 The M1 review's tier 2 (2026-09-08, `docs/evidence.md`) added the
 real-server survival spike from Grok and Codex, the Codex skill listing and
 state-file writability checks, and the Claude trigger phrase; its tier 3
-ran the 100 s foreground and 570 s background watches. Long Codex SSE
-watches inside the sandbox are not unverified any more: they are blocked
-before the first frame (2026-09-17, above), so they need the escalation path
-or `--remote`.
+ran the 100 s foreground and 570 s background watches. Long Codex SSE watches
+under the default profile are not unverified any more: they are blocked before
+the first frame (2026-09-17, above), so they need the `omb-loopback` profile,
+the escalation path, or a reachable remote endpoint.
 
 ## OpenClaw, Hermes and dsh (verified 2026-09-16 against real OpenMausBot 0.1.56)
 

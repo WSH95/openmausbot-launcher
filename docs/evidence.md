@@ -1876,3 +1876,34 @@ real question card, since none appeared; a provider-key credential
 server; `watch --nudge`; a third open run; a host `watch` longer than 40 s, and
 any `watch` from dsh; long SSE from a Codex sandbox, which this run showed is
 unreachable there without escalation rather than merely untested.
+
+## 2026-09-17 — Codex least-privilege loopback profile (0 bot turns)
+
+This was a host-permission check, not an OpenMausBot run. Codex CLI 0.154.0
+loaded the shipped `assets/codex/omb-loopback.config.toml` from a temporary
+`CODEX_HOME` as the config profile `omb-loopback` and applied its named
+permission profile through `codex sandbox`. The parser/runtime check was:
+
+```sh
+CODEX_HOME=<temporary-dir> codex sandbox \
+  --profile omb-loopback --permission-profile omb-loopback -- /usr/bin/true
+```
+
+It exited 0. A second sandbox command ran a Node probe that imported the
+launcher's real `createClient`, listened on an ephemeral `127.0.0.1` port,
+called that server, and then attempted `https://example.com`. It exited 0 and
+printed:
+
+```json
+{"local":true,"publicBlocked":true,"noProxy":"127.0.0.1,localhost"}
+```
+
+The same profile therefore permits the local listen/connect pair the launcher
+needs while the network proxy continues to block an unlisted public host. The
+driver supplied only the two exact proxy-bypass entries. No real
+OpenMausBot server was started, no team was imported, and no bot turn was
+spent. The earlier default-`workspace-write` negative and real-server
+escalation evidence remain valid; this is an additional opt-in path, not a
+rewrite of those runs. The probe used a clean temporary `CODEX_HOME`; it did
+not test a layered installation that still contains legacy `sandbox_mode` or
+`[sandbox_workspace_write]` settings, which override permission profiles.

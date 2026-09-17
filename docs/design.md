@@ -89,10 +89,11 @@ devpack, so the installed unit carries no steward or beads files.
 ```
 openmausbot-launcher/
 ├── skills/openmausbot-launcher/         # the installable unit (npx skills add discovers skills/)
-│   ├── SKILL.md                         # ~220 lines: operator model, loop, rules, verbs, hosts
+│   ├── SKILL.md                         # under 500 lines: operator model, loop, rules, verbs, hosts
 │   ├── scripts/omb.mjs                  # entry point, #!/usr/bin/env node, chmod +x
 │   ├── scripts/lib/{cli,config,git,http,proc,report,server,session,snapshot,state,team,watch}.mjs
 │   ├── scripts/lib/verbs/{lifecycle,repo,run,report,state,team}.mjs   # verb handlers, one file per group
+│   ├── assets/codex/omb-loopback.config.toml  # opt-in least-privilege Codex profile
 │   ├── agents/openai.yaml               # Codex interface metadata ($openmausbot-launcher)
 │   └── references/
 │       ├── api.md                       # routes, shapes, 409 texts, SSE frames (0.1.56, source lines)
@@ -129,6 +130,11 @@ state > `OMB_DATA_DIR` > `~/.openmausbot`; binary `OMB_BIN` (path to
 `<project>/.omb/state.json` (the project directory stays the project's
 whatever the state path). Non-loopback URLs must be `https` unless
 `--allow-insecure-http`. Global flags: `--brief`, `--dry-run`, `--verbose`.
+For a loopback client, the HTTP boundary merges the caller's `NO_PROXY` and
+`no_proxy` entries with `127.0.0.1` and `localhost`, deduplicates them, and
+writes the same value to both names before the first request. This lets Node's
+`fetch` bypass Codex's injected proxy only for the local server; a remote URL
+does not change either variable and remains subject to its proxy policy.
 
 **Modes.** `--remote` or a non-loopback URL selects remote operation;
 loopback defaults to local. Missing data does not change modes: `doctor`
@@ -709,7 +715,7 @@ task through my OpenMausBot team and relay its questions to me."`,
 |---|---|---|---|---|
 | Claude Code | `ln -s <repo>/skills/openmausbot-launcher ~/.claude/skills/openmausbot-launcher` | Bash, `${CLAUDE_SKILL_DIR}/scripts/omb.mjs` | `--max-seconds 100` (120 s default), or 570 in background with a 600 s timeout | command checks verified; see evidence for watch coverage |
 | Grok Build | reads `~/.claude/skills`, nothing more | bash tool | 100 | command checks verified |
-| Codex | `ln -s … ~/.agents/skills/openmausbot-launcher` (also `~/.codex/skills`); `$openmausbot-launcher` | shell under sandbox; loopback HTTP and `up` need escalation | 100, outside the sandbox | command checks verified with escalation; long SSE settled 2026-09-17: inside `workspace-write` the watch exits in 47 ms with `cannot reach <url>: EPERM`, so it needs `danger-full-access` or `--remote` (`--approve-for-me` selects that same sandbox and refuses `--sandbox`) |
+| Codex | `ln -s … ~/.agents/skills/openmausbot-launcher` (also `~/.codex/skills`); `$openmausbot-launcher`; copy `assets/codex/omb-loopback.config.toml` to `$CODEX_HOME/omb-loopback.config.toml` | `codex --profile omb-loopback`; default `workspace-write` still blocks loopback and `up` | 100 under the profile or scoped escalation | profile parser plus local listen/connect and public-block probes verified on 0.154.0; real OMB command checks previously verified with escalation; default-profile long SSE exits in 47 ms with `EPERM` |
 | DSH 0.1.5-rc.1 | `~/.agents/skills` (non-recursive; the tier numbers are unverified) | shell, script path; `--remote --url http://127.0.0.1:<port>` for live verbs | 100, shell limit not measured | command checks verified 2026-09-16; its PID namespace defeats the local identity check |
 | OpenClaw 2026.9.4 | `~/.agents/skills` (default state only) or `openclaw skills install <path>`; keep `tools.exec.mode` at `ask`, never `allowlist`; an allowlist entry matches a command path, not every form the agent types | the agent's shell under the bundled Codex harness; one approval card per command, `approvals resolve <id> allow-once` | 1500 in background, or automations | command checks, the Telegram path and automations verified 2026-09-16; the 10 s exec yield is not |
 | Hermes Agent | `skills.external_dirs: [~/.agents/skills]` is required (the default scan missed it) or a `~/.hermes/skills/` copy; `hermes skills trust` for project installs | terminal tool, script path, no sandbox | 240 in cron via the `.sh` adapter; the terminal tool's own `timeout`/`lifetime_seconds` are 180 and 300 | command checks and the cron adapter verified 2026-09-16 |
@@ -718,6 +724,13 @@ task through my OpenMausBot team and relay its questions to me."`,
 it knows (symlinks by default); Hermes and OpenClaw still need the one
 config line or their own installer, and discovery is verified per host, not
 assumed.
+
+The repository's own `.codex/config.toml` defines `omb-loopback-dev`, a
+maintainer-only permission profile with one additional address:
+`127.0.0.2`, used by `tests/pair.test.mjs` to model a proxied caller. The
+test command must also set both `NO_PROXY` spellings to
+`127.0.0.1,localhost,127.0.0.2` inside the sandbox. Neither the extra address
+nor the development profile is installed with the Skill.
 
 **Phone mode, same machine (OpenClaw).** Telegram → gateway → the agent's
 shell → loopback OMB; verified end to end 2026-09-16, from a DM to the
@@ -872,8 +885,9 @@ prerequisite for demonstrating that the launcher performs those operations.
 
 Host checks: Claude Code (symlink, triggers on "run T10 through the team",
 `${CLAUDE_SKILL_DIR}` resolves, 100 s and background 570 s watches); Codex
-(`$openmausbot-launcher` listed, loopback HTTP and `up` under the sandbox or
-with escalation, state file writable); Grok (discovered through
+(`$openmausbot-launcher` listed, default-profile loopback failure, state file
+writable, scoped escalation against real OMB, and the opt-in profile's local
+listen/connect plus public-network denial); Grok (discovered through
 `~/.claude/skills`, one `status` and one `send`). All five were evidenced on
 2026-09-08 (`docs/evidence.md`, "M1 review, tier 2" and "tier 3");
 `${CLAUDE_SKILL_DIR}` is substituted into the skill text at load time and is
@@ -928,14 +942,24 @@ hold the record; the devpack gate `atw-07l.27` is met. The suite grew from
 
 ## Risks and unknowns
 
-1. Codex sandbox: `workspace-write` denies listening sockets and loopback
-   HTTP. Evidenced on real OpenMausBot 0.1.56 (M1 review, tier 2): `up`
+1. Codex sandbox: the default `workspace-write` sandbox mode denies listening
+   sockets and loopback HTTP. Evidenced on real OpenMausBot 0.1.56 (M1
+   review, tier 2): `up`
    exits 1 with `listen EPERM` in the log and names the sandbox in its hint
    (finding 24); `status` exits 1 with a network error naming the URL, where
-   before finding 26 it exited 3 with a misleading identity error. The same
-   commands pass under `danger-full-access` or against a user-started server
-   that `up` attaches to. Long SSE inside the sandbox is settled as of
-   2026-09-17 and the answer is that it is unreachable: `codex exec
+   before finding 26 it exited 3 with a misleading identity error. The
+   installable skill now carries an opt-in `omb-loopback` profile that
+   extends `:workspace`, enables the network proxy, and allowlists only
+   `127.0.0.1` and `localhost`; its local listen/connect and public denial
+   were verified with Codex 0.154.0. The user must copy and select it, and a
+   managed policy can still refuse it. A legacy `sandbox_mode` or
+   `[sandbox_workspace_write]` in any loaded config layer overrides the
+   permission profile and must be migrated where the user controls it. The
+   driver restores those two hosts to Node's proxy bypass without exempting
+   remote URLs. Scoped escalation is the fallback. Starting the server
+   elsewhere solves only the listening half;
+   the client still needs permitted network access. Long SSE under the
+   default mode is settled as of 2026-09-17 and is unreachable: `codex exec
    --approve-for-me` (0.154.0) ran `watch --max-seconds 570` against a live run
    and the driver exited after 47 ms with `cannot reach
    http://127.0.0.1:8899: EPERM` and its escalation hint.

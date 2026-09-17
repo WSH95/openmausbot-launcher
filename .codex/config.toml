@@ -1,2 +1,17 @@
 [features]
 hooks = true
+network_proxy = true
+
+# Maintainer-only profile for the repository test suite. The installable
+# skill's consumer profile intentionally omits 127.0.0.2.
+[permissions.omb-loopback-dev]
+description = "Workspace editing with loopback access for launcher tests."
+extends = ":workspace"
+
+[permissions.omb-loopback-dev.network]
+enabled = true
+
+[permissions.omb-loopback-dev.network.domains]
+"127.0.0.1" = "allow"
+"127.0.0.2" = "allow"
+"localhost" = "allow"

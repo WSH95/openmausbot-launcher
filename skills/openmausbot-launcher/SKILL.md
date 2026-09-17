@@ -318,9 +318,12 @@ only when the user says so, with `reconcile --remove <slug>`.
 ## 8. Hosts and phone mode
 
 Claude Code and Grok Build: `--max-seconds 100`, or 570 in a background
-shell. Codex: `--max-seconds 100`; `up` needs an escalated command
-because the sandbox denies listening sockets, and so does every live verb
-when the sandbox blocks loopback (`cannot reach … EPERM`). OpenClaw:
+shell. Codex: `--max-seconds 100`; default `workspace-write` denies local
+listening and loopback HTTP. Before the first live command, read the Codex
+section of `references/hosts.md` and explicitly install and select the bundled
+`assets/codex/omb-loopback.config.toml` profile. It retains workspace write
+access and allows only `127.0.0.1` and `localhost`; use scoped escalation or a
+reachable remote server when custom profiles are unavailable. OpenClaw:
 `--max-seconds 1500` in the background, or an automation that announces to
 Telegram (an automation that prints nothing sends nothing); its Codex
 runtime asks for one approval per command, so answer each card with

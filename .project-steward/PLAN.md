@@ -49,6 +49,13 @@ real session on 2026-09-17 merged T14 and T15 through two overlapping runs;
 evidence in `docs/evidence.md` "v2 validation". Progress in `PROGRESS.md`;
 every ruling in the SDD ledger under `.superpowers/sdd/`.
 
+A portability follow-up (`oml-9mc`) keeps the default Codex sandbox finding
+intact while adding an opt-in path: the installed skill carries a
+least-privilege loopback permission profile, and the HTTP client preserves
+the exact local proxy bypass needed to use it. The repository has a separate
+maintainer profile for the fake server. No user configuration is changed
+automatically and no bot turns are part of this follow-up.
+
 ## Later
 
 Fix `oml-fg8` and the two report attribution gaps the real run exposed

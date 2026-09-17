@@ -12,12 +12,35 @@ export class HttpError extends Error {
 }
 
 const SECRET_BODY = /^\/api\/config(\?|$)/;
+const LOOPBACK_NO_PROXY = ["127.0.0.1", "localhost"];
+
+function bypassProxyForLoopback(url, env = process.env) {
+  if (!isLoopback(url)) return;
+  const entries = [env.NO_PROXY, env.no_proxy]
+    .flatMap((value) => typeof value === "string" ? value.split(",") : [])
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const seen = new Set();
+  const merged = [];
+  for (const entry of [...entries, ...LOOPBACK_NO_PROXY]) {
+    const key = entry.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(entry);
+  }
+  env.NO_PROXY = merged.join(",");
+  env.no_proxy = env.NO_PROXY;
+}
 
 export function createClient({ url, token = null, dryRun = false, timeoutMs = 15_000, allowInsecureHttp = false }) {
   const u = new URL(url);
   if (u.protocol === "http:" && !isLoopback(url) && !allowInsecureHttp) {
     throw new Fail(EXIT.PRECONDITION, `${url} is not loopback and not https`, { hint: "use https, or pass --allow-insecure-http for a trusted tunnel" });
   }
+  // Codex's network proxy enables Node's environment proxy and clears its
+  // inherited bypass list. Restore only the launcher's exact loopback hosts
+  // before the first request; remote servers continue through the proxy.
+  bypassProxyForLoopback(url);
   const headers = { "content-type": "application/json", accept: "application/json" };
   if (token) headers.authorization = `Bearer ${token}`;
   async function request(method, path, body, opts = {}) {

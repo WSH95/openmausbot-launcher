@@ -1,0 +1,17 @@
+# Opt-in Codex profile for a local OpenMausBot server. Install and select this
+# file explicitly; the skill never changes a user's Codex configuration.
+default_permissions = "omb-loopback"
+
+[features]
+network_proxy = true
+
+[permissions.omb-loopback]
+description = "Workspace editing with access to a local OpenMausBot server."
+extends = ":workspace"
+
+[permissions.omb-loopback.network]
+enabled = true
+
+[permissions.omb-loopback.network.domains]
+"127.0.0.1" = "allow"
+"localhost" = "allow"
