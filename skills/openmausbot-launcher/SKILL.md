@@ -240,7 +240,8 @@ line. Relay the lead's own words; do not paraphrase decisions.
   once, for the user to open (exit 5). When they are done,
   `omb answer --resume --request <messageId>`; one request can ask for several
   apps and they resume together, so a resume refuses until every one of them
-  is connected. `--dismiss` does **not** wake the bot; tell it with `send`.
+  is connected — and refuses before asking the provider anything while any of
+  them still has to be connected, naming the `--connect` command for each. `--dismiss` does **not** wake the bot; tell it with `send`.
 - Read `pending[].cardKind`, full `text`, `options`, and payload metadata;
   upstream options messages have no `card.kind`. The brief is a summary and
   names the command for that kind.

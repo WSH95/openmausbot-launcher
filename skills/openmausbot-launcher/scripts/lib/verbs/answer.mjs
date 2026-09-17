@@ -185,6 +185,17 @@ async function connector(client, cfg, snap, target, mode) {
     // (index.ts:12284-12287): the bot is still waiting for an answer.
     return { result: { ...base, dismissed: res.dismissed === true, woken: false, hint: `the bot is not woken; omb send "…" to tell it to continue without ${base.label}` }, brief: `answer · ${target.botName} · dismissed ${base.label} (the bot is not woken)` };
   }
+  // That status read also WRITES: anything the provider does not report as
+  // connected or failed is stored as `authorizing` (index.ts:12269-12274). So
+  // reading a card nobody has authorized would move it out of `required`, the
+  // brief would start asking for a resume, and its link would never be opened.
+  const unopened = family.filter((p) => !["authorizing", "connected"].includes(p.connector?.status));
+  if (unopened.length) {
+    const name = (p) => `${p.connector?.label ?? p.connector?.slug}${p.connector?.alias ? ` (${p.connector.alias})` : ""}`;
+    throw new Fail(EXIT.PRECONDITION, `${unopened.map(name).join(", ")} ${unopened.length > 1 ? "have" : "has"} not been authorized yet, and every app in one request resumes together`, {
+      hint: unopened.map((p) => `connect each first: omb answer --connect --request ${p.messageId}`).join("; "),
+    });
+  }
   // The status read is what refreshes the stored card from the provider, and
   // it resumes the bot itself once the last one is live (index.ts:12255-12276).
   // A dry run therefore does not make it.

@@ -334,6 +334,17 @@ test("connection: the authorization link is handed over once, and the resume wai
   assert.equal(r.json.status, "authorizing"); assert.equal(r.json.label, "Slack");
   assert.deepEqual(r.json.siblings.map((s) => s.label), ["Slack", "GitHub"], "every app in one request is named, because they resume together");
   assert.equal(r.json.siblings[1].alias, "work");
+  // A status read stores `authorizing` for anything that is not connected or
+  // failed, so polling a sibling nobody has authorized would strand it: the
+  // brief would then say --resume and nothing would ever open its link.
+  r = await runOmb(["answer", "--resume", "--request", slack.id, "--project", dir], { env });
+  assert.equal(r.code, 3, r.stdout);
+  assert.match(r.json.error, /GitHub \(work\) has not been authorized yet/);
+  assert.match(r.json.hint, new RegExp(`connect each first: omb answer --connect --request ${github.id}`));
+  assert.deepEqual(reads.filter((x) => x.startsWith("GET")), [], "not one status read while a sibling is still unauthorized");
+  assert.equal((await thread(f, lt)).find((m) => m.id === github.id).connector.status, "required", "and its card is untouched");
+  r = await runOmb(["answer", "--connect", "--request", github.id, "--project", dir], { env });
+  assert.equal(r.code, 5, r.stdout);
   r = await runOmb(["answer", "--resume", "--request", slack.id, "--project", dir], { env });
   assert.equal(r.code, 3, r.stdout); assert.equal(r.json.error, "finish connecting every requested app first");
   await f.control({ op: "connectorAccount", messageId: slack.id, status: "ACTIVE" });
