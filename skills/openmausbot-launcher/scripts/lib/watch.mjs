@@ -176,12 +176,11 @@ export async function watchRun({ client, team, task, runs = [], getRuns = null, 
   let verifiedGeneration = -1;
   let streamFailures = 0; let pollingOnly = false;
   let waiter = null;
-  const wake = () => waiter?.();
+  const wake = () => waiter?.("wake");
   const controller = new AbortController();
   let streamDeadline = deadline;
   const expired = () => outOfBudget(deadline, controller.signal);
-  let deadlineFired = false;
-  const reachDeadline = () => { deadlineFired = true; wake(); };
+  const reachDeadline = () => waiter?.("deadline");
   const deadlineTimer = setTimeout(reachDeadline, Math.max(0, deadline - performance.now()));
   const invalidate = (kind) => {
     invalidations++;
@@ -426,20 +425,18 @@ export async function watchRun({ client, team, task, runs = [], getRuns = null, 
       // A foreign wake received during the read is already scheduled. Do not
       // lose it by installing the waiter only after it has called wake().
       if (appliedInvalidations !== invalidations && snap.complete) continue;
-      let byTimer = false;
-      await new Promise((resolve) => {
+      const wakeReason = await new Promise((resolve) => {
         let timer;
-        const wokeUp = (fromTimer) => { clearTimeout(timer); if (waiter === wokeUp) waiter = null; byTimer = fromTimer === true; resolve(); };
-        timer = setTimeout(wokeUp, waitMs, true); waiter = wokeUp;
+        const wokeUp = (reason) => { clearTimeout(timer); if (waiter === wokeUp) waiter = null; resolve(reason); };
+        timer = setTimeout(wokeUp, waitMs, "timer"); waiter = wokeUp;
       });
       // Reaching the deadline in this wait is an observation boundary. Either
       // timer can fire while `outOfBudget` still counts a whole millisecond as
-      // budget, and the read that millisecond starts cannot come back in time:
-      // it would replace a verified view with one that never verifies. Leave
+      // budget, and a read may fail or finish too late to verify. Leave
       // for the timeout path only when nothing arrived meanwhile — own,
       // ownership, other and receipt events all count — and the local inputs
       // are still the ones that view was read against.
-      if ((deadlineFired || (byTimer && deadlineBound)) && appliedInvalidations === invalidations && sameInputs()) break;
+      if ((wakeReason === "deadline" || (wakeReason === "timer" && deadlineBound)) && appliedInvalidations === invalidations && sameInputs()) break;
     }
     if (!snap) snap = await snapshot(client, { team, task, runs: allRuns, history }, { dataDir, deadline, signal: controller.signal });
     if (!current() || !ev || TERMINAL.has(ev.state)) return unverified("timeout", "observation deadline reached before verification");

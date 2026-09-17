@@ -5,7 +5,7 @@ import path from "node:path";
 import { watchRun } from "../skills/openmausbot-launcher/scripts/lib/watch.mjs";
 import { deliverToLead } from "../skills/openmausbot-launcher/scripts/lib/verbs/run.mjs";
 import { HttpError } from "../skills/openmausbot-launcher/scripts/lib/http.mjs";
-import { tmpDir } from "./helpers.mjs";
+import { tmpDir, heldWatchTimers } from "./helpers.mjs";
 import { setImmediate as turn } from "node:timers/promises";
 
 test("delivery preserves a child timeout before the outer clock reports expiry", async (t) => {
@@ -53,7 +53,7 @@ function fixture({ threads = { la: [user, planning], lb: [], w: [] }, stream = t
   };
   let controller; let seq = 0; let reads = 0;
   const f = {
-    data, onStall: null,
+    data, onStall: null, stallAfter: 1,
     get reads() { return reads; },
     /** Put a frame on the stream. Awaiting `turn` lets the reader classify it;
      * without that the frame is still in flight, which is how a test arranges
@@ -80,7 +80,7 @@ function fixture({ threads = { la: [user, planning], lb: [], w: [] }, stream = t
         const copy = structuredClone(value);
         // A second snapshot outlasts the budget: the clock passes the deadline
         // while it waits, and its parts are cancelled where they stand.
-        if (reads > 1) { f.onStall?.(); await new Promise(() => {}); }
+        if (reads > f.stallAfter) { f.onStall?.(); await new Promise(() => {}); }
         return copy;
       },
     },
@@ -88,44 +88,8 @@ function fixture({ threads = { la: [user, planning], lb: [], w: [] }, stream = t
   return f;
 }
 
-/** The clock and the two timers this rule is about: `performance.now` answers
- * what the test says, and the idle wait's timer and the absolute deadline timer
- * are held until the test fires them — they are the only callbacks with these
- * names. Every other timer (request budgets, the stream's idle guard, its retry
- * pause) keeps its real behaviour. */
-function heldTimers(t, { realClock = false } = {}) {
-  let now = 0;
-  const held = new Set();
-  const realSetTimeout = globalThis.setTimeout; const realClearTimeout = globalThis.clearTimeout;
-  const realNow = performance.now;
-  if (!realClock) performance.now = () => now;
-  globalThis.setTimeout = (fn, ms = 0, ...args) => {
-    if (fn?.name !== "wokeUp" && fn?.name !== "reachDeadline") return realSetTimeout(fn, ms, ...args);
-    const handle = { fn, args, ms, name: fn.name, fire(at) { held.delete(handle); if (at !== undefined) now = at; handle.fn(...handle.args); } };
-    held.add(handle);
-    return handle;
-  };
-  globalThis.clearTimeout = (handle) => (held.has(handle) ? held.delete(handle) : realClearTimeout(handle));
-  t.after(() => { globalThis.setTimeout = realSetTimeout; globalThis.clearTimeout = realClearTimeout; performance.now = realNow; });
-  return {
-    at: (ms) => { now = ms; },
-    held: (name) => [...held].find((h) => h.name === name),
-    async until(name, budgetMs = 500) {
-      const stop = Date.now() + budgetMs;
-      for (let i = 0; Date.now() < stop; i++) {
-        const h = [...held].find((x) => x.name === name);
-        if (h) return h;
-        // Mostly microtask turns, with real milliseconds now and then: a watch
-        // falling back to polling waits out its stream retries first.
-        await (i % 10 === 9 ? new Promise((r) => realSetTimeout(r, 2)) : turn());
-      }
-      throw new Error(`the watch never installed a ${name} timer`);
-    },
-  };
-}
-
 async function watchToItsIdleWait(t, options = {}, f = fixture()) {
-  const c = heldTimers(t);
+  const c = heldWatchTimers(t);
   const state = { checkpoints: 0 };
   const deadline = (options.maxSeconds ?? 1) * 1000;
   f.onStall = () => c.at(deadline + 1);
@@ -133,7 +97,7 @@ async function watchToItsIdleWait(t, options = {}, f = fixture()) {
     client: f.client, team, task: a, runs: [a, b], maxSeconds: 1, quietMs: 30_000, pollMs: 5000, coalesceMs: 0, stallMs: Infinity,
     checkpoint: async (r, opts) => { opts.assertCurrent(); state.checkpoints++; return true; }, ...options,
   });
-  return { c, f, p, state, wait: await c.until("wokeUp") };
+  return { c, f, p: c.finish(p), state, wait: await c.until("wokeUp") };
 }
 
 test("a wait the deadline bounded ends the watch on its last verified observation", async (t) => {
@@ -179,21 +143,40 @@ for (const [kind, frame] of [
   });
 }
 
+test("an invalidated deadline wake cannot end the following ordinary poll wait", async (t) => {
+  const f = fixture(); f.stallAfter = 2;
+  const { c, p, state } = await watchToItsIdleWait(t, { pollMs: 0.5 }, f);
+  f.enqueue({ kind: "message", threadId: "la" });
+  c.held("reachDeadline").fire(998.5);
+  const second = await c.until("wokeUp");
+  assert.equal(f.reads, 2, "the invalidated first wait completed its required re-read");
+  assert.equal(second.ms, 0.5, "the second wait is poll-bound");
+  second.fire(999);
+  const r = await p;
+  assert.equal(f.reads, 3, "the ordinary poll must start a third read");
+  assert.equal(r.snap.complete, false); assert.equal(state.checkpoints, 0);
+});
+
 test("a receipt written during the wait is hydrated before the watch gives up its budget", async (t) => {
+  let notifyReceipt;
+  t.mock.method(fs, "watch", (_dir, callback) => { notifyReceipt = callback; return { close() {} }; });
   const dataDir = tmpDir("oml-receipts-");
   fs.writeFileSync(path.join(dataDir, "delegation-receipts.json"), "[]");
-  const { f, p } = await watchToItsIdleWait(t, { dataDir });
+  const { c, f, p } = await watchToItsIdleWait(t, { dataDir });
   fs.writeFileSync(path.join(dataDir, "delegation-receipts.json"), JSON.stringify([{ sourceThreadId: "la", toBotName: "Worker", status: "completed" }]));
-  for (let i = 0; i < 2000 && f.reads < 2; i++) await turn(); // a file event, not a timer
+  notifyReceipt("change", "delegation-receipts.json");
+  c.held("reachDeadline").fire(998.5);
   const r = await p;
   assert.equal(f.reads, 2, "a receipt has no frame of its own and is evidence all the same");
   assert.equal(r.outcome, "timeout"); assert.equal(r.snap.complete, false);
 });
 
-test("a run list that changed silently is read again before the watch gives up its budget", async (t) => {
+for (const source of ["run list", "history"]) test(`a ${source} that changed silently is read again before the watch gives up its budget`, async (t) => {
   const live = [{ ...a }, b];
-  const { f, p, state, wait } = await watchToItsIdleWait(t, { runs: live, getRuns: () => live });
-  live[0] = { ...live[0], cards: { rq: "a" } }; // a card the state file learned about, with no frame
+  const history = [];
+  const { f, p, state, wait } = await watchToItsIdleWait(t, { runs: live, getRuns: () => live, history, getHistory: () => history });
+  if (source === "run list") live[0] = { ...live[0], cards: { rq: "a" } };
+  else history.push({ ...b, runId: "past", status: "closed", closedAt: new Date().toISOString() });
   wait.fire(998.5);
   const r = await p;
   assert.equal(f.reads, 2, "local inputs are refreshed, whatever the clock says");
@@ -201,12 +184,12 @@ test("a run list that changed silently is read again before the watch gives up i
   assert.equal(state.checkpoints, 0);
 });
 
-test("an ordinary poll wake before the deadline reads again", async (t) => {
-  const { f, p, state, wait } = await watchToItsIdleWait(t, { pollMs: 300 });
+for (const [source, options] of [["poll", { pollMs: 300 }], ["quiet", { quietMs: 300 }]]) test(`an ordinary ${source} wake before the deadline reads again`, async (t) => {
+  const { f, p, state, wait } = await watchToItsIdleWait(t, options);
   assert.equal(wait.ms, 300);
-  wait.fire(300); // the poll, less than a third into the budget
+  wait.fire(300);
   const r = await p;
-  assert.equal(f.reads, 2, "a poll is a read, not a boundary");
+  assert.equal(f.reads, 2, `${source} is a read, not a boundary`);
   assert.equal(r.outcome, "timeout"); assert.equal(r.snap.complete, false);
   assert.deepEqual(r.ev.reasons, ["observation deadline reached before verification"]);
   assert.equal(state.checkpoints, 0);
@@ -233,27 +216,32 @@ test("a run already quiet has no quiet term, and still ends at the deadline boun
 });
 
 test("polling-only mode ends at the same boundary", async (t) => {
-  // Falling back to polling costs two real stream-retry pauses, which a frozen
-  // clock cannot shorten without expiring the stream-ready wait as well, so
-  // this control keeps the real clock. What makes the wait a boundary is the
-  // operands it was scheduled with, not the instant its timer happens to fire.
   const f = fixture({ stream: false });
-  const c = heldTimers(t, { realClock: true });
+  const c = heldWatchTimers(t, { retryPauses: true });
   let checkpoints = 0;
   const p = watchRun({
-    client: f.client, team, task: a, runs: [a, b], maxSeconds: 6, quietMs: 30_000, pollMs: 20_000, coalesceMs: 0, stallMs: Infinity,
+    client: f.client, team, task: a, runs: [a, b], maxSeconds: 10, quietMs: 30_000, pollMs: 20_000, coalesceMs: 0, stallMs: Infinity,
     checkpoint: async (r, opts) => { opts.assertCurrent(); checkpoints++; return true; },
   });
-  const wait = await c.until("wokeUp", 8000);
-  wait.fire();
-  const r = await p;
+  const bounded = c.finish(p);
+  (await c.until("done")).fire(2000);
+  (await c.until("done")).fire(4000);
+  const wait = await c.until("wokeUp");
+  assert.equal(wait.ms, 6000, "only virtual retry time was spent");
+  wait.fire(9998.5);
+  const r = await bounded;
   assert.equal(f.reads, 1, "no read is started after the boundary"); assert.equal(r.pollingOnly, true);
   assert.equal(r.outcome, "timeout"); assert.equal(r.snap.complete, true);
   assert.equal(r.checkpointed, true); assert.equal(checkpoints, 1);
 });
 
+test("a held wait that is never released fails within a bounded real time", async (t) => {
+  const { c, p } = await watchToItsIdleWait(t);
+  await assert.rejects(c.finish(p, 20), /the held watch did not finish/);
+});
+
 test("an invalidation during the checkpoint wait still returns unverified", async (t) => {
-  const c = heldTimers(t);
+  const c = heldWatchTimers(t);
   const f = fixture();
   f.onStall = () => c.at(1001);
   let checkpoints = 0;
@@ -262,7 +250,7 @@ test("an invalidation during the checkpoint wait still returns unverified", asyn
     checkpoint: async () => { checkpoints++; await f.push({ kind: "message", threadId: "la" }); return true; },
   });
   (await c.until("wokeUp")).fire(998.5);
-  const r = await p;
+  const r = await c.finish(p);
   assert.equal(checkpoints, 1, "the boundary does reach the checkpoint");
   assert.equal(r.outcome, "timeout"); assert.equal(r.snap.complete, false);
   assert.deepEqual(r.ev.reasons, ["observation deadline reached before checkpoint verification"]);

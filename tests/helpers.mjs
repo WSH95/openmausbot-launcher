@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { setImmediate as turn } from "node:timers/promises";
 import { createFake } from "./fixtures/fake-omb.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -75,6 +76,45 @@ export function runOmb(args, opts = {}) {
 }
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Hold watch waits on a virtual monotonic clock. REST keeps its real timers;
+ * stream retry pauses can be released explicitly. Every await is bounded. */
+export function heldWatchTimers(t, { retryPauses = false } = {}) {
+  let now = 0;
+  const held = new Set();
+  const realSetTimeout = globalThis.setTimeout; const realClearTimeout = globalThis.clearTimeout; const realNow = performance.now;
+  performance.now = () => now;
+  globalThis.setTimeout = (fn, ms = 0, ...args) => {
+    if (!["wokeUp", "reachDeadline"].includes(fn?.name) && !(retryPauses && fn?.name === "done" && ms === 2000)) return realSetTimeout(fn, ms, ...args);
+    const handle = { ms, name: fn.name, fire(at) { if (!held.delete(handle)) return; if (at !== undefined) now = at; fn(...args); } };
+    held.add(handle);
+    return handle;
+  };
+  globalThis.clearTimeout = (handle) => (held.has(handle) ? held.delete(handle) : realClearTimeout(handle));
+  const expire = () => { now = Infinity; for (const h of [...held]) h.fire(); };
+  t.after(async () => { expire(); await turn(); globalThis.setTimeout = realSetTimeout; globalThis.clearTimeout = realClearTimeout; performance.now = realNow; });
+  return {
+    at: (ms) => { now = ms; },
+    held: (name) => [...held].find((h) => h.name === name),
+    async until(name, budgetMs = 15000, previous = null) {
+      const stop = Date.now() + budgetMs;
+      while (Date.now() < stop) {
+        const h = [...held].find((x) => x.name === name && x !== previous);
+        if (h) return h;
+        await turn();
+      }
+      throw new Error(`the watch never installed a ${name} timer`);
+    },
+    finish(p, budgetMs = 15000) {
+      const bounded = new Promise((resolve, reject) => {
+        const timer = realSetTimeout(() => { reject(new Error("the held watch did not finish")); expire(); }, budgetMs);
+        p.then((r) => { realClearTimeout(timer); resolve(r); }, (e) => { realClearTimeout(timer); reject(e); });
+      });
+      bounded.catch(() => {});
+      return bounded;
+    },
+  };
+}
 
 /** Wait for an actual response from the fake, not an estimate of subprocess
  * startup time: resolves once `count` requests whose url `matches` have been

@@ -2,9 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { startFake, makeRepo, runOmb, responses, ROOT, tmpDir, sleep } from "./helpers.mjs";
+import { startFake, makeRepo, runOmb, heldWatchTimers, ROOT, tmpDir, sleep } from "./helpers.mjs";
 import { statePaths, loadState, updateState, commitState, withLock } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
 import { turnsFromEvents, nativeCalls, check042, renderMarkdown, bareCommand, mergedShaFrom, beadStatus } from "../skills/openmausbot-launcher/scripts/lib/report.mjs";
+
+import { watchRun } from "../skills/openmausbot-launcher/scripts/lib/watch.mjs";
+import { createClient } from "../skills/openmausbot-launcher/scripts/lib/http.mjs";
 
 const PKG = path.join(ROOT, "tests", "fixtures", "dev-team.package.json");
 const iso = (ms) => new Date(ms).toISOString();
@@ -59,7 +62,7 @@ test("check042 on a synthetic native log", () => {
 test("report: a full synthetic run passes --check-042, renders markdown, and closes the run; a failing suite fails it", async (t) => {
   const f = await startFake(); t.after(() => f.close());
   const { dir, git } = makeRepo();
-  const bin = fs.mkdtempSync("/tmp/oml-report-bin-"); t.after(() => fs.rmSync(bin, { recursive: true, force: true }));
+  const bin = tmpDir("oml-report-bin-"); t.after(() => fs.rmSync(bin, { recursive: true, force: true }));
   fs.writeFileSync(path.join(bin, "bd"), '#!/bin/sh\nprintf \'[{"status":"closed"}]\\n\'\n', { mode: 0o755 });
   const env = { OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir, PATH: `${bin}:${process.env.PATH}` };
   fs.writeFileSync(path.join(dir, "PROGRESS.md"), "# Progress log\n\n### 2026-09-01T00:00:00Z — seed\nSeed entry.\n");
@@ -277,15 +280,68 @@ test("a merged sha is read only from a clause that says this run was merged", as
   assert.equal(mergedShaFrom("T14 merged into `release - candidate; v2` as `abc1234`. Tests pass.", null, forT14), "abc1234", "a backticked branch may carry the clause delimiters themselves");
 });
 
-test("a re-dispatched run reads its own closing text and record commit", async () => {
+for (const word of ["unmerged", "premerged", "submerged", "un-merged"]) {
+  for (const phrase of ["as", "into main as"]) test(`a ${word} ${phrase} phrase is not a merge`, () => {
+    assert.equal(mergedShaFrom(`T14 remains ${word} ${phrase} abc1234.`, null, { run: T14 }), null);
+  });
+}
+
+test("a hyphenated un-merged record is not merge evidence", async () => {
+  const { recordCommitSha } = await import("../skills/openmausbot-launcher/scripts/lib/report.mjs");
+  assert.equal(recordCommitSha("docs(team): T14 un-merged as abc1234", T14), null);
+});
+
+for (const reset of ["but", "however", "yet", "instead"]) test(`merge negation ends at ${reset}`, () => {
+  const run = { slug: "alpha", title: "Alpha" };
+  assert.equal(mergedShaFrom(`Alpha was not squashed ${reset} was merged as abc1234.`, "docs(team): Alpha merged as def5678", { run }), "abc1234");
+  assert.equal(mergedShaFrom(`Alpha was squashed ${reset} was not merged as abc1234.`, null, { run }), null);
+});
+
+test("not yet remains a negated merge predicate", () => {
+  for (const negative of ["not yet", "not  yet", "never yet", "hasn't yet"]) assert.equal(mergedShaFrom(`Alpha was ${negative} merged as abc1234.`, null, { run: { slug: "alpha" } }), null, negative);
+});
+
+for (const shared of ["title", "bead"]) test(`a shared ${shared} cannot attribute a concurrent merge to either run`, async () => {
+  const { recordCommitSha } = await import("../skills/openmausbot-launcher/scripts/lib/report.mjs");
+  const alpha = { slug: "alpha", title: "Alpha", bead: "bead-a", [shared]: "Shared", sentAt: day("05:30") };
+  const beta = { slug: "beta", title: "Beta", bead: "bead-b", [shared]: "Shared", sentAt: day("05:30") };
+  for (const at of [undefined, day("05:50")]) for (const [run, rival] of [[alpha, beta], [beta, alpha]]) {
+    const opts = { run, others: [rival], closingAt: at, recordAt: at };
+    assert.equal(mergedShaFrom("Shared merged as abc1234", null, opts), null, `${run.slug}: shared closing, at ${at}`);
+    assert.equal(recordCommitSha("docs(team): Shared merged as abc1234", run, [rival], { at }), null, `${run.slug}: shared record, at ${at}`);
+    assert.equal(mergedShaFrom(null, "docs(team): Shared merged as abc1234", opts), null);
+    assert.equal(mergedShaFrom(`Shared ${run.slug} merged as abc1234`, null, opts), "abc1234", "an exclusive identifier resolves the shared name");
+    assert.equal(recordCommitSha(`docs(team): Shared ${run.slug} merged as abc1234`, run, [rival], { at }), "abc1234");
+    assert.equal(mergedShaFrom(`Shared ${run.slug} ${rival.slug} merged as abc1234`, null, opts), null, "both exclusive identifiers leave it ambiguous");
+    assert.equal(recordCommitSha(`docs(team): Shared ${run.slug} ${rival.slug} merged as abc1234`, run, [rival], { at }), null);
+  }
+});
+
+test("an open rival's evidence window ends at now plus one second", async (t) => {
+  const { recordCommitSha } = await import("../skills/openmausbot-launcher/scripts/lib/report.mjs");
+  t.mock.method(Date, "now", () => day("06:00"));
+  const mine = { slug: "alpha", title: "Shared", sentAt: day("05:30") };
+  const rival = { slug: "beta", title: "Shared", sentAt: day("05:30") };
+  for (const [at, want] of [[day("06:00") + 1000, null], [day("06:00") + 1001, "abc1234"]]) {
+    assert.equal(mergedShaFrom("Shared merged as abc1234", null, { run: mine, others: [rival], closingAt: at }), want);
+    assert.equal(recordCommitSha("docs(team): Shared merged as abc1234", mine, [rival], { at }), want);
+  }
+});
+
+test("a re-dispatched run reads its own closing text and record commit only outside its twin's window", async () => {
   const { mergedShaFrom, recordCommitSha } = await import("../skills/openmausbot-launcher/scripts/lib/report.mjs");
-  // The same task dispatched twice: the closing text is this run's own lead
-  // thread, and the record commit is already inside this run's window, so the
-  // slug and title the twin also answers to cannot make either somebody else's.
-  const twin = { runId: "r14old", slug: "t14", title: "T14", bead: "slg-h3m", tag: "oml:00000000", closedAt: "2026-09-17T05:00:00Z" };
-  const mine = { runId: "r14new", slug: "t14", title: "T14", bead: "slg-h3m", tag: "oml:092671df" };
-  assert.equal(mergedShaFrom("T14 completed and merged into `main` as `c7554a5`.", null, { run: mine, others: [twin] }), "c7554a5");
-  assert.equal(recordCommitSha("docs(team): T14 merged as c7554a5", mine, [twin]), "c7554a5");
+  const twin = { runId: "r14old", slug: "t14", title: "T14", bead: "slg-h3m", tag: "oml:00000000", sentAt: day("04:30"), closedAt: "2026-09-17T05:00:00Z" };
+  const mine = { runId: "r14new", slug: "t14", title: "T14", bead: "slg-h3m", tag: "oml:092671df", sentAt: day("05:30") };
+  for (const [at, want] of [[undefined, null], [NaN, null], [day("04:30") - 1000, null], [day("04:30") - 1001, "c7554a5"], [day("05:00") + 1000, null], [day("05:00") + 1001, "c7554a5"], [day("05:50"), "c7554a5"]]) {
+    const opts = { run: mine, others: [twin], closingAt: at, recordAt: at };
+    assert.equal(mergedShaFrom("T14 completed and merged into `main` as `c7554a5`.", null, opts), want, `closing at ${at}`);
+    assert.equal(recordCommitSha("docs(team): T14 merged as c7554a5", mine, [twin], { at }), want, `record at ${at}`);
+    assert.equal(mergedShaFrom(null, "docs(team): T14 merged as c7554a5", opts), want, `fallback at ${at}`);
+  }
+  const opts = { run: mine, others: [twin], closingAt: day("05:50") };
+  assert.equal(mergedShaFrom("T14 is complete. Merged as c7554a5.", null, opts), "c7554a5");
+  assert.equal(mergedShaFrom("T14 oml:00000000 merged as c7554a5.", null, opts), null, "a past twin still counts through its exclusive identifiers");
+  assert.equal(recordCommitSha("docs(team): T14 oml:00000000 merged as c7554a5", mine, [twin], { at: day("05:50") }), null);
   // A rival still counts when the text names it by something this run is not.
   const other = { runId: "r14b", slug: "t14", title: "T14", bead: "slg-zzz" };
   assert.equal(mergedShaFrom("T14 merged into `main` as `c7554a5`, closing slg-zzz.", null, { run: mine, others: [other] }), null, "the twin's own bead makes the clause the twin's");
@@ -373,7 +429,7 @@ test("approval checks use only native calls and results within the run, and reje
 test("archive reader obtains reviewer provenance from read-only SQLite and legacy message files", async (t) => {
   const { archivedMessages } = await import("../skills/openmausbot-launcher/scripts/lib/report.mjs");
   const { DatabaseSync } = await import("node:sqlite");
-  const dataDir = fs.mkdtempSync("/tmp/oml-report-messages-"); t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const dataDir = tmpDir("oml-report-messages-"); t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   // OpenMausBot 0.1.56 server/message-db.ts:21,39-48,119-127 stores full JSON by thread_id.
   const db = new DatabaseSync(path.join(dataDir, "messages.db"));
   db.exec("CREATE TABLE messages (thread_id TEXT, json TEXT)");
@@ -535,7 +591,7 @@ test("beadStatus gives up on a hung bd within its timeout", (t) => {
 async function twoRuns(t) {
   const f = await startFake(); t.after(() => f.close());
   const { dir, git } = makeRepo();
-  const bin = fs.mkdtempSync("/tmp/oml-report-bin-"); t.after(() => fs.rmSync(bin, { recursive: true, force: true }));
+  const bin = tmpDir("oml-report-bin-"); t.after(() => fs.rmSync(bin, { recursive: true, force: true }));
   fs.writeFileSync(path.join(bin, "bd"), '#!/bin/sh\nprintf \'[{"status":"closed"}]\\n\'\n', { mode: 0o755 });
   const env = { OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir, PATH: `${bin}:${process.env.PATH}` };
   fs.writeFileSync(path.join(dir, "PROGRESS.md"), "# Progress log\n\n### 2026-09-01T00:00:00Z — seed\nSeed entry.\n");
@@ -696,22 +752,48 @@ test("a sibling closing during a watch, and the traffic that follows, delay the 
   await f.control({ op: "delegationDone", threadId: b.leadThreadId, name: "Vex", variant: "empty" });
   await f.control({ op: "delegated", threadId: a.leadThreadId, name: "Nova", reason: "review T10" });
   await f.control({ op: "leadSay", threadId: b.leadThreadId, text: "T11 is merged; the record commit needs your approval." });
-  // A closes only once B's watch has read the fleet: the premise of the control.
-  const hydrated = responses(f, (url) => url.startsWith(`/api/threads/${b.leadThreadId}/messages`));
-  const watching = runOmb(["watch", "--run", "t11", "--project", dir, "--max-seconds", "20", "--quiet-seconds", "3", "--poll", "1"], { env });
-  await hydrated;
+  const c = heldWatchTimers(t);
+  const paths = statePaths(dir);
+  const startWatch = () => {
+    const d = loadState(paths);
+    return c.finish(watchRun({
+      client: createClient({ url: f.url }), team: d.team, task: d.runs[b.runId], runs: Object.values(d.runs), history: d.history,
+      getRuns: () => Object.values(loadState(paths).runs), getHistory: () => loadState(paths).history,
+      maxSeconds: 20, quietMs: 3000, pollMs: 5000, coalesceMs: 0, stallMs: Infinity,
+    }));
+  };
+  const watching = startWatch();
+  const beforeClose = await c.until("wokeUp");
+  assert.equal(beforeClose.ms, 3000, "the idle wait proves a complete, verified snapshot before the close");
+  c.at(1000);
   assert.equal((await runOmb(["report", "--run", "t10", "--project", dir, "--no-tests", "--close"], { env })).json.closed, true);
+  beforeClose.fire(3000);
+  const afterClose = await c.until("wokeUp");
+  assert.equal(afterClose.ms, 3000, "the old quiet boundary re-read the closed sibling and restarted the entire window");
+  afterClose.fire(6000);
   let r = await watching;
-  assert.equal(r.json.state, "attention", `a sibling closing during the watch only restarts the window: ${r.stdout}`);
-  assert.ok(r.json.elapsedSec >= 3, `the window it settled on started after the close (${r.json.elapsedSec}s)`);
-  // Nova is B's own bot now, so her frames do reset B's window — until they stop.
-  let ticks = 0;
-  const noise = setInterval(() => { if (++ticks > 6) return clearInterval(noise); void f.control({ op: "activity", botId: nova.id, activity: ticks % 2 ? "working" : "idle" }).catch(() => {}); }, 200);
-  t.after(() => clearInterval(noise));
-  r = await runOmb(["watch", "--run", "t11", "--project", dir, "--max-seconds", "20", "--quiet-seconds", "1", "--poll", "1"], { env });
-  assert.equal(r.json.state, "attention", r.stdout);
-  assert.ok(r.json.changes.some((c) => c.to === "running"), `the traffic put the run back to work before it settled: ${JSON.stringify(r.json.changes)}`);
-  assert.ok(r.json.elapsedSec >= 2, `and held the verdict back past the traffic (${r.json.elapsedSec}s)`);
+  assert.equal(r.ev.state, "attention"); assert.equal(r.snap.complete, true); assert.equal(r.elapsedSec, 6);
+
+  c.at(0);
+  const trafficWatch = startWatch();
+  const hydrated = await c.until("wokeUp");
+  assert.equal(hydrated.ms, 3000, "traffic starts after the second watch has verified its idle snapshot");
+  c.at(2000);
+  await f.control({ op: "activity", botId: nova.id, activity: "working" });
+  const working = await c.until("wokeUp", 5000, hydrated);
+  assert.equal(working.ms, 5000, "the busy snapshot has no quiet timer");
+  c.at(3000);
+  await f.control({ op: "activity", botId: nova.id, activity: "idle" });
+  const idle = await c.until("wokeUp", 5000, working);
+  assert.equal(idle.ms, 3000);
+  c.at(5000);
+  await f.control({ op: "activity", botId: nova.id, activity: "idle" });
+  const reset = await c.until("wokeUp", 5000, idle);
+  assert.equal(reset.ms, 3000, "even an unchanged own frame restarts quiet after verification");
+  reset.fire(8000);
+  r = await trafficWatch;
+  assert.equal(r.ev.state, "attention"); assert.equal(r.snap.complete, true); assert.equal(r.elapsedSec, 8);
+  assert.ok(r.changes.some((change) => change.to === "running"), "traffic put the run back to work before it settled");
 });
 
 test("an abandoned run can still be reported from the history", async (t) => {
@@ -776,10 +858,40 @@ test("a docs(team) commit whose only merge segment is another run's is not this 
   assert.equal(r.json.mergedSha, null);
 });
 
+for (const source of ["closing", "record"]) test(`report dates ${source} evidence before excluding a past twin`, async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const { dir, git } = makeRepo();
+  const env = { OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir };
+  fs.writeFileSync(path.join(dir, "PROGRESS.md"), "# Progress\n");
+  git("add", "-A"); git("commit", "-q", "-m", "seed");
+  assert.equal((await runOmb(["import", PKG, "--project", dir, "--url", f.url], { env })).code, 0);
+  assert.equal((await runOmb(["bind", "--project", dir, "--default", "claude/claude-sonnet-5"], { env })).code, 0);
+  assert.equal((await runOmb(["facts", "--project", dir, "--task-log", "PROGRESS.md"], { env })).code, 0);
+  const run = (await runOmb(["task", "--todo", "T14", "--project", dir], { env })).json;
+  await updateState(statePaths(dir), (d) => {
+    d.history = [{ ...d.runs[run.runId], runId: "old", status: "closed", sentAt: run.sentAt - 120_000, closedAt: iso(run.sentAt - 60_000) }];
+    return d;
+  });
+  if (source === "closing") await f.control({ op: "leadSay", threadId: run.leadThreadId, text: "T14 merged as abc1234." });
+  else {
+    fs.appendFileSync(path.join(dir, "PROGRESS.md"), `\n### ${iso(Date.now())}\nT14 merged as abc1234.\n`);
+    git("add", "PROGRESS.md"); git("commit", "-q", "-m", "docs(team): T14 merged as abc1234");
+  }
+  const r = await runOmb(["report", "--run", "t14", "--project", dir, "--no-tests", "--no-close"], { env });
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.equal(r.json.mergedSha, "abc1234", `${source} evidence has a known time outside the old dispatch`);
+  if (source === "record") assert.ok(r.json.record.commit);
+  else {
+    assert.equal((await runOmb(["report", "--run", "t14", "--project", dir, "--no-tests", "--close"], { env })).json.closed, true);
+    const historical = await runOmb(["report", "--run", "last", "--project", dir, "--no-tests", "--dry-run"], { env });
+    assert.equal(historical.json.mergedSha, null, "historical closing text without its message time remains ambiguous");
+  }
+});
+
 test("a task log that cannot be read leaves the record unknown instead of passing", async (t) => {
   const f = await startFake(); t.after(() => f.close());
   const { dir, git } = makeRepo();
-  const bin = fs.mkdtempSync("/tmp/oml-report-bin-"); t.after(() => fs.rmSync(bin, { recursive: true, force: true }));
+  const bin = tmpDir("oml-report-bin-"); t.after(() => fs.rmSync(bin, { recursive: true, force: true }));
   fs.writeFileSync(path.join(bin, "bd"), '#!/bin/sh\nprintf \'[{"status":"closed"}]\\n\'\n', { mode: 0o755 });
   const env = { OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir, PATH: `${bin}:${process.env.PATH}` };
   fs.writeFileSync(path.join(dir, "PROGRESS.md"), "# Progress log\n");

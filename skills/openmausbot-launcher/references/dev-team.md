@@ -204,11 +204,23 @@ validation (`EVIDENCE.md`, "Deviations and findings").
 | `record-time-from-date-u` | this run's own task log entry — the section that names this run before any other, dated inside the run's own window — carries the timestamp the lead's last `date -u` returned; 0.4.1's T11 entry went to the bottom of the file with an invented time, and on 2026-09-17 two runs writing one log under identical headings gave T14 the entry T15 had written. `report` always passes the entry it attributed, so a log with none to attribute is compared against an empty heading and the check is `no`; the log's first heading is the fallback only for a direct `check042` call that passes no entry at all |
 | `no-host-listagents` | no host `ListAgents` among the lead's tool calls, and `list_bots` present — 0.4.1's lead called `ListAgents` first, nine times across two tasks. `ListAgents` is a Claude Code built-in (`server/drivers/claude.ts:777-781`); a Codex lead cannot call it, so for Codex the check is `list_bots` present |
 | `bead-closed` | the brief's bead is closed |
-| `record-commit` | the `docs(team)` commit exists and touched only the task log and `.beads` |
-| `merged-ancestor` | the sha the closing report asserts this run was merged as — "merged as `<sha>`", or "merged … into `<branch>` as\|at `<sha>`", in a clause no other run shares — is an ancestor of the default branch (the task branch is gone by then, so the check uses the commit id). Where a branch now points is not a merge: a report that only says "`main` at `<sha>`" leaves this unknown, and the sha then has to come from the record commit's subject |
+| `record-commit` | the `docs(team)` commit has exactly one attributable segment ending in `merged as <sha>` for this run and touched only the task log and `.beads` |
+| `merged-ancestor` | the sha the closing report asserts this run was merged as — "merged as `<sha>`", or "merged … into `<branch>` as\|at `<sha>`", in a clause with no unresolved rival — is an ancestor of the default branch (the task branch is gone by then, so the check uses the commit id). Where a branch now points is not a merge: a report that only says "`main` at `<sha>`" leaves this unknown, and an attributable record subject or an owned `<a>..<b>` range may supply the sha |
 | `task-branch-and-worktree-absent` | the cleanup gate ran: no `task/*` branch and no worktree left **with no owner** — another open run's own pair is that run's, and with no other run open this is again "exactly one worktree, no `task/*` branch" |
 | `root-clean` | after tests, the root is on the default branch with nothing modified or untracked |
 | `tests-pass` | the Project facts test command passes when `report` runs it itself |
+
+For closing clauses and record-subject segments, a named rival prevents
+attribution unless the text names a target-exclusive identifier and no
+rival-exclusive identifier, or the evidence time falls outside the rival's
+window (`sentAt` to `closedAt`, or to now while open, ±1 s). Outside that
+window, the rival counts only through identifiers the target does not share.
+Closing text uses the lead message's time; a record subject uses the commit's
+time. Unknown time, including historical closing text without its timestamp,
+permits no window exclusion. In closing text, negation applies to the merge predicate, with
+`but`, `however`, `yet` and `instead` starting a new predicate; `not yet` stays
+negative. A record subject is split on commas and must have exactly one
+qualifying segment for the target, even if several segments name the same sha.
 
 The first three checks read the lead's native log, `native/<leadThreadId>.ndjson`
 (`server/drivers/native.ts:11-25` writes one `{at, dir, source, msg}` record per

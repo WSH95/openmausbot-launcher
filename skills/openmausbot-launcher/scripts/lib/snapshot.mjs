@@ -638,7 +638,7 @@ export function evaluate(snap, task, { now = Date.now(), quiet = { since: null }
     // question: this same snapshot with the window closed may still be running
     // because an outcome awaits the lead's wake or the lead has not answered —
     // and only `quietSettles` may be turned into advice about the budget.
-    const settled = evaluate(snap, task, { now, quiet: { since: 0 }, quietMs: 0, lastChangeAt, dropMs, stallMs });
+    const settled = evaluate(snap, task, { now: now + Math.max(0, quietMs - quietFor), quietMs: 0, lastChangeAt, dropMs, stallMs });
     return { state: "running", reasons: [`idle for ${Math.round(quietFor / 1000)} s, not yet settled`], awaitingQuiet: true, quietSettles: TERMINAL.has(settled.state), ...base };
   }
   if (snap.dispatchFailed) return { state: "failed", reasons: ["the lead's turn failed to dispatch (error activity, no reply)"], ...base };

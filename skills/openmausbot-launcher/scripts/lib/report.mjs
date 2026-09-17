@@ -210,14 +210,16 @@ export const namesRun = (text, run) => namedAt(text, run) >= 0;
 
 const identifiers = (run) => [run?.slug, run?.title, run?.bead, run?.tag].filter(Boolean);
 
-/** Does this text name a rival of `run` through an identifier the two do not
- * share? A second dispatch of the same task answers to the same slug and title,
- * and a run's closing text is its own lead thread while its record commit is
- * already inside its window, so only something the twin does not share with it
- * can make either somebody else's. */
-const namesRival = (text, rival, run) => {
+// Shared names exclude a rival only outside its evidence window, or when an
+// exclusive target identifier resolves them without an exclusive rival one.
+const namesRival = (text, rival, run, at) => {
   const ours = new Set(identifiers(run).map((s) => s.toLowerCase()));
-  return identifiers(rival).some((id) => !ours.has(id.toLowerCase()) && wholeWord(id).test(text));
+  const theirs = new Set(identifiers(rival).map((s) => s.toLowerCase()));
+  const named = [...theirs].filter((id) => wholeWord(id).test(text));
+  if (!named.length) return false;
+  const exclusive = named.some((id) => !ours.has(id));
+  const outside = Number.isFinite(at) && (at < (rival.sentAt ?? -Infinity) - 1000 || at > (rival.closedAt ? Date.parse(rival.closedAt) : Date.now()) + 1000);
+  return exclusive || (!outside && ![...ours].some((id) => !theirs.has(id) && wholeWord(id).test(text)));
 };
 
 // A heading is dated only by a full RFC 3339 time: a bare date carries no time
@@ -346,7 +348,7 @@ export function runTests(command, cwd, { timeoutMs = 10 * 60_000 } = {}) {
 // not what was merged. 7 to 40 hex, bounded by non-word characters.
 const HEX = String.raw`\`?([0-9a-f]{7,40})\`?(?![\w-])`;
 const TOKEN = String.raw`(?:\`[^\`]+\`|[\w./-]+)`;
-const mergedRe = () => new RegExp(String.raw`merged\s+(?:${TOKEN}\s+)?(?:into|to|onto)\s+${TOKEN}\s+(?:as|at)\s+${HEX}|merged\s+as\s+${HEX}`, "gi");
+const mergedRe = () => new RegExp(String.raw`(?<![\w-])merged\s+(?:${TOKEN}\s+)?(?:into|to|onto)\s+${TOKEN}\s+(?:as|at)\s+${HEX}|(?<![\w-])merged\s+as\s+${HEX}`, "gi");
 // Both endpoints are bounded like the merge forms: hex inside a word, or a
 // forty-first digit, is not a commit at either end of `a..b`.
 const rangeRe = () => new RegExp(String.raw`(?<![\w-])\`?[0-9a-f]{7,40}\.\.${HEX}`, "gi");
@@ -371,20 +373,19 @@ function clausesOf(text) {
 /** The sha this run's own clauses assert: `undefined` when the text asserts
  * none, `null` when it cannot say whose merge it describes. A clause naming no
  * run continues the nearest earlier one that does; with none, the text is this
- * run's own lead thread. A clause naming this run and another names neither. */
-function ownedSha(text, run, others, pattern) {
+ * run's own lead thread. Unresolved rivals make a shared clause ambiguous. */
+function ownedSha(text, run, others, pattern, at) {
   if (!text) return undefined;
   const found = new Set();
   let owners = [];
   for (const clause of clausesOf(text)) {
-    const named = [run, ...others].filter((r) => r && (r === run ? namesRun(clause, run) : namesRival(clause, r, run)));
+    const named = [run, ...others].filter((r) => r && (r === run ? namesRun(clause, run) : namesRival(clause, r, run, at)));
     if (named.length) owners = named;
     const mine = owners.length === 0 || (owners.length === 1 && owners[0] === run);
     const shared = owners.length > 1 && owners.includes(run);
     for (const m of clause.matchAll(pattern())) {
-      // The whole prefix of the clause: a negation is still a negation however
-      // many words of explanation stand between it and the verb.
-      if (NEGATED.test(clause.slice(0, m.index))) continue;
+      const predicate = clause.slice(0, m.index).split(/\b(?:but|however|instead|(?<!\b(?:not|never)\s+|n['’]t\s+)yet)\b/i).at(-1);
+      if (NEGATED.test(predicate)) continue;
       if (shared) return null;
       if (mine) found.add(m[1] ?? m[2]);
     }
@@ -394,18 +395,18 @@ function ownedSha(text, run, others, pattern) {
 
 /** The sha a `docs(team): …` subject records for this run, or null. The subject
  * is comma-separated segments, one per run the commit records; a segment
- * qualifies when its task text names this run and no rival, and its sha is the
- * segment's LAST `merged as`, so a title carrying the phrase is not evidence.
+ * qualifies when its task text names this run and no unresolved rival. Its sha
+ * is the LAST `merged as`, so a title carrying the phrase is not evidence.
  * Exactly one qualifying segment is a record — none, or several, is not, even
  * when they agree. This is what makes a commit this run's record commit and
  * what reads the sha out of it: the two must not disagree. */
-export function recordCommitSha(subject, run, others = []) {
+export function recordCommitSha(subject, run, others = [], { at } = {}) {
   const text = String(subject ?? "");
   if (!/^docs\(team\):\s/i.test(text)) return null;
   const qualifying = [];
   for (const segment of text.replace(/^docs\(team\):\s*/i, "").split(",")) {
-    const m = /^(.*)\bmerged as `?([0-9a-f]{7,40})`?$/i.exec(segment.trim());
-    if (!m || !namesRun(m[1], run) || others.some((r) => namesRival(m[1], r, run))) continue;
+    const m = /^(.*)(?<![\w-])merged as `?([0-9a-f]{7,40})`?$/i.exec(segment.trim());
+    if (!m || !namesRun(m[1], run) || others.some((r) => namesRival(m[1], r, run, at))) continue;
     qualifying.push(m[2]);
   }
   return qualifying.length === 1 ? qualifying[0] : null;
@@ -413,12 +414,12 @@ export function recordCommitSha(subject, run, others = []) {
 
 /** The commit this run was merged as: its own clause in the closing text, else
  * the record commit's subject, else a "<a>..<b>" range this run's text owns. */
-export function mergedShaFrom(closing, recordSubject, { run = null, others = [] } = {}) {
-  const asserted = ownedSha(closing, run, others, mergedRe);
+export function mergedShaFrom(closing, recordSubject, { run = null, others = [], closingAt, recordAt } = {}) {
+  const asserted = ownedSha(closing, run, others, mergedRe, closingAt);
   if (asserted !== undefined) return asserted;
-  const recorded = recordCommitSha(recordSubject, run, others);
+  const recorded = recordCommitSha(recordSubject, run, others, { at: recordAt });
   if (recorded !== null) return recorded;
-  return ownedSha(closing, run, others, rangeRe) ?? null;
+  return ownedSha(closing, run, others, rangeRe, closingAt) ?? null;
 }
 
 export function renderMarkdown(r) {

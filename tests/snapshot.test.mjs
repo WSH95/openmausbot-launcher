@@ -117,6 +117,25 @@ test("awaitingQuiet marks a run idling toward its window; quietSettles says whet
   assert.deepEqual(marks({ complete: false, incomplete: ["bots: boom"] }), [undefined, undefined], "an incomplete snapshot says nothing about quiet");
 });
 
+for (const limit of ["dropMs", "stallMs"]) test(`quietSettles projects a ${limit} crossing at the end of quiet`, () => {
+  const now = T0 + 120_000;
+  const s = snap(limit === "dropMs" ? { outcomes: [{ id: "e1", at: now - 115_000, kind: "echo", name: "Nova", ok: true }] } : {});
+  const options = { now, quiet: { since: now - 10_000 }, quietMs: 30_000, lastChangeAt: now - 115_000, dropMs: 120_000, stallMs: 120_000 };
+  const ev = evaluate(s, task, options);
+  assert.equal(ev.state, "running"); assert.equal(ev.awaitingQuiet, true);
+  assert.equal(ev.quietSettles, true, "twenty more quiet seconds alone reach the stalled verdict");
+  assert.equal(evaluate(s, task, { ...options, now: now + 20_000 }).state, "stalled");
+  assert.equal(evaluate(s, task, { ...options, [limit]: 135_000 }).quietSettles, false, "meeting the threshold exactly does not cross it");
+  assert.equal(evaluate(s, task, { ...options, [limit]: 136_000 }).quietSettles, false, "a later threshold still needs more than quiet");
+});
+
+test("quietSettles forces the projected window closed independently of the clock epoch", () => {
+  const s = snap({ outcomes: [{ id: "e1", at: -145_000, kind: "echo", name: "Nova", ok: true }] });
+  const ev = evaluate(s, task, { now: -30_000, quiet: { since: -40_000 }, quietMs: 30_000, dropMs: 120_000 });
+  assert.equal(ev.state, "running");
+  assert.equal(ev.quietSettles, true, "the projection must enter the quiet branch at -10 s");
+});
+
 test("snapshot against the fake: team bots, discovered specialists, tails, outcomes, pending, marker, receipts", async (t) => {
   const f = await startFake(); t.after(() => f.close());
   const env = { OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir };

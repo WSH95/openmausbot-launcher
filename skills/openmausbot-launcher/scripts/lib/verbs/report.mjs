@@ -74,7 +74,7 @@ verb("report", {
     const taskLogText = taskLog ? (() => { try { return fs.readFileSync(path.join(cfg.projectDir, taskLog), "utf8"); } catch { return null; } })() : null;
     // One parser decides whether a subject records this run and what sha it
     // records: a commit whose sha cannot be read is not this run's record.
-    const recordCommit = taskLog ? commits.find((c) => recordCommitSha(c.subject, task, others) !== null && c.files.length > 0 && c.files.every((f) => f === taskLog || f.startsWith(".beads/"))) : null;
+    const recordCommit = taskLog ? commits.find((c) => recordCommitSha(c.subject, task, others, { at: c.at }) !== null && c.files.length > 0 && c.files.every((f) => f === taskLog || f.startsWith(".beads/"))) : null;
     const logEntry = taskLog ? taskLogEntry(taskLogText, task, { others, sinceMs, untilMs }) : null;
     // The task log moved for this run when a commit in its window touched it
     // AND the log carries an entry that names the run. A log that cannot be
@@ -83,7 +83,7 @@ verb("report", {
     const taskLogChanged = !taskLog ? null : taskLogText === null ? null : commits.some((c) => c.files.includes(taskLog)) && logEntry !== null;
     const bead = { ...beadStatus(task.bead, cfg.projectDir), applicable: Boolean(task.bead) };
     const closing = snap.leadText?.text ?? null;
-    const mergedSha = mergedShaFrom(closing, recordCommit?.subject, { run: task, others });
+    const mergedSha = mergedShaFrom(closing, recordCommit?.subject, { run: task, others, closingAt: snap.leadText?.at, recordAt: recordCommit?.at });
     // Tests are required evidence even when unset or intentionally skipped.
     const tests = flags["no-tests"] || cfg.dryRun || !context.ok ? { ran: false, ok: null, detail: cfg.dryRun ? "skipped: dry run" : flags["no-tests"] ? "skipped with --no-tests" : "unknown run facts" } : runTests(facts.test, cfg.projectDir);
     tests.applicable = true;
