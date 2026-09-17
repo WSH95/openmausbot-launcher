@@ -8,6 +8,51 @@ Run the relevant checks before marking work as verified in `HANDOFF.md`.
 | Tests | `npm test` | all pass |
 | Lint | `none` | clean |
 
+## Watch budget, report attribution and timing repairs (2026-09-17)
+
+Last verified: `main` at `0278dfd`, `npm test` under Claude Code with loopback
+available, **464 passed, 0 failed** in 81.5 s after the fast-forward merge of
+`fix/oml-fg8-j4r-2rc`. No OpenMausBot server was started and no bot turn was
+spent; every check below ran against `tests/fixtures/fake-omb.mjs`.
+
+Full-suite runs on the branch, all with zero failures:
+
+| Who | Tree | Result |
+| --- | --- | --- |
+| Opus implementer, round 1 | packages A to C | 418/418 five times: three plain (75 to 76 s), two with `mkdir -p .superpowers/tmp && TMPDIR=$PWD/.superpowers/tmp npm test` (79 s) |
+| Orchestrator | same | 418/418 in 82.7 s, while two Codex reviews ran |
+| Opus implementer, round 2 | review fixes and package D | 437/437 five times: three plain (78 to 80 s), two with the alternate `TMPDIR` (82 to 83 s) |
+| Orchestrator | same | 437/437 in 81.2 s |
+| Codex gpt-6-astra rescue | rescue changes, `omb-loopback-dev` profile | 463/463 twice (82.5 s, 83.2 s) |
+| Orchestrator | same | 463/463 in 102.4 s, alongside the Opus review's own runs |
+| Opus completeness review | same | 463/463 three times (plain, alternate `TMPDIR`, and concurrent with a stress loop) |
+| Orchestrator | branch head `0278dfd` | 464/464 in 77.6 s, then 464/464 on merged `main` |
+
+Stress for `oml-jc1`: `tests/watch.test.mjs` and `tests/report.test.mjs` passed
+20 of 20 back-to-back runs while 16 full suites ran alongside. One of those 16
+concurrent suites failed a test this work did not touch,
+`tests/repo.test.mjs:173` "a process that changes cwd after SIGTERM is not
+escalated or reported dead" (`result.killed` was `true`; the child missed
+`killOrphan`'s `graceMs: 100` under 16-way load). It is filed as `oml-507` and
+never failed in a normal run.
+
+The Opus completeness review mutated a scratch copy nine ways (word boundary,
+`quietSettles` projection, sticky deadline flag, rival rule, polarity split,
+the deadline boundary, the timeout rewrite, `mergeCheckpoint`'s `Math.max`,
+hint gating); each mutation turned between 1 and 9 tests red, so none of the
+new tests passes vacuously. The plan's guard proof for the watch-checkpoint
+test was also run by the implementer: with `Math.max` removed the integration
+test fails on `lastChangeAt`; the edit was reverted before the commit.
+
+Dry run against the fake (port 8799, temporary project and data directory):
+`watch --max-seconds 5` returned `state: "timeout"`, `quietFor: 4934`, the
+reason `idle for 5 s when the watch budget ended; the 30 s quiet window was not
+confirmed` and the hint `--max-seconds 5 cannot cover the 30 s quiet window;
+use 35 or more`, in JSON and in `--brief`; `report --no-tests` left the run
+open with the settlement hint; `watch --max-seconds 40` settled `attention`;
+`report --no-tests` then closed the run with `carried: true` and read
+`mergedSha: "abc1234"` from ``merged into `main` as `abc1234` ``.
+
 ## OpenClaw Telegram bot rotation (2026-09-17)
 
 Final safe snapshot: `2026-09-17T11:40:11Z`; OpenClaw `2026.9.4 (3a9d69d)`.

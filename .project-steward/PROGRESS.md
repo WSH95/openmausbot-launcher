@@ -3,6 +3,32 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-17 — Watch budget, report attribution and timing repairs merged
+The three non-macOS beads and one found on the way are closed: `oml-fg8`,
+`oml-j4r`, `oml-2rc`, `oml-jc1`. `main` fast-forwarded from `2234084` to
+`0278dfd` (eight commits from `fix/oml-fg8-j4r-2rc`); the merged tree passed
+464/464 in 81.5 s. The worktree and both merged branches were removed. Nothing
+was pushed, no OpenMausBot server was started and no bot turn was spent.
+
+`oml-fg8` was not an attribution defect. After T14 closed, every
+`watch --run t15` ran 8 to 20 s against the 30 s quiet window, so it returned
+its first evaluation, `idle for 0 s`. A timeout now reports the idle time it
+observed; `watch` adds a budget hint, and `report` a settlement hint, only
+where the quiet window alone would settle the run (`quietSettles`). `oml-jc1`
+made reaching the deadline in the idle wait an observation boundary, which
+removed the unverified timeouts that about one in eight loaded watches hit.
+`oml-j4r` rewrote task-log and merged-commit attribution so that nothing is
+attributed by guess. `oml-2rc` replaced two timing guesses with conditions;
+two of its four listed tests had already been repaired.
+
+The user's pipeline ran in full: two gpt-6-astra plan reviews, an Opus 5
+implementer, two gpt-5.6-sol code reviews, then the two-rounds rule (a
+gpt-6-astra rescue and an Opus 5 completeness review, which found one last
+gap in merge denial forms). The record is
+`docs/review/2026-09-17-watch-budget-report-attribution.md`. Filed and left
+open: `oml-507` (a 100 ms grace guess in `tests/repo.test.mjs`) and `oml-47p`
+(two remaining near-deadline reads that return unverified).
+
 ### 2026-09-17 — OpenClaw Telegram rotation integrated into main
 The user chose local integration. `main` fast-forwarded from `5940e89` to
 `581188e`, including the security checkpoint. The merged tree passed all 404

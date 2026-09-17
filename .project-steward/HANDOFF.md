@@ -1,6 +1,6 @@
 ---
-updated_at: 2026-09-17
-updated_by: codex
+updated_at: 2026-09-17T19:35:39Z
+updated_by: claude
 session_status: closed
 branch: main
 ---
@@ -8,73 +8,102 @@ branch: main
 
 ## Now
 
-The OpenClaw Telegram token rotation is integrated into `main`. The user chose a
-local merge, so `main` fast-forwarded from `5940e89` to `581188e`. The merged tree
-passed all 404 tests under `omb-loopback-dev` in 88.498 s. The clean feature
-worktree was removed and its fully merged branch was deleted. Nothing was pushed.
+The three non-macOS beads are closed, plus one found on the way: `oml-fg8`,
+`oml-j4r`, `oml-2rc`, `oml-jc1`. `main` fast-forwarded from `2234084` to
+`0278dfd` (eight commits); the merged tree passed 464/464 tests in 81.5 s.
+Nothing was pushed, no OpenMausBot server was started and no bot turn was
+spent. Every check ran against `tests/fixtures/fake-omb.mjs`.
 
-The earlier screenshot-exposed token was independently confirmed revoked before
-the replacement for `OpenClaw Laptop` (`@WSHOpenClawLaptopBot`, id `8904072141`)
-was privately staged, token-safely validated and atomically installed in the 0600
-token file. The gateway is active. `dmPolicy=pairing` and
-`groupPolicy=disabled` remain in force. BotFather group joining is enabled by the
-user's choice, but OpenClaw still refuses group processing. The existing approved
-sender remains valid under the default account. The previous validation bot,
-`@OMBLauncherCheckBot`, was deleted after the replacement passed the DM gate.
-Bead `oml-8v0` is closed. No secret is stored in the repository or handoff. No
-OpenMausBot server was started, and no OMB bot turn was used.
+What changed for an operator: a `watch` that times out while the run is idle
+now reports the idle time it observed instead of `idle for 0 s`, and, only
+where the quiet window alone would settle the run, names the budget it needs
+in JSON and in `--brief`. `report` on such a run says to watch with
+`--max-seconds 35` or more and report again. Reaching the deadline in the
+idle wait ends the observation on the last verified view, so a timed-out watch
+can now return `checkpointed: true` where it used to return an unverified
+line. The report attributes the task-log entry and the merged commit by rule
+and returns `null` when it cannot tell; T15's closing text from the
+2026-09-17 run stays `unknown` on purpose.
 
 ## In flight
 
-Nothing is in flight. `main` is the only registered worktree. The token file
-remains outside the repository and was not read here. Existing unrelated ready
-Beads remain preserved for future work.
+Nothing. `main` is the only worktree and the working tree is clean after this
+handoff's commit. The feature worktree and its two merged branches were
+removed.
 
 ## Next steps
 
-1. Claim `oml-fg8` with `bd update oml-fg8 --claim`, reproduce the two-run
-   settlement failure against the fake server, and fix it test-first.
-2. Claim `oml-j4r` and add report regressions for task-log headings that omit
-   the run name and for `merged into main as <sha>` commit text.
-3. Claim `oml-2rc` and use its preserved 2026-09-17 recurrence to replace the
-   fixed timing assumption with a condition-based wait; keep the focused and
-   full-suite evidence together.
-4. Leave `oml-hou` open until macOS work is requested and a Mac or an explicit
+1. `oml-47p` (P3): read its description with `bd show oml-47p`. Decide the
+   rule for a quiet-bound wait that ends a few milliseconds before the
+   deadline (`skills/openmausbot-launcher/scripts/lib/watch.mjs`, the idle
+   wait near the end of `watchRun`); `tests/watch-deadline.test.mjs` pins that
+   wake as a re-read today, so write the new expectation first. Do not use a
+   time threshold. The `streamReady` early-rejection boundary is the second
+   half of the same bead.
+2. `oml-507` (P3): in `tests/repo.test.mjs:173`, replace the dependence on
+   `killOrphan`'s `graceMs: 100` with a condition (have the child report that
+   its SIGTERM handler ran) or a generous bound; keep the production default.
+   It failed once in 16 concurrent full suites and never in a normal run.
+3. Leave `oml-hou` open until macOS work is requested and a Mac or an explicit
    implementation decision is available.
+4. The next real parallel run should confirm the new output on OpenMausBot
+   0.1.56: after closing the first run, `report --run <b>` should carry the
+   settlement hint, one `watch --run <b> --max-seconds 35` or longer should
+   settle it, and a second report should close it. Record it in
+   `docs/evidence.md`; the fake-server checks are not evidence.
 
 ## Blockers
 
-None for the launcher. The macOS lifecycle task needs a Mac or a user decision.
+None for the launcher. The macOS lifecycle task needs a Mac or a user
+decision.
 
 ## Key files
 
-- `docs/evidence.md`: historical phone validation and the dated token-rotation
-  remediation note.
-- `.project-steward/VERIFY.md`, `DECISIONS.md` 0018, and `RISKS.md`: safe
-  checks, gateway-boundary decision and screenshot/UI-capture mitigation.
-- Bead `oml-2rc`: the pre-merge timing failure, focused pass and two subsequent
-  full-suite passes.
-- `skills/openmausbot-launcher/assets/codex/omb-loopback.config.toml` and
-  `skills/openmausbot-launcher/references/hosts.md`: the completed, unrelated
-  Codex loopback profile work.
+- `docs/review/2026-09-17-watch-budget-report-attribution.md`: the pipeline,
+  what each bead turned out to be, the decisions the reviews changed, and what
+  was left open.
+- `.project-steward/VERIFY.md`, first section: every full-suite run, the
+  stress counts, the mutation results and the fake-server dry run.
+- `skills/openmausbot-launcher/scripts/lib/watch.mjs`: `watchBudgetHint`, the
+  timeout rewrite, and the deadline boundary at the end of the loop.
+- `skills/openmausbot-launcher/scripts/lib/snapshot.mjs`: `awaitingQuiet` and
+  `quietSettles` in `evaluate`.
+- `skills/openmausbot-launcher/scripts/lib/report.mjs`: `taskLogEntry`,
+  `mergedShaFrom`, `recordCommitSha`, `namesRival`.
+- `tests/watch-deadline.test.mjs` and `heldWatchTimers` in `tests/helpers.mjs`:
+  the held virtual clock for the deadline tests.
+- `docs/design.md`: the task lifecycle paragraph that replaced the "Known
+  gap", the settlement block, and the `watch` loop's deadline rules.
 
 ## Tried and rejected
 
-- The default `workspace-write` sandbox cannot run the launcher's loopback
-  listener or client. Broad `danger-full-access` remains a fallback, not the
-  portable default; the opt-in profile is the least-privilege path.
-- The Codex skill-creator quick validator rejects the pre-existing
-  `compatibility` frontmatter key. The repository's Agentskills contract tests
-  accept it, so deleting the cross-host declaration was rejected.
-- The first pre-merge full test run hit the existing timing-shaped watch flake.
-  The focused test and both subsequent full runs passed, so changing production
-  code during this documentation-only task was rejected. Bead `oml-2rc` retains
-  the failure for a condition-based repair.
+- Keeping `state` and `lastReported` on a timeout checkpoint so a short watch
+  cannot erase a verdict: it can preserve a verdict the watch itself saw
+  invalidated, and it makes every short watch read as a change, which breaks
+  `--quiet-if-unchanged` and `--until change`.
+- Persisting quiet across `watch` invocations: `docs/design.md` forbids it,
+  and the real defect was the output, not the algorithm.
+- Accepting a bare `` `main` at `<sha>` `` as a merge assertion: it says where
+  a branch is, and ancestry cannot tell a right sha from a wrong one.
+- Letting the time window select a task-log entry: parallel runs overlap, so
+  the window only excludes.
+- Fixing `oml-jc1` with a minimum-budget threshold before a read: a condition
+  (the wait was the deadline's, nothing arrived, inputs unchanged) replaced
+  it.
+- The Codex companion for max-effort work: it rejects `--effort max`, and its
+  forwarder refuses under plan mode. Use `codex exec -m <model> -c
+  model_reasoning_effort="max"` with `--sandbox read-only` for reviews, or
+  `-c default_permissions="omb-loopback-dev"` for a rescue that must run the
+  suite. Such a rescue cannot commit from a worktree.
 
 ## Warnings
 
-Treat every token shown in a screenshot or UI capture as compromised. Keep it out
-of browser automation, argv and transcripts; revoke it before replacement and use
-a user-owned 0600 token file. The default `workspace-write` sandbox cannot run
-the loopback-dependent tests; select `omb-loopback-dev` for repository testing.
-Every push still requires explicit user permission.
+Never run `watch` below `--max-seconds 35` with the default quiet window; the
+driver now says so, but a shorter watch still cannot settle a run.
+`heldWatchTimers` finds the watch's timers by the callback names `wokeUp`,
+`reachDeadline` and `done` in `watch.mjs`; renaming them makes the deadline
+tests fail with "the watch never installed a … timer". Treat every token shown
+in a screenshot or UI capture as compromised. The default Codex
+`workspace-write` sandbox cannot run the loopback-dependent tests; select
+`omb-loopback-dev` for repository testing. Every push still requires explicit
+user permission.
