@@ -1,5 +1,6 @@
 // answer: the user's decision on whatever a bot is waiting for (design,
 // "Answering"). One request, one mode, one call.
+import fs from "node:fs";
 import { verb, EXIT, Fail, VERBS } from "../cli.mjs";
 import { createClient, refused } from "../http.mjs";
 import { snapshot } from "../snapshot.mjs";
@@ -17,9 +18,11 @@ const MODES = [
   ["allow", (f) => f.allow === true || f.confirm === true],
   ["deny", (f) => f.deny === true || f.cancel === true],
   ["answer", (f) => f.message !== undefined],
+  ["provide", (f) => f.provide === true],
+  ["dismiss", (f) => f.dismiss === true],
 ];
 const modesIn = (flags) => MODES.filter(([, has]) => has(flags)).map(([name]) => name);
-const MODE_FLAGS = "--allow (--confirm), --deny (--cancel), --message";
+const MODE_FLAGS = "--allow (--confirm), --deny (--cancel), --message, --provide, --dismiss";
 
 /** Which modes each kind of request accepts, and what it is called when it refuses one. */
 const KINDS = {
@@ -30,7 +33,40 @@ const KINDS = {
   // rejects the staged write (index.ts:6470-6504), so `--message` would throw
   // the skill away while reading like a comment.
   skill: { label: "a learned-skill card", accepts: ["allow", "deny"], use: "--allow --reviewed <sha256> or --deny; a message would reject the skill" },
+  secret: { label: "a credential request", accepts: ["provide", "dismiss"], use: "--provide or --dismiss" },
 };
+
+/**
+ * Where each credential id is stored. The id is the whole authority surface:
+ * a bot names one of these five and never a config path
+ * (S: shared/credential-request.ts:6-38, 52-65).
+ */
+const CREDENTIAL_PATCH = {
+  xaiApiKey: (value) => ({ xai: { key: value } }),
+  boxToken: (value) => ({ box: { token: value } }),
+  opencodeGoApiKey: (value) => ({ opencodeGo: { apiKey: value } }),
+  ttsKey: (value) => ({ tts: { key: value } }),
+  openaiImageApiKey: (value) => ({ imageGen: { key: value } }),
+};
+
+/**
+ * The value, from the environment or from stdin — never from argv, where a
+ * process list would show it. It is read once and `OMB_SECRET` is removed from
+ * this process's environment immediately, so nothing later in the run can pass
+ * it on. Null means the user has not supplied one yet.
+ */
+function readSecretValue(flags) {
+  const supplied = Object.hasOwn(process.env, "OMB_SECRET");
+  const fromEnv = supplied ? process.env.OMB_SECRET : undefined;
+  if (supplied) delete process.env.OMB_SECRET;
+  const fromStdin = flags["secret-stdin"] === true;
+  if (supplied && fromStdin) throw new Fail(EXIT.USAGE, "pass the value through OMB_SECRET or --secret-stdin, not both");
+  if (!supplied && !fromStdin) return null;
+  // One trailing newline is the shell's, not the credential's.
+  const value = (fromStdin ? fs.readFileSync(0, "utf8") : fromEnv).replace(/\r?\n$/, "");
+  if (!value) throw new Fail(EXIT.USAGE, fromStdin ? "--secret-stdin read an empty value" : "OMB_SECRET is empty");
+  return value;
+}
 
 /** How a pending entry is named to the user and matched by `--request`. */
 const handleOf = (p) => p.handle ?? p.requestId ?? p.messageId ?? p.kind;
@@ -41,6 +77,7 @@ verb("answer", {
   options: {
     allow: { type: "boolean" }, deny: { type: "boolean" }, message: { type: "string" },
     confirm: { type: "boolean" }, cancel: { type: "boolean" }, reviewed: { type: "string" },
+    provide: { type: "boolean" }, "secret-stdin": { type: "boolean" }, dismiss: { type: "boolean" },
     request: { type: "string" }, run: { type: "string" },
   },
   allowPositionals: true,
@@ -82,6 +119,7 @@ verb("answer", {
     if (!spec.accepts.includes(behavior)) throw new Fail(EXIT.USAGE, `request ${handleOf(target)} is ${spec.label}: use ${spec.use}`);
     if (kind === "routine") return routine(client, cfg, target, behavior);
     if (kind === "skill") return skill(client, cfg, target, behavior, flags.reviewed);
+    if (kind === "secret") return secret(client, cfg, target, behavior, flags);
     if (cfg.dryRun) return { result: { dryRun: true, requestId: target.requestId, threadId: target.threadId, behavior } };
     const res = await client.post(`/api/threads/${target.threadId}/respond`, { requestId: target.requestId, behavior, ...(behavior === "answer" ? { message: flags.message } : {}) });
     const outcome = res.outcome ?? "unknown";
@@ -97,6 +135,53 @@ verb("answer", {
     return { result: { requestId: target.requestId, threadId: target.threadId, bot: target.botName, behavior, outcome, fellBackToSend, sent }, brief: `answer · ${target.botName} · ${behavior} → ${outcome}${fellBackToSend ? " (sent as chat instead)" : ""}` };
   }, { lockWhen: ({ flags }) => modesIn(flags).length > 0 }),
 });
+
+/**
+ * A credential request. The card is a handoff, not a channel: the value never
+ * travels through chat, so the driver writes it to the server's settings with
+ * `PUT /api/config` and then tells the card it was saved. The server checks
+ * that for itself before it resumes the bot (`index.ts:12198-12200`), which is
+ * why the two steps are reported separately when the second one fails: the
+ * credential is on the server either way.
+ */
+async function secret(client, cfg, target, mode, flags) {
+  const card = target.secret ?? {};
+  const label = card.label ?? card.target;
+  const route = (action) => `/api/bots/${target.botId}/secret-cards/${target.messageId}/${action}`;
+  const base = { messageId: target.messageId, threadId: target.threadId, bot: target.botName, kind: "secret", target: card.target ?? null, label };
+  if (mode === "dismiss") {
+    if (cfg.dryRun) return { result: { dryRun: true, ...base, action: "dismiss" } };
+    let res;
+    try { res = await client.post(route("dismiss"), { threadId: target.threadId }); }
+    catch (e) { throw refused(e, "the card was not dismissed; read the server's words"); }
+    // Declining is an answer: the bot is told to carry on without it
+    // (index.ts:6781).
+    return { result: { ...base, dismissed: res.dismissed === true, resumed: res.resumed === true, woken: true }, brief: `answer · ${target.botName} · declined the ${label}` };
+  }
+  const patch = CREDENTIAL_PATCH[card.target];
+  if (!patch) throw new Fail(EXIT.NEEDS_USER, `the driver does not know where to store ${card.target}`, { hint: "provide it in OpenMausBot's app" });
+  // Saving a Box token makes the server inventory the cloud computers that
+  // account owns and refuse the whole write when it cannot (index.ts:11752-11790).
+  // That is a conversation with a provider, not a settings write; it belongs
+  // where the person can see what it did.
+  if (card.target === "boxToken") throw new Fail(EXIT.PRECONDITION, "boxToken has cloud side effects; provide it in the app", { hint: `saving it makes the server list and verify the cloud computers on that account; open OpenMausBot and paste it there, then answer --provide is not needed — or answer --dismiss --request ${target.messageId} to let the bot continue without it` });
+  // The preview names the two routes and stops: reading the value here would
+  // put it in a dry run's output.
+  if (cfg.dryRun) return { result: { dryRun: true, ...base, action: "provide", would: ["PUT /api/config", `POST ${route("provided")}`] } };
+  const value = readSecretValue(flags);
+  if (value === null) throw new Fail(EXIT.NEEDS_USER, `ask the user for the ${label}`, { hint: `pass it via OMB_SECRET or --secret-stdin, never in chat or argv${card.helpUrl ? `; it comes from ${card.helpUrl}` : ""}` });
+  try { await client.put("/api/config", patch(value)); }
+  catch (e) { throw refused(e, `the ${label} was not saved and the card is untouched`); }
+  try {
+    const res = await client.post(route("provided"), { threadId: target.threadId });
+    return { result: { ...base, provided: res.provided === true, resumed: res.resumed === true, woken: true }, brief: `answer · ${target.botName} · ${label} saved, the card resumed` };
+  } catch (e) {
+    throw new Fail(EXIT.PRECONDITION, `the ${label} was saved, the card was not resumed: ${e.body?.error ?? e.message}`, {
+      status: e.status,
+      hint: `the value is stored on the server now; run the same --provide again once that clears, or answer --dismiss --request ${target.messageId} to let the bot continue without it`,
+    });
+  }
+}
 
 /**
  * A learned-skill card. The skill stays staged until this answer, and the

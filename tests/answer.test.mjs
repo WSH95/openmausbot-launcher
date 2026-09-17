@@ -2,9 +2,11 @@
 // learned skills, routine confirmations, credentials and connected apps.
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import path from "node:path";
 import { startFake, makeRepo, runOmb, ROOT } from "./helpers.mjs";
 import { statePaths, loadState } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
+import { STRIPPED_ENV } from "../skills/openmausbot-launcher/scripts/lib/server.mjs";
 
 const PKG = path.join(ROOT, "tests", "fixtures", "dev-team.package.json");
 const env = { OMB_TOKEN: "" };
@@ -173,5 +175,69 @@ test("a connection and a credential card are named by the message they arrived o
   assert.equal(r.code, 5, r.stdout); assert.match(r.json.error, /connector request the driver cannot answer/);
   const secret = await f.control({ op: "secret", threadId: novaThread, target: "ttsKey" });
   r = await runOmb(["answer", "--allow", "--request", secret.message.id, "--project", dir], { env });
-  assert.equal(r.code, 5, r.stdout); assert.match(r.json.error, /secret request the driver cannot answer/);
+  assert.equal(r.code, 2, r.stdout); assert.match(r.json.error, /is a credential request: use --provide or --dismiss/);
+});
+
+test("credential: the value reaches the server through the environment or stdin and appears nowhere else", async (t) => {
+  const { f, dir, lead } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const lt = run.json.leadThreadId;
+  const VALUE = "xai-0d8e-never-log-me";
+  const card = await f.control({ op: "secret", threadId: lt, target: "xaiApiKey", reason: "so Grok can run." });
+  let r = await runOmb(["status", "--project", dir, "--brief"], { env });
+  assert.equal(r.stdout, `t10 · CREDENTIAL · Sudo needs the xAI API key → OMB_SECRET=… omb answer --provide --request ${card.message.id} | --dismiss\n`);
+  r = await runOmb(["answer", "--provide", "--secret", VALUE, "--project", dir], { env });
+  assert.equal(r.code, 2, "there is no flag that would put a credential in argv"); assert.match(r.json.error, /Unknown option '--secret'/);
+  r = await runOmb(["answer", "--provide", "--project", dir], { env });
+  assert.equal(r.code, 5, r.stdout);
+  assert.match(r.json.error, /ask the user for the xAI API key/);
+  assert.match(r.json.hint, /OMB_SECRET or --secret-stdin, never in chat or argv/);
+  assert.equal((await (await fetch(`${f.url}/api/config`)).json()).xai.configured, false, "nothing was saved without a value");
+  r = await runOmb(["answer", "--provide", "--project", dir, "--dry-run"], { env: { ...env, OMB_SECRET: VALUE } });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.dryRun, true); assert.equal(r.stdout.includes(VALUE), false, "a preview shows the routes, never the value");
+  assert.equal((await (await fetch(`${f.url}/api/config`)).json()).xai.configured, false);
+  r = await runOmb(["answer", "--provide", "--project", dir], { env: { ...env, OMB_SECRET: `${VALUE}\n` } });
+  assert.equal(r.code, 0, r.stdout);
+  assert.equal(r.json.provided, true); assert.equal(r.json.resumed, true); assert.equal(r.json.label, "xAI API key");
+  assert.equal((await (await fetch(`${f.url}/api/config`)).json()).xai.configured, true, "one trailing newline is stripped and the rest is saved");
+  assert.equal((await f.snapshot()).wakes.filter((w) => w.kind === "secret").length, 1, "the bot is woken to continue");
+  const written = [r.stdout, r.stderr, JSON.stringify(await f.snapshot()), fs.readFileSync(path.join(dir, ".omb", "state.json"), "utf8"), JSON.stringify(await thread(f, lt))];
+  for (const text of written) assert.equal(text.includes(VALUE), false, "the value is in no transcript, state file or control snapshot");
+  const second = await f.control({ op: "secret", threadId: lt, target: "ttsKey" });
+  r = await runOmb(["answer", "--provide", "--secret-stdin", "--request", second.message.id, "--project", dir], { env, stdin: "eleven-labs-key\n" });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.target, "ttsKey");
+  assert.equal((await (await fetch(`${f.url}/api/config`)).json()).tts.configured, true);
+  const third = await f.control({ op: "secret", threadId: lt, target: "openaiImageApiKey" });
+  r = await runOmb(["answer", "--provide", "--secret-stdin", "--request", third.message.id, "--project", dir], { env: { ...env, OMB_SECRET: VALUE }, stdin: "x" });
+  assert.equal(r.code, 2, r.stdout); assert.match(r.json.error, /not both/);
+  assert.equal((await (await fetch(`${f.url}/api/config`)).json()).imageGen.configured, false, "two sources is a usage error before anything is saved");
+  assert.equal(lead.name, "Sudo");
+});
+
+test("credential: a Box token is refused, a dismissal wakes the bot, and a save the card did not accept says so", async (t) => {
+  const { f, dir } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const lt = run.json.leadThreadId;
+  const box = await f.control({ op: "secret", threadId: lt, target: "boxToken" });
+  let r = await runOmb(["answer", "--provide", "--request", box.message.id, "--project", dir], { env: { ...env, OMB_SECRET: "box-token" } });
+  assert.equal(r.code, 3, r.stdout);
+  assert.match(r.json.error, /boxToken has cloud side effects; provide it in the app/);
+  assert.equal((await (await fetch(`${f.url}/api/config`)).json()).box.configured, false, "a refused target is never saved");
+  r = await runOmb(["answer", "--dismiss", "--request", box.message.id, "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.dismissed, true); assert.equal(r.json.resumed, true); assert.equal(r.json.woken, true);
+  assert.equal((await f.snapshot()).wakes.filter((w) => w.kind === "secret").length, 1, "declining is an answer too: the bot continues without it");
+  const card = await f.control({ op: "secret", threadId: lt, target: "opencodeGoApiKey" });
+  await f.control({ op: "phoneSaving", messageId: card.message.id, saving: true });
+  r = await runOmb(["answer", "--provide", "--request", card.message.id, "--project", dir], { env: { ...env, OMB_SECRET: "opencode-key" } });
+  assert.equal(r.code, 3, r.stdout);
+  assert.match(r.json.error, /OpenCode API key was saved, the card was not resumed: this credential is currently being saved from a phone/);
+  assert.match(r.json.hint, /the value is stored on the server now/);
+  assert.equal((await (await fetch(`${f.url}/api/config`)).json()).opencodeGo.configured, true, "the save happened; only the card is behind");
+  await f.control({ op: "phoneSaving", messageId: card.message.id, saving: false });
+  r = await runOmb(["answer", "--provide", "--request", card.message.id, "--project", dir], { env: { ...env, OMB_SECRET: "opencode-key" } });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.resumed, true);
+});
+
+test("OMB_SECRET never reaches a server this launcher starts", () => {
+  assert.equal(STRIPPED_ENV.includes("OMB_SECRET"), true);
 });

@@ -10,7 +10,11 @@ import { spawn } from "node:child_process";
 import { EXIT, Fail } from "./cli.mjs";
 import { HttpError } from "./http.mjs";
 
-export const STRIPPED_ENV = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "XAI_API_KEY", "OMB_TOKEN"];
+// Names that must not reach a server this launcher starts: the CLI forwards
+// its whole environment (cli.ts:434), a bot would bill a provider key it finds
+// there, and OMB_SECRET carries a credential this launcher was asked to save
+// once, through `/api/config`, and never to hand to a child.
+export const STRIPPED_ENV = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "XAI_API_KEY", "OMB_TOKEN", "OMB_SECRET"];
 export const hasProc = () => process.platform === "linux" && fs.existsSync("/proc/self/stat");
 
 /** pid, ppid, start ticks, and argv of a process, or null when it is gone or unreadable. */
