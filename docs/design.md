@@ -365,11 +365,23 @@ The connection line asks for `--connect` while the card is `required` or
 `failed` and for `--resume` once it is `authorizing` or `connected`, since
 from then on what is missing is the status read, not another authorization;
 the credential line offers `--resume` only on a card whose wake failed.
-A connection whose account went live, and a credential already saved, need
-nothing from the user, so they leave `pending` (mirroring
-`mcp-server.ts:652-660`) and are kept in `resumable`: each is still the card
-a resume acts on, and a connection's siblings decide whether that resume is
-allowed.
+A connection whose account went live, and a credential already settled
+(provided or declined), need nothing from the user, so they leave `pending`
+(mirroring `mcp-server.ts:652-660`) and are kept in `resumable`: each is still
+the card a resume acts on, and a connection's siblings decide whether that
+resume is allowed. `status` and `watch` report `resumable[]` beside
+`pending[]`, and a run remembers those cards' owners exactly as it remembers a
+pending card's, so the resume still knows whose it is after the next watch.
+
+The wake that should restart the bot is asynchronous and can fail by itself,
+leaving `resumed:false` and an `error` on the card
+(`markSecretResumeFailed` `index.ts:6767-6773`, `markConnectorResumeFailed`
+`:6624-6631`). Such a card is `needs-user` for its run, so a watch cannot call
+the run done while it waits for a resume nobody asked for. A live connection
+with no error counts the same way only once no sibling sharing its `resumeKey`
+is still pending — until then that sibling is the step to take. `evidenceOf`
+carries `resumable` (version 3) so a verdict cannot be carried across one
+appearing.
 
 ```
 busy     = team bots with busy, or activity in {working, waiting-on-you, no-signal}, attributed to THIS run
@@ -380,7 +392,8 @@ quiet    = !inflight for ≥ 30 s across two consecutive complete snapshots insi
            across invocations and resets on resumed:false, on an incomplete snapshot, or on progress
 snapshot incomplete                                                           -> running (unknown), no terminal state
 any team bot waiting-on-you, or an unanswered card, connector or secret request
-  on any run thread                                                           -> needs-user (5)   [precedence over failure, as upstream]
+  on any run thread, or a SETTLED card whose wake never fired (a resumable card carrying
+  `error`, or a live connection with no pending sibling)                      -> needs-user (5)   [precedence over failure, as upstream]
 lead dead                                                                     -> failed (6)
 not quiet                                                                     -> running
 quiet && dispatchFailedAfterLatestUser (exact mirror: no bot text after the last user

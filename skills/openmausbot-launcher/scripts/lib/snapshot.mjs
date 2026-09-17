@@ -461,7 +461,10 @@ export async function snapshot(client, state, { dataDir = null, runtimeTrusted =
   const pendingOwners = new Map([...pendingAll, ...resumableAll].map((p) => [cardKeyOf(p), ownersOf(p)]));
   const cardsByRun = Object.fromEntries(runs.map((r) => [r.runId, {}]));
   const cardOwners = {};
-  for (const p of pendingAll) {
+  // A resumable card is remembered exactly like a pending one: it is still an
+  // unsettled request from this run's point of view, and forgetting its owner
+  // would make the resume need `--request` after the next watch.
+  for (const p of [...pendingAll, ...resumableAll]) {
     const key = cardKeyOf(p); const owners = pendingOwners.get(key);
     if (owners.length !== 1 || owners.uncertain) continue;
     const location = { threadId: p.threadId, botId: p.botId };
@@ -502,6 +505,7 @@ export async function snapshot(client, state, { dataDir = null, runtimeTrusted =
       if (!run) return p;
       const owners = pendingOwners.get(cardKeyOf(p));
       const mine = owners.length === 1 && !owners.uncertain && owners[0].runId === run.runId;
+      if (mine && !run.cards?.[cardKeyOf(p)]) claims.push(cardKeyOf(p));
       return { ...p, shared: !mine, ...(mine ? { run: run.runId } : {}) };
     });
     const runThreads = run
@@ -546,6 +550,25 @@ export async function snapshot(client, state, { dataDir = null, runtimeTrusted =
   };
 }
 
+/**
+ * Which settled-but-unresumed cards still hold their run up. The wake that
+ * should have restarted the bot is asynchronous and can fail on its own
+ * (`markSecretResumeFailed`, index.ts:6767-6773; `markConnectorResumeFailed`,
+ * :6624-6631), which leaves an `error` on the card and nothing pending — so
+ * without this a watch would call such a run done while it waits for a resume
+ * nobody asked for. A live connection with no error is the same thing only
+ * once no sibling in its request is still pending: until then that sibling is
+ * the step to take, and naming both would ask for the wrong one.
+ */
+export function stuckResumable(snap) {
+  const pendingKeys = new Set((snap.pending ?? []).filter((p) => p.kind === "connector").map((p) => p.connector?.resumeKey));
+  return (snap.resumable ?? []).filter((p) => {
+    if (p.connector?.error || p.secret?.error) return true;
+    if (p.kind === "connector") return !pendingKeys.has(p.connector?.resumeKey);
+    return true;
+  });
+}
+
 /** Timestamp ties are knowable only for messages present in this hydration. */
 function leadAfter(snap, other) {
   if (!snap.leadText || !other) return false;
@@ -562,9 +585,12 @@ const ordered = (list) => [...(list ?? [])].map(canonical).sort((a, b) => stable
 
 /** Persist all evidence needed to conservatively carry a terminal verdict. */
 export function evidenceOf(snap) {
-  return canonical({ version: 2, complete: snap.complete, leadThreadId: snap.leadThreadId, lead: snap.lead, leadText: snap.leadText, lastUser: snap.lastUser, markerSeen: snap.markerSeen, openDelegations: snap.openDelegations ?? null,
+  // Version 3 adds `resumable`: a card that settled without waking its bot is
+  // evaluation input, so a verdict carried from before it appeared would be
+  // carried over a run that is not finished.
+  return canonical({ version: 3, complete: snap.complete, leadThreadId: snap.leadThreadId, lead: snap.lead, leadText: snap.leadText, lastUser: snap.lastUser, markerSeen: snap.markerSeen, openDelegations: snap.openDelegations ?? null,
     leadOrder: (snap.leadTail ?? []).filter((m) => m.id === snap.leadText?.id || m.id === snap.lastUser?.id || snap.outcomes.some((o) => o.id === m.id)).map((m) => m.id),
-    outcomes: ordered(mergeOutcomes(snap.outcomes)), pending: ordered(snap.pending), bots: ordered(snap.bots), teamMap: { queued: ordered(snap.teamMap.queued), running: ordered(snap.teamMap.running) }, dispatchFailed: snap.dispatchFailed });
+    outcomes: ordered(mergeOutcomes(snap.outcomes)), pending: ordered(snap.pending), resumable: ordered(snap.resumable), bots: ordered(snap.bots), teamMap: { queued: ordered(snap.teamMap.queued), running: ordered(snap.teamMap.running) }, dispatchFailed: snap.dispatchFailed });
 }
 
 export function carriedVerdict(snap, task) {
@@ -572,7 +598,7 @@ export function carriedVerdict(snap, task) {
   if (!last?.evidence || !["done", "attention", "stalled", "failed"].includes(last.state)) return null;
   // The busy flags are already this run's (another run's working bot reads as
   // idle here), so trust them rather than the whole-fleet activity string.
-  if (!snap.complete || !snap.lead || snap.pending.length || snap.bots.some((b) => b.busy) || snap.teamMap.queued.length || snap.teamMap.running.length || (snap.openDelegations?.total ?? 0) > 0) return null;
+  if (!snap.complete || !snap.lead || snap.pending.length || stuckResumable(snap).length || snap.bots.some((b) => b.busy) || snap.teamMap.queued.length || snap.teamMap.running.length || (snap.openDelegations?.total ?? 0) > 0) return null;
   if (stable(last.evidence) !== stable(evidenceOf(snap))) return null;
   if (["done", "attention"].includes(last.state) && evaluate(snap, task, { quiet: { since: 0 }, quietMs: 0 }).state !== last.state) return null;
   return last.state;
@@ -591,7 +617,11 @@ export function evaluate(snap, task, { now = Date.now(), quiet = { since: null }
   const isQuiet = !inflight && quietFor >= quietMs;
   const base = { inflight, busy: busy.map((b) => b.name), quietFor, quiet: isQuiet };
   if (!snap.complete || !snap.lead) return { state: "running", unknown: true, reasons: ["incomplete snapshot", ...snap.incomplete], ...base };
-  if (snap.pending.length) return { state: "needs-user", reasons: snap.pending.map((p) => `${p.botName ?? p.botId}: ${p.kind}${p.requestId ? ` ${p.requestId}` : ""}`), pending: snap.pending, ...base };
+  // A card whose wake never fired asks for the same thing a pending one does:
+  // one more call from here. It is listed after the pending requests, which
+  // are the more direct step when both exist.
+  const waiting = [...snap.pending, ...stuckResumable(snap)];
+  if (waiting.length) return { state: "needs-user", reasons: waiting.map((p) => `${p.botName ?? p.botId}: ${p.kind}${p.requestId ? ` ${p.requestId}` : ""}${p.connector?.error || p.secret?.error ? " (its wake failed)" : ""}`), pending: waiting, ...base };
   if (snap.lead?.activity === "dead") return { state: "failed", reasons: ["the lead is dead"], ...base };
   if (!isQuiet) {
     if (snap.lead?.activity === "no-signal") return { state: "stalled", reasons: ["the lead sends no signal"], hint: 'interrupt, then send "status?"', ...base };

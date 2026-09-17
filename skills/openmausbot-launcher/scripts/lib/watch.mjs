@@ -96,7 +96,7 @@ export function relevantFrame(frame, { teamIds, threadIds, section }) {
 export const signatureOf = (snap, ev) => ({
   state: ev.state, leadMessageId: snap.leadText?.id ?? null,
   evidence: evidenceOf(snap),
-  pending: snap.pending.map((p) => p.requestId ?? `${p.kind}:${p.botId}`).join(","),
+  pending: [...snap.pending, ...(snap.resumable ?? [])].map((p) => p.requestId ?? `${p.kind}:${p.botId}`).join(","),
 });
 const sameEvidence = (a, b) => Boolean(a?.evidence && b?.evidence) && JSON.stringify(a.evidence) === JSON.stringify(b.evidence);
 const sameSig = (a, b) => Boolean(a && b) && a.state === b.state && sameEvidence(a, b);

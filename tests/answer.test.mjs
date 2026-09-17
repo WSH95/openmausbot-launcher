@@ -288,6 +288,34 @@ test("credential: --resume retries the card, and says where the value is when th
   assert.equal(r.json.error, "forbidden: this session lacks the admin scope", "confirming a saved credential is the owner's step");
 });
 
+test("a wake that never fired keeps the run out of a terminal verdict and shows up in status", async (t) => {
+  const { f, dir } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const lt = run.json.leadThreadId;
+  const card = await f.control({ op: "secret", threadId: lt, target: "ttsKey" });
+  let r = await runOmb(["answer", "--provide", "--secret-stdin", "--request", card.message.id, "--project", dir], { env, stdin: "eleven-labs-key\n" });
+  assert.equal(r.code, 0, r.stdout);
+  // The credential is saved and the card settled, but the turn that was to
+  // continue never started (S: server/index.ts:6767-6773), so the run is
+  // waiting on a resume nobody has asked for.
+  await f.control({ op: "secretResumeFailed", messageId: card.message.id, error: "the bot was busy" });
+  await f.control({ op: "leadSay", threadId: lt, text: `all done\nDONE ${run.json.tag}` });
+  r = await runOmb(["status", "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout);
+  assert.deepEqual(r.json.pending, []);
+  assert.deepEqual(r.json.resumable.map((p) => p.handle), [card.message.id], "status reports the card nobody has resumed");
+  assert.equal(r.json.resumable[0].kind, "secret");
+  r = await runOmb(["watch", "--project", dir, "--max-seconds", "8", "--quiet-seconds", "1", "--drop-seconds", "1", "--poll", "1", "--brief"], { env });
+  assert.equal(r.code, 5, `${r.stdout}${r.stderr}`);
+  assert.match(r.stdout, /CREDENTIAL · Sudo needs the ElevenLabs API key/);
+  assert.match(r.stdout, /--resume/, "and the line says how to finish it, not that the run is done");
+  r = await runOmb(["answer", "--resume", "--request", card.message.id, "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout);
+  r = await runOmb(["watch", "--project", dir, "--max-seconds", "8", "--quiet-seconds", "1", "--drop-seconds", "1", "--poll", "1"], { env });
+  assert.equal(r.code, 0, `${r.stdout}${r.stderr}`); assert.equal(r.json.state, "done");
+  assert.deepEqual(r.json.resumable, []);
+});
+
 test("credential: a provider key is not saved while any bot is working, because saving it restarts every provider", async (t) => {
   const { f, dir, team } = await setup(t);
   const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });

@@ -73,6 +73,27 @@ test('every pending kind carries a handle and a brief that names its own answer 
   for (const i of [0, 3]) assert.equal(/# release-notes|xai-|Grok/.test(line(i)), false, 'a brief never carries a skill preview or anything that looks like a value');
 });
 
+test('a settled card whose wake failed is attention, and a connection whose sibling is still pending is not', async () => {
+  const errored = { id: 's1', at: 1600, role: 'bot', kind: 'secret', secret: { target: 'ttsKey', label: 'ElevenLabs API key', description: 'd', placeholder: 'p', helpUrl: 'h', requestKey: 'k', provided: true, resumed: false, error: 'the bot was busy' } };
+  const live = (id, key, over = {}) => ({ id, at: 1500, role: 'bot', kind: 'connector', connector: { slug: id, label: id, description: 'c', status: 'connected', resumeKey: key, ...over } });
+  let snap = await monitoring.snapshot(scripted({ threads: { lt: [user, done], wt: [errored] } }), { team, task });
+  let ev = settled(snap);
+  assert.equal(ev.state, 'needs-user', 'a run whose credential was saved but never handed back is not done');
+  assert.match(monitoring.brief(ev, snap, task, 100_000), /CREDENTIAL · Worker needs the ElevenLabs API key .* --resume/);
+  // A connection that is live but unresumed while a sibling in the same
+  // request is still waiting: the sibling already carries the attention.
+  snap = await monitoring.snapshot(scripted({ threads: { lt: [user, done], wt: [live('a', 'rk'), { id: 'b', at: 1501, role: 'bot', kind: 'connector', connector: { slug: 'b', label: 'b', description: 'c', status: 'required', resumeKey: 'rk' } }] } }), { team, task });
+  ev = settled(snap);
+  assert.equal(ev.state, 'needs-user');
+  assert.deepEqual(ev.pending.map((p) => p.handle), ['b'], 'the unfinished sibling is the one to act on');
+  snap = await monitoring.snapshot(scripted({ threads: { lt: [user, done], wt: [live('a', 'rk')] } }), { team, task });
+  ev = settled(snap);
+  assert.equal(ev.state, 'needs-user', 'with nothing left pending, the unresumed connection is the attention');
+  assert.match(monitoring.brief(ev, snap, task, 100_000), /CONNECT · Worker needs a \(connected\) → omb answer --resume --request a/);
+  snap = await monitoring.snapshot(scripted({ threads: { lt: [user, done], wt: [live('a', 'rk', { resumed: true })] } }), { team, task });
+  assert.equal(settled(snap).state, 'done', 'a resumed connection leaves nothing behind');
+});
+
 test('the connection brief names the step that is actually next for that status', async () => {
   const at = (i, status) => ({ id: `c${i}`, at: 1500 + i, role: 'bot', kind: 'connector', connector: { slug: 'slack', label: 'Slack', description: 'Connect Slack', status, resumeKey: `rk${i}` } });
   const statuses = ['required', 'authorizing', 'failed', 'connected'];

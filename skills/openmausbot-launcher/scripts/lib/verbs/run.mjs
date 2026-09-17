@@ -30,7 +30,7 @@ verb("status", {
     const conversationOf = (view) => ({ lead: view.leadText, lastUser: view.lastUser, ...(tail > 0 ? { tail: view.leadTail.slice(-tail).map((m) => ({ id: m.id, at: m.at, role: m.role, kind: m.kind, from: m.from?.name ?? null, text: summarizeLong(m) })) } : {}) });
     if (!runs.length) {
       const busy = snap.bots.filter((b) => b.busy).map((b) => b.name);
-      return { result: { run: null, runs: [], complete: snap.complete, incomplete: snap.incomplete, bots: snap.bots, busy, pending: snap.pending, ...conversationOf(snap) }, brief: `status · no run · ${busy.length ? `${busy.join(", ")} working` : "team idle"}${snap.pending.length ? ` · ${snap.pending.length} pending request(s)` : ""}` };
+      return { result: { run: null, runs: [], complete: snap.complete, incomplete: snap.incomplete, bots: snap.bots, busy, pending: snap.pending, resumable: snap.resumable, ...conversationOf(snap) }, brief: `status · no run · ${busy.length ? `${busy.join(", ")} working` : "team idle"}${snap.pending.length ? ` · ${snap.pending.length} pending request(s)` : ""}` };
     }
     // One evaluation per open run, each over its own view of the same reads.
     const reported = runs.map((task) => {
@@ -43,7 +43,7 @@ verb("status", {
       return {
         runId: task.runId, status: task.status, title: task.title, slug: task.slug, branch: task.branch ?? null, implementer: task.implementer ?? null, sentAt: task.sentAt,
         state: ev.state, carried: ev.carried === true, reasons: ev.reasons, hint: ev.hint, inflight: ev.inflight, busy: ev.busy, quietFor: ev.quietFor,
-        pending: view.pending, outcomes: view.outcomes, ...conversationOf(view), marker: view.markerSeen, receipts: view.receipts, openDelegations: view.openDelegations, brief: line,
+        pending: view.pending, resumable: view.resumable, outcomes: view.outcomes, ...conversationOf(view), marker: view.markerSeen, receipts: view.receipts, openDelegations: view.openDelegations, brief: line,
       };
     });
     const first = reported[0];
@@ -52,7 +52,7 @@ verb("status", {
       result: {
         runs: reported, complete: snap.complete, incomplete: snap.incomplete, ...(flags.bots ? { bots: snap.bots, teamMap: snap.teamMap } : {}),
         // One open run reads exactly as it did when a project could only have one.
-        ...(single ? { run: { runId: first.runId, status: first.status, title: first.title, slug: first.slug, sentAt: first.sentAt }, state: first.state, carried: first.carried, reasons: first.reasons, hint: first.hint, inflight: first.inflight, busy: first.busy, quietFor: first.quietFor, pending: first.pending, outcomes: first.outcomes, lead: first.lead, lastUser: first.lastUser, ...(tail > 0 ? { tail: first.tail } : {}), marker: first.marker, receipts: first.receipts, brief: first.brief } : {}),
+        ...(single ? { run: { runId: first.runId, status: first.status, title: first.title, slug: first.slug, sentAt: first.sentAt }, state: first.state, carried: first.carried, reasons: first.reasons, hint: first.hint, inflight: first.inflight, busy: first.busy, quietFor: first.quietFor, pending: first.pending, resumable: first.resumable, outcomes: first.outcomes, lead: first.lead, lastUser: first.lastUser, ...(tail > 0 ? { tail: first.tail } : {}), marker: first.marker, receipts: first.receipts, brief: first.brief } : {}),
       },
       brief: reported.map((x) => x.brief).join("\n"),
     };
@@ -497,7 +497,7 @@ verb("watch", {
     const unchanged = flags["quiet-if-unchanged"] && !r.changedSinceReport;
     return {
       code, ok: code === EXIT.OK,
-      result: { state, checkpointed, dryRun: cfg.dryRun, outcome: r.outcome, reasons: r.ev.reasons, hint: r.ev.hint, changes: r.changes, lead: r.snap.leadText, lastUser: r.snap.lastUser, pending: r.snap.pending, outcomes: r.snap.outcomes.length, busy: r.ev.busy, inflight: r.ev.inflight, quietFor: r.ev.quietFor, cursor: r.cursor, elapsedSec: r.elapsedSec, pollingOnly: r.pollingOnly, receiptsWatched: r.receiptsWatched, nudged: r.nudged, complete: r.snap.complete, incomplete: r.snap.incomplete, brief: line, ...(unchanged ? { silent: true } : {}) },
+      result: { state, checkpointed, dryRun: cfg.dryRun, outcome: r.outcome, reasons: r.ev.reasons, hint: r.ev.hint, changes: r.changes, lead: r.snap.leadText, lastUser: r.snap.lastUser, pending: r.snap.pending, outcomes: r.snap.outcomes.length, busy: r.ev.busy, inflight: r.ev.inflight, quietFor: r.ev.quietFor, resumable: r.snap.resumable ?? [], cursor: r.cursor, elapsedSec: r.elapsedSec, pollingOnly: r.pollingOnly, receiptsWatched: r.receiptsWatched, nudged: r.nudged, complete: r.snap.complete, incomplete: r.snap.incomplete, brief: line, ...(unchanged ? { silent: true } : {}) },
       brief: unchanged ? "" : state === "timeout" ? `${line} · watch timed out after ${r.elapsedSec}s, call again` : line,
     };
   },

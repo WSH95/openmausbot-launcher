@@ -165,7 +165,7 @@ that timeout even when the returned verdict remains verified.
 | `state` | Meaning | What you do |
 |---|---|---|
 | `done` (0) | The lead's last text carries this run's marker line | Read the closing report to the user; then `report` (section 6). Done means the lead closed the run, not that everything passed |
-| `needs-user` (5) | A card, connection, or credential request is pending, or a bot is waiting on you | Relay `pending[]` verbatim and answer with section 5; `pending[].handle` is what `--request` takes |
+| `needs-user` (5) | A card, connection, or credential request is pending, a settled one never woke its bot (`resumable[]`), or a bot is waiting on you | Relay `pending[]` and `resumable[]` verbatim and answer with section 5; `handle` is what `--request` takes, and a `resumable` entry takes `--resume` |
 | `attention` (5) | Settled without the marker: the lead stopped early (Premise fails, BLOCKED, a plain question) | Read `lead.text` to the user; answer with `send` |
 | `stalled` (6) | A teammate's outcome is newer than the lead's last text and the lead stays idle (a dropped wake), or no change for 40 min | `omb send "status?"` wakes the lead; if it stays silent, `interrupt`, then ask the user |
 | `failed` (6) | The lead is dead or its turn failed to dispatch | Read the tail (`status --tail 10`), tell the user |
