@@ -298,10 +298,14 @@ test("the watch checkpoint keeps a lastChangeAt another writer advanced", async 
   const paths = statePaths(dir);
   const bumped = Date.now() + 60_000;
   await updateState(paths, (d) => { d.runs[run.runId].lastEval = { ...d.runs[run.runId].lastEval, lastChangeAt: bumped }; return d; });
-  const p = runOmb(["watch", "--project", dir, "--max-seconds", "2", ...fast], { env });
-  await sleep(400);
+  // The message only has to land while the watch is running, so wait for the
+  // hydration that proves it is, not for an estimate of how long that takes.
+  const hydrated = responses(f, (url) => url.startsWith(`/api/threads/${lt}/messages`));
+  const p = runOmb(["watch", "--project", dir, "--max-seconds", "20", ...fast], { env });
+  await hydrated;
   await f.control({ op: "leadSay", threadId: lt, text: "Planning now." });
   const r = await p;
+  assert.equal(r.json.state, "attention", r.stdout); // the watch returns at its verdict, not at its budget
   assert.equal(r.json.checkpointed, true, r.stdout);
   assert.equal(loadState(paths).runs[run.runId].lastEval.lastChangeAt, bumped);
 });

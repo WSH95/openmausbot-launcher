@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { startFake, freePort, freePortPair, tmpDir, makeRepo, runOmb, sleep, FAKE } from "./helpers.mjs";
 import net from "node:net";
+import http from "node:http";
 import { statePaths, loadState, updateState } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
 import { procInfo, verifyOwned, proveOwnership, healthCheck } from "../skills/openmausbot-launcher/scripts/lib/server.mjs";
 
@@ -173,26 +174,30 @@ async function upWithPortTaken(t, { dir, dataDir }) {
   // A reservation can lose the same race it exists to win: another test process
   // may take the port between the measurement and the listen, and an unhandled
   // 'error' there would be an uncaught exception rather than another attempt.
-  const reserve = (p) => new Promise((resolve) => {
-    const s = net.createServer();
+  const reserve = (p, s = net.createServer()) => new Promise((resolve) => {
     s.once("error", () => resolve(null));
     s.listen(p, "127.0.0.1", () => resolve(s));
   });
+  // The blocker answers every request at once with `200 {}`, which `healthProbe`
+  // reads as "not OpenMausBot" (server.mjs:75-80). A silent TCP socket instead
+  // spends the client's whole timeout on the first probe, before waitHealthy
+  // has begun, and `up` then loses the race against runOmb's kill.
+  const answering = () => http.createServer((_req, res) => { res.writeHead(200, { "content-type": "application/json" }); res.end("{}"); });
   for (let attempt = 1; ; attempt++) {
     const port = await freePortPair();
     const neighbour = await reserve(port + 1);
-    const blocker = await reserve(port);
+    const blocker = await reserve(port, answering());
     if (!neighbour || !blocker) {
       assert.ok(attempt < 5, `could not reserve ${port} and ${port + 1} in five attempts`);
       neighbour?.close(); blocker?.close();
       continue;
     }
-    t.after(() => blocker.close());
+    t.after(() => { blocker.closeAllConnections(); blocker.close(); });
     await new Promise((r) => neighbour.close(r));
-    const r = await runOmb(["up", "--project", dir, "--port", String(port), "--data-dir", dataDir, "--timeout", "10"], { env: { OMB_BIN: FAKE, OMB_TOKEN: "" } });
+    const r = await runOmb(["up", "--project", dir, "--port", String(port), "--data-dir", dataDir, "--timeout", "30"], { env: { OMB_BIN: FAKE, OMB_TOKEN: "" }, timeoutMs: 60_000 });
     if (/is in use; OpenMausBot binds/.test(r.json?.error ?? "")) {
       assert.ok(attempt < 5, `the neighbour of ${port} was taken on every attempt: ${r.stdout}`);
-      blocker.close();
+      blocker.closeAllConnections(); blocker.close();
       continue;
     }
     return r;
