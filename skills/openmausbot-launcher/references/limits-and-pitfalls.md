@@ -167,17 +167,22 @@ recovery errors can name a file whose name carries a token
 
 A shared *server* is allowed and partly guarded. `up` reports
 `otherConfiguredFolders`, the folders the server's other bots are configured
-for; `bind` and `facts` refuse a team configured for another project's folder
-unless `bind --take-over` says to move it; `down` refuses while it can see
-another project's work — a foreign bot busy or waiting on a card, a delegation
-with a foreign bot at either end, a working room, or another project's
-`.omb/state.json` with an open run on this environment — and `down
+for; `bind` refuses when any bot or room of the team it would change is
+configured for another project's folder, and `facts` refuses when the lead
+alone is, unless `bind --take-over` says to move it; `down` refuses while it
+can see another project's work — a foreign bot busy or waiting on a card, a
+delegation with a foreign bot at either end, a working room, or another
+project's `.omb/state.json` with an open run on this environment — and `down
 --stop-others` overrides exactly that and nothing else. Its `others` object
 says what was seen and, under `unknown`, what could not be read; `cleanup
---down` stops there too. All of this is configuration and observation, not
-activity: a bot with no configured folder, a task already pinned to a folder,
-a project whose state lives somewhere `--state` moved it, a bot pointed at a
-sub-folder, and two projects that adopted the same ids are invisible to it. A
+--down` stops there too. What the folder lists report is configuration, not
+activity; `down`'s busy, waiting, delegation and room evidence is activity,
+observed once, with the race between that look and the signal accepted. Each
+has its blind spots: a bot with no configured folder and two projects that
+adopted the same ids are invisible to every folder comparison, while a project
+whose state `--state` moved elsewhere, and a bot configured for a sub-folder of
+its project, are missed only by the state-file check — that bot's own busy,
+waiting and delegation activity is still seen. A
 pending credential card on a foreign thread is seen only when it also left that
 bot `waiting-on-you` (`index.ts:8263`); conversely an unanswered foreign card
 keeps refusing `down` until someone answers it or passes `--stop-others`. Two writable

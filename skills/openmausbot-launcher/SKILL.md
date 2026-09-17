@@ -76,7 +76,8 @@ holds that directory: attach to it with `up --port <its port>`, or give this
 project its own `--data-dir` or `--fresh`. `down` refuses (exit 3, `others`)
 while it can see work that is not this project's on that server — a bot busy or
 waiting on a card, a delegation, a working room, another project's open run —
-and says what it saw and what it could not read; finish that work, or pass
+and says what it saw and what it could not read (`--brief` gives the same
+refusal in counts alone, with no folder in it); finish that work, or pass
 `down --stop-others`, which overrides that guard and nothing else. A `doctor` failure named `stop-hook` means the
 project's Project Steward Stop hook would replace a Claude bot's report:
 set `auto_handoff_mode = "off"` in its `config.toml` and exclude
@@ -86,8 +87,9 @@ while a bot works. Give each project its own server: an explicit `--port`
 (two apart) and `--data-dir`, or `--fresh`. Without a flag, a saved state or
 an environment override every project shares `127.0.0.1:8799` and
 `~/.openmausbot`, which means attaching to whoever started first. On a shared
-server `bind` and `facts` refuse a team that is configured for another
-project's folder, even a missing one; bind from that project, or pass
+server `bind` refuses when any bot or room it would change is configured for
+another project's folder, even a missing one, and `facts` refuses when the
+lead alone is; bind from that project, or pass
 `bind --take-over` to move the team's default folder for new tasks here on
 purpose — it does not move tasks that are already running and gives this
 project no exclusive claim, and a room whose folder is already pinned stays a
