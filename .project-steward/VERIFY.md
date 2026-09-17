@@ -30,6 +30,16 @@ validation bot was deleted after the DM gate. No token, owner identifier or mess
 content is recorded. This validation started zero OpenMausBot servers and used zero
 OMB bot turns.
 
+The local integration gate used the repository's `omb-loopback-dev` profile.
+Before the merge, the first full run passed 403/404 and the known timing-shaped
+test `the watch checkpoint keeps a lastChangeAt another writer advanced` reached
+its observation deadline before checkpoint verification. That test then passed
+1/1 by itself, and the next full run passed 404/404 in 87.573 s. After `main`
+fast-forwarded from `5940e89` to `581188e`, the merged tree passed 404/404 in
+88.498 s. The recurrence is recorded on open Bead `oml-2rc`; no production or
+test code changed in this documentation-only branch. The feature worktree and
+its fully merged branch were removed only after the green post-merge run.
+
 ## Codex loopback permission profile (2026-09-17)
 
 The final suite ran under the repository's opt-in, least-privilege profile:

@@ -56,6 +56,13 @@ the exact local proxy bypass needed to use it. The repository has a separate
 maintainer profile for the fake server. No user configuration is changed
 automatically and no bot turns are part of this follow-up.
 
+Operational security follow-up `oml-8v0` is also closed. The screenshot-exposed
+Telegram token was revoked, `OpenClaw Laptop` (`@WSHOpenClawLaptopBot`) replaced
+the validation bot, and the old bot was deleted after the DM path passed. The
+general OpenClaw bot remains pairing-only for DMs with OpenClaw group processing
+disabled; BotFather group joining stays enabled for later topic work. No
+OpenMausBot server or OMB bot turn was used.
+
 ## Later
 
 Fix `oml-fg8` and the two report attribution gaps the real run exposed

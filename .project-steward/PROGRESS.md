@@ -3,6 +3,19 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-17 — OpenClaw Telegram rotation integrated into main
+The user chose local integration. `main` fast-forwarded from `5940e89` to
+`581188e`, including the security checkpoint. The merged tree passed all 404
+tests under `omb-loopback-dev` in 88.498 s. The clean feature worktree was
+removed, its fully merged branch was deleted with `git branch -d`, and nothing
+was pushed. Bead `oml-8v0` remains closed.
+
+The first pre-merge full run passed 403/404 and hit the existing timing-shaped
+watch failure tracked by `oml-2rc`. The same test passed alone, the next
+feature-branch full run passed 404/404, and the post-merge run above also passed
+404/404. The recurrence was added to `oml-2rc`; this documentation-only branch
+made no production or test code change.
+
 ### 2026-09-17 — OpenClaw Telegram bot rotation completed
 The screenshot-exposed token was independently confirmed revoked before the user
 created `OpenClaw Laptop` (`@WSHOpenClawLaptopBot`, id `8904072141`). Its privately
