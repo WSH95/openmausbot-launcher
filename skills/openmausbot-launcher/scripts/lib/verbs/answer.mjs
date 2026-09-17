@@ -310,6 +310,14 @@ async function secret(client, cfg, target, mode, flags, runFlag = "") {
   // (index.ts:12015-12042), so this one call gets a longer budget and a lost
   // answer is never read as "nothing was written".
   let saveOutcome = "saved";
+  // Config status is only a boolean, not a receipt for this write. An old
+  // configured value cannot prove that a replacement survived a lost reply.
+  const before = await client.get("/api/config");
+  const wasConfigured = before?.[CREDENTIAL_SECTION[card.target]]?.configured;
+  const unknownSave = (said, status) => new Fail(EXIT.PRECONDITION, `it is unknown whether the ${label} was saved: ${said}`, {
+    status, saveOutcome: "unknown",
+    hint: `the replacement may or may not have been saved; choose omb answer --resume --request ${target.messageId}${runFlag} to wake the bot on whatever is stored, or provide the value again with omb answer --provide --secret-stdin --request ${target.messageId}${runFlag} < the file the user wrote`,
+  });
   // Stdin may have blocked while a routine or delegation started. Recheck
   // immediately before the PUT; 0.1.56 has no idle-conditional config write,
   // so the remaining read/write window cannot be eliminated client-side.
@@ -321,14 +329,13 @@ async function secret(client, cfg, target, mode, flags, runFlag = "") {
     const said = e.body?.error ?? e.message;
     let status;
     try { status = await client.get("/api/config"); }
-    catch {
-      throw new Fail(EXIT.PRECONDITION, `it is unknown whether the ${label} was saved: ${said}`, {
-        hint: `the server's settings could not be read back; omb answer --resume --request ${target.messageId}${runFlag} finishes the card if the value did land, and says so if it did not — do that before asking the user for it again`,
-      });
-    }
-    if (status?.[CREDENTIAL_SECTION[card.target]]?.configured !== true) {
+    catch { throw unknownSave(said, e.status); }
+    const configured = status?.[CREDENTIAL_SECTION[card.target]]?.configured;
+    if (wasConfigured !== false) throw unknownSave(said, e.status);
+    if (configured === false) {
       throw new Fail(EXIT.PRECONDITION, `the ${label} was not saved: ${said}`, { status: e.status, hint: "the server's settings do not have it and the card is untouched; try again" });
     }
+    if (configured !== true) throw unknownSave(said, e.status);
     saveOutcome = "verified";
   }
   try {

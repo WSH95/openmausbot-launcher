@@ -432,6 +432,36 @@ test("credential: a config write that never answered is checked, not assumed to 
   assert.equal((await (await fetch(`${f.url}/api/config`)).json()).imageGen.configured, false);
 });
 
+test("credential: an ambiguous replacement cannot verify the new value from an already configured target", async (t) => {
+  const { f, dir } = await setup(t);
+  await addImplementer(f, dir);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  assert.equal((await runOmb(["task", "--todo", "T11", "--project", dir], { env })).code, 0);
+  const card = await f.control({ op: "secret", threadId: run.json.leadThreadId, target: "ttsKey" });
+  const args = ["answer", "--provide", "--secret-stdin", "--request", card.message.id, "--run", "t10", "--project", dir];
+  await f.control({ op: "phoneSaving", messageId: card.message.id });
+  let r = await runOmb(args, { env, stdin: "dummy-old-key\n" });
+  assert.equal(r.code, 3); assert.match(r.json.error, /was saved, the card was not resumed/);
+  await f.control({ op: "phoneSaving", messageId: card.message.id, saving: false });
+  for (const op of ["configPutFailsBeforeSaving", "configPutHangs"]) {
+    await f.control({ op });
+    r = await runOmb(args, { env, stdin: "dummy-replacement-key\n" });
+    assert.equal(r.code, 3, r.stdout);
+    assert.equal(r.json.saveOutcome, "unknown");
+    assert.match(r.json.hint, /replacement may or may not have been saved/);
+    assert.match(r.json.hint, new RegExp(`answer --resume --request ${card.message.id} --run t10`));
+    assert.match(r.json.hint, /whatever is stored/);
+    assert.match(r.json.hint, new RegExp(`answer --provide --secret-stdin --request ${card.message.id} --run t10`));
+    assert.deepEqual((await f.snapshot()).wakes, [], "an ambiguous replacement never wakes the bot automatically");
+    for (const text of [r.stdout, r.stderr, JSON.stringify(await f.snapshot()), fs.readFileSync(path.join(dir, ".omb", "state.json"), "utf8")]) {
+      assert.equal(text.includes("dummy-replacement-key"), false);
+    }
+  }
+  r = await runOmb(["answer", "--resume", "--request", card.message.id, "--run", "t10", "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout);
+  assert.equal(r.json.resumed, true, "the user can explicitly choose the value already stored");
+});
+
 test("with two runs open, every command the driver prints names the run it belongs to", async (t) => {
   const { f, dir } = await setup(t);
   await addImplementer(f, dir);

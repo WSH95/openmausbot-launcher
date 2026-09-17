@@ -248,6 +248,13 @@ historical reports append a reanalysis instead of replacing the original.
   that card. `boxToken` is refused outright: saving it makes the server list
   and verify the cloud computers on that account and fail the whole write
   when it cannot (`index.ts:11752-11790`).
+- **A configured boolean cannot verify a replacement.** Before a credential
+  PUT, the driver reads `GET /api/config`. After a timeout, network error or
+  5xx it reads again: only an explicit false-to-true transition verifies the
+  save. An already configured target or unreadable status leaves
+  `saveOutcome: "unknown"` at exit 3, with no automatic wake. Choose
+  `answer --resume --request <id>` to wake the bot on whatever is stored, or
+  `--provide` again using the user's file or shell. A 4xx means not saved.
 - **Saving a provider key restarts every provider.** A config write whose
   section is not on the no-reload list (`index.ts:12003-12014`) calls
   `reloadProviders`, which disposes the whole fleet, fails each in-flight

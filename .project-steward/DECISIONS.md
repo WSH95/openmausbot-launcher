@@ -277,6 +277,16 @@ again: neither card route carries a value, `provided` only checks that the
 credential is configured, and resuming an already-resumed card returns at
 once (`index.ts:12197-12206`, `:6838-6842`).
 
+The config status contains no value or per-write receipt (`index.ts:7125-7157`).
+After a timeout, network error or 5xx, only a not-configured before / configured
+after transition verifies the save. If the target was already configured, a
+replacement remains unknown at exit 3 and never wakes the bot automatically:
+the user chooses `answer --resume --request <id>` on whatever is stored, or
+`--provide` again. A 4xx remains not saved. Provider-key writes check busy bots
+and queued/running team-map work before reading the value and immediately
+before the PUT. No override exists; the server offers no idle-conditional
+write, so a residual millisecond race with new work remains.
+
 `boxToken` is refused with exit 3 and pointed at the app. Saving it makes
 the server list and verify the cloud computers on that account and fail the
 whole write when it cannot (`index.ts:11752-11790`). That is a conversation
