@@ -8,7 +8,7 @@ import { snapshot, evaluate, carriedVerdict, delegationWindows, DEFAULTS, TERMIN
 import { updateState } from "../state.mjs";
 import { openRuns, selectRun, runLabel } from "../runs.mjs";
 import { requireTeam, requireDataDir, requireSameEnvironment, runContext } from "../session.mjs";
-import { readNdjson, turnsFromEvents, nativeCalls, check042, beadStatus, commitsSince, runTests, renderMarkdown, mergedShaFrom, historicalContext, archivedMessages, namesRun, taskLogEntry, allocateTurns, totalsOf, secondsOf } from "../report.mjs";
+import { readNdjson, turnsFromEvents, nativeCalls, check042, beadStatus, commitsSince, runTests, renderMarkdown, mergedShaFrom, recordCommitSha, historicalContext, archivedMessages, taskLogEntry, allocateTurns, totalsOf, secondsOf } from "../report.mjs";
 import { reconcileCheck as rootCheck, git as gitRun } from "../git.mjs";
 
 verb("report", {
@@ -72,7 +72,9 @@ verb("report", {
     const facts = context.facts ?? {};
     const taskLog = facts.taskLog && facts.taskLog !== "none" ? facts.taskLog : null;
     const taskLogText = taskLog ? (() => { try { return fs.readFileSync(path.join(cfg.projectDir, taskLog), "utf8"); } catch { return null; } })() : null;
-    const recordCommit = taskLog ? commits.find((c) => /^docs\(team\): .* merged as [0-9a-f]{7,}/.test(c.subject) && namesRun(c.subject, task) && c.files.length > 0 && c.files.every((f) => f === taskLog || f.startsWith(".beads/"))) : null;
+    // One parser decides whether a subject records this run and what sha it
+    // records: a commit whose sha cannot be read is not this run's record.
+    const recordCommit = taskLog ? commits.find((c) => recordCommitSha(c.subject, task, others) !== null && c.files.length > 0 && c.files.every((f) => f === taskLog || f.startsWith(".beads/"))) : null;
     const logEntry = taskLog ? taskLogEntry(taskLogText, task, { others, sinceMs, untilMs }) : null;
     // The task log moved for this run when a commit in its window touched it
     // AND the log carries an entry that names the run. A log that cannot be

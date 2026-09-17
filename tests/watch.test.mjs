@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { startFake, makeRepo, runOmb, ROOT, sleep } from "./helpers.mjs";
+import { startFake, makeRepo, runOmb, responses, ROOT, sleep } from "./helpers.mjs";
 import { statePaths, loadState, updateState } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
 import { relevantFrame, mergeCheckpoint, watchRun } from "../skills/openmausbot-launcher/scripts/lib/watch.mjs";
 import { createClient } from "../skills/openmausbot-launcher/scripts/lib/http.mjs";
@@ -13,20 +13,6 @@ const PKG = path.join(ROOT, "tests", "fixtures", "dev-team.package.json");
 let env = { OMB_TOKEN: "" };
 const fast = ["--quiet-seconds", "1", "--drop-seconds", "1", "--poll", "1"];
 const thread = async (f, id) => (await (await fetch(`${f.url}/api/threads/${id}/messages`)).json()).messages;
-
-// Wait for an actual response, not an estimate of subprocess startup time.
-function responses(f, matches, count = 1) {
-  return new Promise((resolve, reject) => {
-    const cleanup = () => { clearTimeout(timer); f.server.off("request", onRequest); };
-    const timer = setTimeout(() => { cleanup(); reject(new Error("expected watch request did not arrive")); }, 15_000);
-    const onRequest = (req, res) => {
-      if (matches(req.url)) res.once("finish", () => {
-        if (--count === 0) { cleanup(); resolve(); }
-      });
-    };
-    f.server.on("request", onRequest);
-  });
-}
 
 // Exercise the real CLI handler/output and HTTP fake, but expire observation
 // only after watch has verified a snapshot and entered its idle poll wait.

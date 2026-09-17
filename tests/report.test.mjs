@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { startFake, makeRepo, runOmb, ROOT, tmpDir, sleep } from "./helpers.mjs";
+import { startFake, makeRepo, runOmb, responses, ROOT, tmpDir, sleep } from "./helpers.mjs";
 import { statePaths, loadState, updateState, commitState, withLock } from "../skills/openmausbot-launcher/scripts/lib/state.mjs";
 import { turnsFromEvents, nativeCalls, check042, renderMarkdown, bareCommand, mergedShaFrom, beadStatus } from "../skills/openmausbot-launcher/scripts/lib/report.mjs";
 
@@ -75,19 +75,21 @@ test("report: a full synthetic run passes --check-042, renders markdown, and clo
   const t0 = run.json.sentAt;
   const ev = (threadId, turnId, s, e, usage) => [{ turnId, provider: "claude", threadId, type: "turn.started", createdAt: iso(s) }, { turnId, threadId, type: "session.started", createdAt: iso(s + 100), model: "claude-sonnet-5" }, { turnId, threadId, type: "turn.completed", createdAt: iso(e), ok: true, usage }];
   const novaId = st.team.bots.find((b) => b.key === "nova").id;
-  fs.writeFileSync(path.join(f.dataDir, "events", `${lt}.ndjson`), [...ev(lt, "t1", t0 + 1000, t0 + 60_000, { input: 1000, output: 100, cachedInput: 500 }), ...ev(lt, "t2", t0 + 120_000, t0 + 180_000, { input: 2000, output: 200, cachedInput: 900 })].map((x) => JSON.stringify(x)).join("\n") + "\n");
-  fs.writeFileSync(path.join(f.dataDir, "events", `${run.json.threads[novaId]}.ndjson`), ev(run.json.threads[novaId], "n1", t0 + 70_000, t0 + 110_000, { input: 500, output: 50, cachedInput: 0 }).map((x) => JSON.stringify(x)).join("\n") + "\n");
-  // The record heading is dated inside this run's own window: an entry outside
-  // it belongs to another dispatch of the same task, and is not read as this one's.
-  const stamp = new Date(t0 + 1_000).toISOString().replace(/\.\d{3}Z$/, "Z");
+  // The whole synthetic run happens inside this run's real window: the record
+  // heading has to sit there to be read as this run's entry, and the `date -u`
+  // that printed it cannot run minutes after the time it returned.
+  fs.writeFileSync(path.join(f.dataDir, "events", `${lt}.ndjson`), [...ev(lt, "t1", t0 + 100, t0 + 600, { input: 1000, output: 100, cachedInput: 500 }), ...ev(lt, "t2", t0 + 1200, t0 + 1800, { input: 2000, output: 200, cachedInput: 900 })].map((x) => JSON.stringify(x)).join("\n") + "\n");
+  fs.writeFileSync(path.join(f.dataDir, "events", `${run.json.threads[novaId]}.ndjson`), ev(run.json.threads[novaId], "n1", t0 + 700, t0 + 1100, { input: 500, output: 50, cachedInput: 0 }).map((x) => JSON.stringify(x)).join("\n") + "\n");
+  const stampedAt = t0 + 1700;
+  const stamp = new Date(stampedAt).toISOString().replace(/\.\d{3}Z$/, "Z"); // what `date -u +%FT%TZ` prints, to the second
   fs.mkdirSync(path.join(f.dataDir, "native"), { recursive: true });
   const nat = [
-    { at: iso(t0 + 2000), msg: { type: "assistant", message: { content: [{ type: "tool_use", id: "l", name: "mcp__agents__list_bots", input: {} }] } } },
-    { at: iso(t0 + 20_000), msg: { type: "assistant", message: { content: [{ type: "tool_use", id: "d", name: "mcp__agents__ask_bot", input: { bot_id: st.team.bots.find((b) => /plan review/i.test(b.title)).id } }] } } },
-    { at: iso(t0 + 30_000), msg: { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "d", content: "@Vale replied to the delegated task:\n\nready" }] } } },
-    { at: iso(t0 + 40_000), msg: { type: "assistant", message: { content: [{ type: "tool_use", id: "w", name: "Bash", input: { command: "git worktree add -b task/t10 .worktrees/t10 main" } }] } } },
-    { at: iso(t0 + 165_000), msg: { type: "assistant", message: { content: [{ type: "tool_use", id: "dt", name: "Bash", input: { command: "date -u +%FT%TZ" } }] } } },
-    { at: iso(t0 + 166_000), msg: { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "dt", content: `${stamp}\n` }] } } },
+    { at: iso(t0 + 200), msg: { type: "assistant", message: { content: [{ type: "tool_use", id: "l", name: "mcp__agents__list_bots", input: {} }] } } },
+    { at: iso(t0 + 400), msg: { type: "assistant", message: { content: [{ type: "tool_use", id: "d", name: "mcp__agents__ask_bot", input: { bot_id: st.team.bots.find((b) => /plan review/i.test(b.title)).id } }] } } },
+    { at: iso(t0 + 600), msg: { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "d", content: "@Vale replied to the delegated task:\n\nready" }] } } },
+    { at: iso(t0 + 800), msg: { type: "assistant", message: { content: [{ type: "tool_use", id: "w", name: "Bash", input: { command: "git worktree add -b task/t10 .worktrees/t10 main" } }] } } },
+    { at: iso(stampedAt - 100), msg: { type: "assistant", message: { content: [{ type: "tool_use", id: "dt", name: "Bash", input: { command: "date -u +%FT%TZ" } }] } } },
+    { at: iso(stampedAt), msg: { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "dt", content: `${stamp}\n` }] } } },
   ];
   fs.writeFileSync(path.join(f.dataDir, "native", `${lt}.ndjson`), nat.map((x) => JSON.stringify(x)).join("\n") + "\n");
   // the feature merged fast-forward, then the record commit
@@ -181,29 +183,70 @@ test("two runs writing one log under identical headings each get their own entry
   }
 });
 
-test("a task log entry belongs to the run it names first, and a shared alias is attributed only when something tells the dispatches apart", async () => {
+const head = (at, body, who = "Sudo (orchestrator)") => `### ${at} — ${who}\n${body}\n`;
+
+test("a task log entry belongs to the run it names first, inside that run's own window", async () => {
   const { taskLogEntry } = await import("../skills/openmausbot-launcher/scripts/lib/report.mjs");
-  const head = (at, body) => `### ${at} — Sudo (orchestrator)\n${body}\n`;
   const t16 = { runId: "r16", slug: "t16", title: "T16" };
   assert.equal(taskLogEntry(head("2026-09-17T05:50:00Z", "T15 merged."), T14, { others: [T15], ...both }), null, "no section names the run");
   assert.equal(taskLogEntry(head("2026-09-17T05:50:00Z", "T15 merged; T14 is next."), T14, { others: [T15], ...both }), null, "another run's entry mentioning this one is not its entry");
   assert.match(taskLogEntry(head("2026-09-17T05:50:00Z", "slg-h3m closed; T15 reviewed it."), T14, { others: [T15], ...both }), /05:50:00Z/, "the bead names the run as well as the slug");
   assert.equal(taskLogEntry(head("2026-09-17T05:50:00Z", "slg-h3m closed; T15 reviewed it."), T15, { others: [T14], ...both }), null, "and the order of the identifiers is what decides");
   assert.equal(taskLogEntry(head("2026-09-17T04:00:00Z", "T14 merged."), T14, { others: [T15], ...both }), null, "a heading dated outside the run's window is another dispatch's");
-  // the same slug dispatched twice: overlapping windows cannot select an owner
-  const again = { runId: "r14b", slug: "t14", title: "T14", bead: "slg-zzz", sentAt: day("05:45") };
-  assert.equal(taskLogEntry(head("2026-09-17T05:50:00Z", "T14 merged."), T14, { others: [again], ...both }), null, "two dispatches answer to T14");
-  assert.equal(taskLogEntry("### Progress\nT14 merged.\n", T14, { others: [again], ...both }), null, "an undated shared-alias entry says even less");
-  assert.match(taskLogEntry(head("2026-09-17T05:50:00Z", "T14 merged, closing slg-h3m."), T14, { others: [again], ...both }), /05:50:00Z/, "a bead only one dispatch carries tells them apart");
-  assert.match(taskLogEntry(head("2026-09-17T05:42:00Z", "T14 merged."), T14, { others: [again], ...both }), /05:42:00Z/, "so does a heading time inside exactly one window");
   const closed = { runId: "r14c", slug: "t14", title: "T14", sentAt: day("04:00"), closedAt: "2026-09-17T05:00:00Z" };
   assert.equal(taskLogEntry(head("2026-09-17T05:50:00Z", "T14 merged."), closed, { others: [], sinceMs: day("04:00"), untilMs: Date.parse(closed.closedAt) }), null, "a closed run does not take an entry written after it closed");
+  // A run the window has excluded cannot take a section from the run that wrote it.
+  const generic = { runId: "rh", slug: "progress", title: "Progress", sentAt: day("01:00"), closedAt: "2026-09-17T02:00:00Z" };
+  const t20 = { runId: "r20", slug: "t20", title: "T20" };
+  assert.match(taskLogEntry(head("2026-09-17T05:50:00Z", "Progress on T20: merged."), t20, { others: [generic], sinceMs: day("05:30"), untilMs: day("06:00") }), /05:50:00Z/, "a closed run's generic title named first is not a claim on a later entry");
+  // An RFC 3339 heading says the same time whatever its offset.
+  assert.match(taskLogEntry(head("2026-09-17T14:50:00+09:00", "T20 merged."), t20, { others: [], sinceMs: day("05:30"), untilMs: day("06:00") }), /14:50:00\+09:00/, "05:50Z written in another zone is still inside the window");
   // several entries of this run's own: dated before undated, newest first, top-most on a tie
   const mixed = `${head("2026-09-17T05:44:00Z", "T16 planning.")}\n## T16 notes\nT16 scratch.\n\n${head("2026-09-17T05:50:00Z", "T16 merged.")}`;
   assert.match(taskLogEntry(mixed, t16, { others: [], ...both }), /05:50:00Z/, "the newest dated entry wins, before any undated one");
-  const tie = `${head("2026-09-17T05:50:00Z", "T16 merged.")}\n${head("2026-09-17T05:50:00Z", "T16 recorded.")}`;
-  assert.equal(taskLogEntry(tie, t16, { others: [], ...both }).includes("05:50:00Z"), true);
-  assert.equal(taskLogEntry(tie, t16, { others: [], ...both }), "### 2026-09-17T05:50:00Z — Sudo (orchestrator)", "equal times keep the top-most");
+  const tie = `${head("2026-09-17T05:50:00Z", "T16 merged.", "Sudo (first)")}\n${head("2026-09-17T05:50:00Z", "T16 recorded.", "Sudo (second)")}`;
+  assert.equal(taskLogEntry(tie, t16, { others: [], ...both }), "### 2026-09-17T05:50:00Z — Sudo (first)", "equal times keep the top-most");
+});
+
+test("an entry a second dispatch could also claim needs an identifier that tells them apart, and the window excludes before any of that", async () => {
+  const { taskLogEntry } = await import("../skills/openmausbot-launcher/scripts/lib/report.mjs");
+  // Two dispatches of T14 open at once: same slug and title, their own beads.
+  const twinA = { runId: "r14a", slug: "t14", title: "T14", bead: "bead-a", sentAt: day("05:30") };
+  const twinB = { runId: "r14b", slug: "t14", title: "T14", bead: "bead-b", sentAt: day("05:30") };
+  const forA = { others: [twinB], sinceMs: day("05:30"), untilMs: day("06:00") };
+  const forB = { others: [twinA], sinceMs: day("05:30"), untilMs: day("06:00") };
+  assert.equal(taskLogEntry(head("2026-09-17T05:50:00Z", "T14 merged."), twinA, forA), null, "two dispatches answer to T14");
+  assert.equal(taskLogEntry("### Progress\nT14 merged.\n", twinA, forA), null, "an undated shared-alias entry says even less");
+  assert.match(taskLogEntry(head("2026-09-17T05:50:00Z", "T14 merged, closing bead-a."), twinA, forA), /05:50:00Z/, "a bead only one dispatch carries tells them apart");
+  assert.equal(taskLogEntry(head("2026-09-17T05:50:00Z", "T14 merged, closing bead-a."), twinB, forB), null, "and it tells the other one it is not theirs");
+  assert.equal(taskLogEntry(head("2026-09-17T05:50:00Z", "T14 records bead-a and bead-b."), twinA, forA), null, "an entry naming both beads names neither dispatch");
+  assert.equal(taskLogEntry(head("2026-09-17T05:50:00Z", "T14 records bead-a and bead-b."), twinB, forB), null);
+  // The same slug dispatched again after the first one closed.
+  const older = { runId: "r14o", slug: "t14", title: "T14", bead: "bead-a", sentAt: day("04:00"), closedAt: "2026-09-17T05:00:00Z" };
+  const newer = { runId: "r14n", slug: "t14", title: "T14", bead: "bead-b", sentAt: day("05:30") };
+  const forOlder = { others: [newer], sinceMs: day("04:00"), untilMs: Date.parse(older.closedAt) };
+  const forNewer = { others: [older], sinceMs: day("05:30"), untilMs: day("06:00") };
+  assert.equal(taskLogEntry(head("2026-09-17T05:50:00Z", "T14 merged, closing bead-a."), older, forOlder), null, "the closed dispatch's window ends before the entry");
+  assert.equal(taskLogEntry(head("2026-09-17T05:50:00Z", "T14 merged, closing bead-a."), newer, forNewer), null, "and the entry names the other dispatch's bead, so it is not this one's either");
+  assert.match(taskLogEntry(head("2026-09-17T05:50:00Z", "T14 merged, closing bead-b."), newer, forNewer), /05:50:00Z/, "its own bead does attribute it");
+  assert.match(taskLogEntry(head("2026-09-17T05:42:00Z", "T14 merged."), newer, forNewer), /05:42:00Z/, "so does a heading time only one window contains");
+});
+
+test("the entry scan builds each run's matchers once, however many sections the log has", async () => {
+  const { taskLogEntry } = await import("../skills/openmausbot-launcher/scripts/lib/report.mjs");
+  // The runs count how often their identifiers are read: a scan that rebuilds a
+  // matcher per section reads them once per section, which is the quadratic
+  // shape a long history turns into seconds of work.
+  const counted = (run) => {
+    const o = { runId: run.runId, sentAt: run.sentAt, closedAt: run.closedAt, reads: 0 };
+    for (const k of ["slug", "title", "bead", "tag"]) Object.defineProperty(o, k, { get() { o.reads++; return run[k]; } });
+    return o;
+  };
+  const others = Array.from({ length: 20 }, (_, i) => counted({ runId: `o${i}`, slug: `x${i}`, title: `X${i}`, sentAt: day("05:30") }));
+  const target = counted({ runId: "r20", slug: "t20", title: "T20", sentAt: day("05:30") });
+  const log = Array.from({ length: 60 }, (_, i) => head(`2026-09-17T05:${String(30 + Math.floor(i / 4)).padStart(2, "0")}:00Z`, `x${i % 20} noted.`)).join("\n") + head("2026-09-17T05:50:00Z", "T20 merged.");
+  assert.match(taskLogEntry(log, target, { others, sinceMs: day("05:30"), untilMs: day("06:00") }), /T20 merged|05:50:00Z/);
+  for (const run of [target, ...others]) assert.ok(run.reads <= 4, `${run.runId} read its identifiers ${run.reads} times for 61 sections`);
 });
 
 test("a merged sha is read only from a clause that says this run was merged", async () => {
@@ -228,6 +271,37 @@ test("a merged sha is read only from a clause that says this run was merged", as
   assert.equal(mergedShaFrom(`T14 merged as ${"a".repeat(41)}`, null, forT14), null, "forty-one are not either");
   assert.equal(mergedShaFrom("T14 merged as xabc1234", null, forT14), null, "hex inside a word is not a commit");
   assert.equal(mergedShaFrom("T15 landed in main (2f6d9d5..9127a0a)", null, forT14), null, "another run's range is not this run's");
+  assert.equal(mergedShaFrom("T14 was not, despite repeated attempts and extensive investigation by the whole team, merged as abc1234.", null, forT14), null, "a negation holds however far it stands from the verb");
+  assert.equal(mergedShaFrom("T14 landed from xabcdef0..1234567", null, forT14), null, "a range whose first endpoint is inside a word is not a range");
+  assert.equal(mergedShaFrom(`T14 landed from ${"a".repeat(41)}..1234567`, null, forT14), null, "nor one whose first endpoint is forty-one hex");
+  assert.equal(mergedShaFrom("T14 merged into `release - candidate; v2` as `abc1234`. Tests pass.", null, forT14), "abc1234", "a backticked branch may carry the clause delimiters themselves");
+});
+
+test("a re-dispatched run reads its own closing text and record commit", async () => {
+  const { mergedShaFrom, recordCommitSha } = await import("../skills/openmausbot-launcher/scripts/lib/report.mjs");
+  // The same task dispatched twice: the closing text is this run's own lead
+  // thread, and the record commit is already inside this run's window, so the
+  // slug and title the twin also answers to cannot make either somebody else's.
+  const twin = { runId: "r14old", slug: "t14", title: "T14", bead: "slg-h3m", tag: "oml:00000000", closedAt: "2026-09-17T05:00:00Z" };
+  const mine = { runId: "r14new", slug: "t14", title: "T14", bead: "slg-h3m", tag: "oml:092671df" };
+  assert.equal(mergedShaFrom("T14 completed and merged into `main` as `c7554a5`.", null, { run: mine, others: [twin] }), "c7554a5");
+  assert.equal(recordCommitSha("docs(team): T14 merged as c7554a5", mine, [twin]), "c7554a5");
+  // A rival still counts when the text names it by something this run is not.
+  const other = { runId: "r14b", slug: "t14", title: "T14", bead: "slg-zzz" };
+  assert.equal(mergedShaFrom("T14 merged into `main` as `c7554a5`, closing slg-zzz.", null, { run: mine, others: [other] }), null, "the twin's own bead makes the clause the twin's");
+  assert.equal(recordCommitSha("docs(team): T14 slg-zzz merged as c7554a5", mine, [other]), null);
+  assert.equal(mergedShaFrom("T14 merged as c7554a5 after T15 review", null, { run: T14, others: [T15] }), null, "a run with its own name is still a rival");
+});
+
+test("a record commit is this run's only when exactly one of its segments records this run", async () => {
+  const { recordCommitSha } = await import("../skills/openmausbot-launcher/scripts/lib/report.mjs");
+  assert.equal(recordCommitSha("docs(team): T14 slugkit merged as c7554a5, T15 slugkit merged as 11ff1e6", T14, [T15]), "c7554a5");
+  assert.equal(recordCommitSha("docs(team): T14 slugkit merged as c7554a5, T15 slugkit merged as 11ff1e6", T15, [T14]), "11ff1e6");
+  assert.equal(recordCommitSha("docs(team): T14 follow-up, T15 merged as 11ff1e6", T14, [T15]), null, "no T14 segment records a merge");
+  assert.equal(recordCommitSha("docs(team): T14 merged as abc1234, T14 merged as abc1234", T14, [T15]), null, "two segments for one run are two claims, not one");
+  assert.equal(recordCommitSha("T14 merged as abc1234", T14, [T15]), null, "the record commit is a docs(team) commit");
+  assert.equal(recordCommitSha("docs(team): T14 and T15 merged as c7554a5", T14, [T15]), null, "a segment naming both runs names neither");
+  assert.equal(recordCommitSha("docs(team): T14 merged as c7554a5 (fast-forward)", T14, [T15]), null, "the sha ends the segment");
 });
 
 test("a record commit's subject gives each run it names its own sha", async () => {
@@ -414,16 +488,20 @@ test("report --check-042 reads a Codex lead's native log through the fake", asyn
   assert.equal(run.code, 0, run.stdout);
   const st = loadState(statePaths(dir)); const lt = run.json.leadThreadId;
   const vale = st.team.bots.find((b) => /plan review/i.test(b.title));
-  // The fixture re-timed into this run: same relative order, first entry one second after dispatch,
-  // ask_bot aimed at this team's reviewer, and the archived `date -u` reply moved with it — the
-  // record heading has to sit inside this run's window to be read as this run's entry.
-  const stamp = new Date(run.json.sentAt + 1_000).toISOString().replace(/\.\d{3}Z$/, "Z");
-  const entries = codexEntries(); const base = Date.parse(entries[0].at);
-  const native = entries.map((e) => {
+  // The fixture re-timed into this run: the archived entries keep their order but
+  // are spaced 50 ms apart from one second after the dispatch, because the log's
+  // own span — its `date -u` pair comes from another day's thread — would put the
+  // record hours outside this run's window. The stamp that call returns, and the
+  // heading it has to match, move with the entry that printed it.
+  const entries = codexEntries();
+  const step = 50; const at = (i) => run.json.sentAt + 1000 + i * step;
+  const dated = entries.findIndex((e) => e.msg.params.item?.aggregatedOutput === `${CODEX_STAMP}\n`);
+  const stamp = new Date(at(dated)).toISOString().replace(/\.\d{3}Z$/, "Z");
+  const native = entries.map((e, i) => {
     const item = e.msg.params.item;
     if (item.arguments?.bot_id) item.arguments.bot_id = vale.id;
     if (item.aggregatedOutput === `${CODEX_STAMP}\n`) item.aggregatedOutput = `${stamp}\n`;
-    return { ...e, at: iso(run.json.sentAt + 1000 + Date.parse(e.at) - base) };
+    return { ...e, at: iso(at(i)) };
   });
   fs.mkdirSync(path.join(f.dataDir, "native"), { recursive: true });
   fs.writeFileSync(path.join(f.dataDir, "native", `${lt}.ndjson`), native.map((e) => JSON.stringify(e)).join("\n") + "\n");
@@ -625,16 +703,22 @@ test("a sibling closing during a watch, and the traffic that follows, delay the 
   await f.control({ op: "delegationDone", threadId: b.leadThreadId, name: "Vex", variant: "empty" });
   await f.control({ op: "delegated", threadId: a.leadThreadId, name: "Nova", reason: "review T10" });
   await f.control({ op: "leadSay", threadId: b.leadThreadId, text: "T11 is merged; the record commit needs your approval." });
+  // A closes only once B's watch has read the fleet: the premise of the control.
+  const hydrated = responses(f, (url) => url.startsWith(`/api/threads/${b.leadThreadId}/messages`));
   const watching = runOmb(["watch", "--run", "t11", "--project", dir, "--max-seconds", "20", "--quiet-seconds", "3", "--poll", "1"], { env });
+  await hydrated;
   assert.equal((await runOmb(["report", "--run", "t10", "--project", dir, "--no-tests", "--close"], { env })).json.closed, true);
   let r = await watching;
   assert.equal(r.json.state, "attention", `a sibling closing during the watch only restarts the window: ${r.stdout}`);
+  assert.ok(r.json.elapsedSec >= 3, `the window it settled on started after the close (${r.json.elapsedSec}s)`);
   // Nova is B's own bot now, so her frames do reset B's window — until they stop.
   let ticks = 0;
   const noise = setInterval(() => { if (++ticks > 6) return clearInterval(noise); void f.control({ op: "activity", botId: nova.id, activity: ticks % 2 ? "working" : "idle" }).catch(() => {}); }, 200);
   t.after(() => clearInterval(noise));
   r = await runOmb(["watch", "--run", "t11", "--project", dir, "--max-seconds", "20", "--quiet-seconds", "1", "--poll", "1"], { env });
   assert.equal(r.json.state, "attention", r.stdout);
+  assert.ok(r.json.changes.some((c) => c.to === "running"), `the traffic put the run back to work before it settled: ${JSON.stringify(r.json.changes)}`);
+  assert.ok(r.json.elapsedSec >= 2, `and held the verdict back past the traffic (${r.json.elapsedSec}s)`);
 });
 
 test("an abandoned run can still be reported from the history", async (t) => {
@@ -675,6 +759,28 @@ test("a run's name is matched whole: T1 never takes T10's record, foo-1 never ta
   assert.equal(allocateTurns(turn, [{ from: 500, to: 9000, kind: "queued" }]).mine.length, 1);
   assert.equal(allocateTurns(turn, [{ from: 500, to: null, kind: "queued" }]).mine.length, 1, "a window still open ends now");
   assert.equal(allocateTurns(turn, [{ from: 6000, to: 9000, kind: "converted" }]).shared, 1, "and a window after the turn is nobody's");
+});
+
+test("a docs(team) commit whose only merge segment is another run's is not this run's record commit", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const { dir, git } = makeRepo();
+  const env = { OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir };
+  fs.writeFileSync(path.join(dir, "PROGRESS.md"), "# Progress log\n");
+  fs.mkdirSync(path.join(dir, ".beads")); fs.writeFileSync(path.join(dir, ".beads", "issues.jsonl"), "{}\n");
+  git("add", "-A"); git("commit", "-q", "-m", "seed");
+  assert.equal((await runOmb(["import", PKG, "--project", dir, "--url", f.url], { env })).code, 0);
+  assert.equal((await runOmb(["bind", "--project", dir, "--default", "claude/claude-sonnet-5"], { env })).code, 0);
+  assert.equal((await runOmb(["facts", "--project", dir, "--test", "node -e 'process.exit(0)'", "--task-log", "PROGRESS.md"], { env })).code, 0);
+  const run = (await runOmb(["task", "--todo", "T10", "--project", dir], { env })).json;
+  const stamp = new Date(run.sentAt + 1_000).toISOString().replace(/\.\d{3}Z$/, "Z");
+  fs.writeFileSync(path.join(dir, "PROGRESS.md"), `# Progress log\n\n### ${stamp} — Sudo\nT10 is still open; T11 merged as abc1234.\n`);
+  fs.writeFileSync(path.join(dir, ".beads", "issues.jsonl"), '{"t11":true}\n');
+  git("add", "-A"); git("commit", "-q", "-m", "docs(team): T10 follow-up, T11 merged as abc1234");
+  const r = await runOmb(["report", "--project", dir, "--no-tests", "--no-close"], { env });
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.equal(r.json.record.commit, null, "the subject mentions T10, but no T10 segment records a merge");
+  assert.equal(r.json.record.commitSubject, null);
+  assert.equal(r.json.mergedSha, null);
 });
 
 test("a task log that cannot be read leaves the record unknown instead of passing", async (t) => {

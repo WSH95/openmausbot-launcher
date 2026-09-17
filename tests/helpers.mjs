@@ -76,6 +76,23 @@ export function runOmb(args, opts = {}) {
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** Wait for an actual response from the fake, not an estimate of subprocess
+ * startup time: resolves once `count` requests whose url `matches` have been
+ * answered. A test that has to act while a watch is running waits for the
+ * hydration that proves it is. */
+export function responses(f, matches, count = 1) {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => { clearTimeout(timer); f.server.off("request", onRequest); };
+    const timer = setTimeout(() => { cleanup(); reject(new Error("expected request did not arrive")); }, 15_000);
+    const onRequest = (req, res) => {
+      if (matches(req.url)) res.once("finish", () => {
+        if (--count === 0) { cleanup(); resolve(); }
+      });
+    };
+    f.server.on("request", onRequest);
+  });
+}
+
 /** Read one SSE frame set: resolves with the parsed `data:` payloads seen so far after `ms`. */
 export async function readSse(url, { headers = {}, ms = 300, signal } = {}) {
   const ctrl = new AbortController();

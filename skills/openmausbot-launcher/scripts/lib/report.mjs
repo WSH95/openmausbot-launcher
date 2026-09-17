@@ -209,49 +209,92 @@ export function namedAt(text, run) {
 export const namesRun = (text, run) => namedAt(text, run) >= 0;
 
 const identifiers = (run) => [run?.slug, run?.title, run?.bead, run?.tag].filter(Boolean);
-// A heading is dated only by a full ISO time: a bare date carries no time of
-// day and would fall outside every run's window by hours.
+
+/** Does this text name a rival of `run` through an identifier the two do not
+ * share? A second dispatch of the same task answers to the same slug and title,
+ * and a run's closing text is its own lead thread while its record commit is
+ * already inside its window, so only something the twin does not share with it
+ * can make either somebody else's. */
+const namesRival = (text, rival, run) => {
+  const ours = new Set(identifiers(run).map((s) => s.toLowerCase()));
+  return identifiers(rival).some((id) => !ours.has(id.toLowerCase()) && wholeWord(id).test(text));
+};
+
+// A heading is dated only by a full RFC 3339 time: a bare date carries no time
+// of day and would fall outside every run's window by hours, and an offset
+// dropped from the end would move the heading by hours as well.
 const headingTime = (heading) => {
-  const m = /\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?Z?/.exec(heading);
+  const m = /\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?/.exec(heading);
   const at = m ? Date.parse(m[0]) : NaN;
   return Number.isNaN(at) ? null : at;
 };
 
+/** Everything a run answers to, built once per call: the names that make a
+ * section "about" it (slug, title, bead) and every identifier that can tell it
+ * apart from another dispatch (the tag too). Each field is read exactly once. */
+function matchersFor(run) {
+  const [slug, title, bead, tag] = ["slug", "title", "bead", "tag"].map((k) => run?.[k]);
+  return {
+    named: [slug, title, bead].filter(Boolean).map(wholeWord),
+    ids: [slug, title, bead, tag].filter(Boolean).map((id) => ({ id: id.toLowerCase(), re: wholeWord(id) })),
+  };
+}
+const firstMention = (text, m) => {
+  let at = -1;
+  for (const re of m.named) { const x = re.exec(text); if (x && (at < 0 || x.index < at)) at = x.index; }
+  return at;
+};
+
 /**
- * The task log entry this run wrote. A section is about whichever run it names
- * first — heading included, in any order of slug, title and bead — so an entry
- * that mentions another run afterwards stays its author's. A name several
- * dispatches answer to claims the section for all of them, and only an
- * identifier no rival has, or a heading time inside exactly one of their
- * windows, resolves that; ambiguity is `null`, never a guess. A run's window
- * (`sentAt` to `closedAt`, or to now, ±1 s) only ever excludes a dated heading.
+ * The task log entry this run wrote, read section by section:
+ *
+ * 1. a section that does not name this run at all is not its entry (that test
+ *    comes first, so a long history costs nothing on the sections it skips);
+ * 2. a dated heading is claimable only by the runs whose window contains it
+ *    (`sentAt` to `closedAt`, or to now, ±1 s), this run included — the window
+ *    excludes before any identifier is weighed; an undated heading admits all;
+ * 3. among the admitted runs the section is about whichever it names first —
+ *    heading included, in any order of slug, title and bead — so an entry that
+ *    mentions another run afterwards stays its author's;
+ * 4. when another dispatch answers to that same mention, the section is this
+ *    run's only if it names an identifier of this run that the twin does not
+ *    have and names no identifier of the twin that this run does not have. A
+ *    twin the window already excluded still speaks here: naming its bead says
+ *    the entry is about that dispatch. Anything else is `null`, never a guess.
+ *
  * Among this run's own entries: dated before undated, newest first, top-most on
  * a tie.
  */
 export function taskLogEntry(text, run, { others = [], sinceMs = null, untilMs = null } = {}) {
   if (!text) return null;
   const now = Date.now();
-  const windows = new Map([[run, { from: sinceMs === null ? -Infinity : sinceMs - 1000, to: untilMs === null ? Infinity : untilMs + 1000 }]]);
-  for (const other of others) windows.set(other, { from: (other.sentAt ?? -Infinity) - 1000, to: (other.closedAt ? Date.parse(other.closedAt) : now) + 1000 });
-  const known = [run, ...others];
+  const target = { ...matchersFor(run), window: { from: sinceMs === null ? -Infinity : sinceMs - 1000, to: untilMs === null ? Infinity : untilMs + 1000 } };
+  const rivals = others.map((other) => ({ ...matchersFor(other), window: { from: (other.sentAt ?? -Infinity) - 1000, to: (other.closedAt ? Date.parse(other.closedAt) : now) + 1000 } }));
   const lines = text.split("\n");
-  const heads = lines.map((l, i) => (/^#{2,4} /.test(l) ? i : -1)).filter((i) => i >= 0);
+  const heads = [];
+  for (let i = 0; i < lines.length; i++) if (/^#{2,4} /.test(lines[i])) heads.push(i);
   const mine = [];
   for (let k = 0; k < heads.length; k++) {
     const section = lines.slice(heads[k], k + 1 < heads.length ? heads[k + 1] : lines.length).join("\n");
-    const marks = known.map((r) => namedAt(section, r));
-    if (marks[0] < 0) continue;
-    const at = Math.min(...marks.filter((i) => i >= 0));
-    const claimants = known.filter((_, i) => marks[i] === at);
-    if (!claimants.includes(run)) continue;
+    const at = firstMention(section, target);
+    if (at < 0) continue;
     const headingAt = headingTime(lines[heads[k]]);
-    const inWindow = (r) => headingAt === null || (headingAt >= windows.get(r).from && headingAt <= windows.get(r).to);
-    if (claimants.length > 1) {
-      const rivals = claimants.filter((r) => r !== run).map(identifiers);
-      const only = identifiers(run).some((id) => wholeWord(id).test(section) && !rivals.some((ids) => ids.some((other) => other.toLowerCase() === id.toLowerCase())));
-      const dated = claimants.filter(inWindow);
-      if (!only && !(headingAt !== null && dated.length === 1 && dated[0] === run)) continue;
-    } else if (!inWindow(run)) continue;
+    const admits = (m) => headingAt === null || (headingAt >= m.window.from && headingAt <= m.window.to);
+    if (!admits(target)) continue;
+    const twins = []; let named = true;
+    for (const m of rivals) {
+      const mAt = firstMention(section, m);
+      if (mAt < 0) continue;
+      if (mAt === at) twins.push({ m, admitted: admits(m) });
+      else if (mAt < at && admits(m)) named = false;
+    }
+    if (!named) continue;
+    if (twins.length) {
+      const ours = new Set(target.ids.map((x) => x.id));
+      const theirs = new Set(twins.flatMap(({ m }) => m.ids.map((x) => x.id)));
+      if (twins.some(({ m }) => m.ids.some((x) => !ours.has(x.id) && x.re.test(section)))) continue;
+      if (!target.ids.some((x) => !theirs.has(x.id) && x.re.test(section)) && twins.some((t) => t.admitted)) continue;
+    }
     mine.push({ heading: lines[heads[k]].trim(), at: headingAt, line: heads[k] });
   }
   mine.sort((a, b) => (a.at === null) - (b.at === null) || (b.at ?? 0) - (a.at ?? 0) || a.line - b.line);
@@ -304,7 +347,9 @@ export function runTests(command, cwd, { timeoutMs = 10 * 60_000 } = {}) {
 const HEX = String.raw`\`?([0-9a-f]{7,40})\`?(?![\w-])`;
 const TOKEN = String.raw`(?:\`[^\`]+\`|[\w./-]+)`;
 const mergedRe = () => new RegExp(String.raw`merged\s+(?:${TOKEN}\s+)?(?:into|to|onto)\s+${TOKEN}\s+(?:as|at)\s+${HEX}|merged\s+as\s+${HEX}`, "gi");
-const rangeRe = () => new RegExp(String.raw`\`?[0-9a-f]{7,40}\.\.${HEX}`, "g");
+// Both endpoints are bounded like the merge forms: hex inside a word, or a
+// forty-first digit, is not a commit at either end of `a..b`.
+const rangeRe = () => new RegExp(String.raw`(?<![\w-])\`?[0-9a-f]{7,40}\.\.${HEX}`, "gi");
 const NEGATED = /\b(?:not|never)\b|n['’]t\b/i;
 
 /** Clauses, split outside backticked spans on newlines, `;`, the ` - ` bullets
@@ -329,16 +374,17 @@ function clausesOf(text) {
  * run's own lead thread. A clause naming this run and another names neither. */
 function ownedSha(text, run, others, pattern) {
   if (!text) return undefined;
-  const known = [run, ...others].filter(Boolean);
   const found = new Set();
   let owners = [];
   for (const clause of clausesOf(text)) {
-    const named = known.filter((r) => namesRun(clause, r));
+    const named = [run, ...others].filter((r) => r && (r === run ? namesRun(clause, run) : namesRival(clause, r, run)));
     if (named.length) owners = named;
     const mine = owners.length === 0 || (owners.length === 1 && owners[0] === run);
     const shared = owners.length > 1 && owners.includes(run);
     for (const m of clause.matchAll(pattern())) {
-      if (NEGATED.test(clause.slice(Math.max(0, m.index - 40), m.index))) continue;
+      // The whole prefix of the clause: a negation is still a negation however
+      // many words of explanation stand between it and the verb.
+      if (NEGATED.test(clause.slice(0, m.index))) continue;
       if (shared) return null;
       if (mine) found.add(m[1] ?? m[2]);
     }
@@ -346,19 +392,23 @@ function ownedSha(text, run, others, pattern) {
   return found.size === 1 ? [...found][0] : found.size ? null : undefined;
 }
 
-/** The record commit's subject: `docs(team): <task text> merged as <sha>`,
- * comma-separated when one commit records several runs. The sha is its
- * segment's LAST `merged as`, so a title carrying the phrase is not evidence,
- * and the task text must name this run and no other. */
-function recordSha(subject, run, others) {
-  if (!subject) return undefined;
-  const found = new Set();
-  for (const segment of String(subject).replace(/^docs\(team\):\s*/i, "").split(",")) {
+/** The sha a `docs(team): …` subject records for this run, or null. The subject
+ * is comma-separated segments, one per run the commit records; a segment
+ * qualifies when its task text names this run and no rival, and its sha is the
+ * segment's LAST `merged as`, so a title carrying the phrase is not evidence.
+ * Exactly one qualifying segment is a record — none, or several, is not, even
+ * when they agree. This is what makes a commit this run's record commit and
+ * what reads the sha out of it: the two must not disagree. */
+export function recordCommitSha(subject, run, others = []) {
+  const text = String(subject ?? "");
+  if (!/^docs\(team\):\s/i.test(text)) return null;
+  const qualifying = [];
+  for (const segment of text.replace(/^docs\(team\):\s*/i, "").split(",")) {
     const m = /^(.*)\bmerged as `?([0-9a-f]{7,40})`?$/i.exec(segment.trim());
-    if (!m || !namesRun(m[1], run) || others.some((r) => namesRun(m[1], r))) continue;
-    found.add(m[2]);
+    if (!m || !namesRun(m[1], run) || others.some((r) => namesRival(m[1], r, run))) continue;
+    qualifying.push(m[2]);
   }
-  return found.size === 1 ? [...found][0] : found.size ? null : undefined;
+  return qualifying.length === 1 ? qualifying[0] : null;
 }
 
 /** The commit this run was merged as: its own clause in the closing text, else
@@ -366,8 +416,8 @@ function recordSha(subject, run, others) {
 export function mergedShaFrom(closing, recordSubject, { run = null, others = [] } = {}) {
   const asserted = ownedSha(closing, run, others, mergedRe);
   if (asserted !== undefined) return asserted;
-  const recorded = recordSha(recordSubject, run, others);
-  if (recorded !== undefined) return recorded;
+  const recorded = recordCommitSha(recordSubject, run, others);
+  if (recorded !== null) return recorded;
   return ownedSha(closing, run, others, rangeRe) ?? null;
 }
 
