@@ -222,28 +222,36 @@ line. Relay the lead's own words; do not paraphrase decisions.
   paste it to you, do not put it in a command you run, and do not repeat it
   back — anything you compose is kept in this session's transcript. Give the
   user one of these two, and run nothing until they say it is done:
-  - they write the value into a file only they can read
-    (`umask 077; cat > ~/.omb-secret` then Ctrl-D), and you run
+  - they write the value into a user-owned file with mode 0600, and you run
     `omb answer --provide --secret-stdin --request <messageId> < ~/.omb-secret`
     — the command names the path, never the value — then they delete the file;
   - or they run the command in their own shell after
     `read -rs OMB_SECRET && export OMB_SECRET`, which reads it without echoing
-    it; the value then reaches only that shell.
+    it; the driver inherits it without the value appearing in the command.
 
   The driver puts it into the server's settings and tells the card; it appears
   in no output, no state file, and no preview. If the save lands but the card
   does not, `omb answer --resume --request <messageId>` finishes it — that
-  route carries no value, so the user is never asked twice. `--dismiss` lets
-  the bot continue without it. `boxToken` is refused here: provide it in the
-  app. The `xAI` and `OpenCode` keys are refused while any bot on the server
-  is working, because saving one restarts every provider and kills the turns
-  that are running; wait for them, or dismiss the card.
+  route carries no value. Settled cards in `resumable[]` accept only
+  `--resume`; pending cards can also be dismissed. After an ambiguous save,
+  only a not-configured to configured transition verifies the write. If a
+  value was already configured, `saveOutcome: "unknown"` at exit 3 leaves
+  the choice to the user: resume on whatever is stored, or provide again.
+  `boxToken` is refused here: provide it in the app. The `xAI` and `OpenCode`
+  keys are refused while any bot is busy or any team-map work is queued or
+  running anywhere on the server, because saving one restarts every provider.
+  The driver checks before reading the value and immediately before the PUT;
+  the server cannot make that check atomic. Wait for the fleet to settle.
 - A connected app: `omb answer --connect --request <messageId>` returns a link
   once, for the user to open (exit 5). When they are done,
   `omb answer --resume --request <messageId>`; one request can ask for several
   apps and they resume together, so a resume refuses until every one of them
   is connected — and refuses before asking the provider anything while any of
-  them still has to be connected, naming the `--connect` command for each. `--dismiss` does **not** wake the bot; tell it with `send`.
+  them is `required` or `failed`, naming the `--connect` command for each.
+  A dismissed sibling prevents that family from resuming. Status reads can
+  wake the bot themselves; the driver re-reads the family before deciding
+  whether to post resume. `--dismiss` does **not** wake the bot; tell it with
+  `send`. Carry `--run <ref>` into these commands when two runs are open.
 - Read `pending[].cardKind`, full `text`, `options`, and payload metadata;
   upstream options messages have no `card.kind`. The brief is a summary and
   names the command for that kind.

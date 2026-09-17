@@ -58,6 +58,9 @@ paired device` (`request-auth.ts:293-309,364-370`); reads still work.
 | `POST /api/bots/:id/messages` | `{text, threadId?, sendId?}` | 202 receipt, see below (`index.ts:10738-10870`) | 400 `text required`; 400 `threadId must be a task id`; 409 `the bot switched tasks before it could receive the message` (`10756,10794,10826`); 409 `the target task no longer exists`; 409 `sendId already belongs to another message` (`10767,10782`); 409 `the running turn ended before the steered message could be recorded` — a late steer whose turn settled first (`10832-10835`) |
 | `POST /api/threads/:id/respond` | `{requestId, behavior, message?, reviewedSha256?}` | 200 `{ok:true, outcome}`, outcome ∈ `allowed-once` \| `rejected` \| `answered` \| `unavailable` (`contracts.ts:162`, `index.ts:10972-11033`); a settled skill or routine card answers `{ok:true, outcome, alreadySettled:true}` (`:6458-6468`, `:4811-4818`); a confirmed routine adds `routineAction` and `resultId` (`:4823-4829`) | 400 `behavior must be allow, deny, or answer`. Skill cards (`:6438-6597`): 403 `this skill request belongs to a different bot`; 409 `this proposal was created by an older build — deny it and ask the bot to create it again`; 409 `reviewedSha256 must match the skill shown on the approval card`; 422 `the skill preview changed after review — deny and recreate it`; 422 `the staged skill no longer matches this approval card`; 409 `the learned-skill approval card is no longer available`; an apply failure is 422 and lands on `card.held`. Routine cards (`routine-requests.ts:800-930`): 400 `Routine confirmations must be confirmed or cancelled`; 400 `This routine request id does not match its confirmation card`; 403 `This routine request belongs to another conversation`; 404 `That routine no longer exists`; 409 `That routine changed after this confirmation card was prepared. Ask the bot to review it and propose the action again.`; 409 `That one-time schedule is now in the past. Ask the bot to propose a new time.`; 409 `This routine confirmation card is no longer available` — revalidation failures write `held` (`:896-908`); text-mode, request-id and ownership refusals need not (`:812-855`), and mismatched payloads can still be cancelled |
 | `GET /api/routines` | `from?`, `to?` | 200 `{routines, runs}` (`index.ts:8438-8447`) — how a confirmed proposal is verified; `DELETE /api/routines/:id` removes one. Client scope (`request-auth.ts:241-243`) | — |
+| `GET /api/bots/:id/skills/:name` | — | 200 `{text}`: read back the installed skill (`index.ts:10557-10562`) | 404 `no such skill`; admin scope |
+| `DELETE /api/bots/:id/skills/:name` | — | 200 `{ok:true}` (`index.ts:10571-10574`) | 404 `no imported skill named "<name>"` (`skills.ts:742-746`); admin scope |
+| `DELETE /api/routines/:id` | — | 200 `{ok:true}` (`index.ts:8461-8464`) | 404 `no such routine`; client scope (`request-auth.ts:241`) |
 | `POST /api/bots/:id/connector-cards/:messageId/authorize` | `{threadId}` | 200 `{url}` — the browser link, returned to this caller only and never stored in the transcript (`index.ts:12231-12244`); the card becomes `authorizing` | 404 `no such connection request`; 400 `Add an account alias so the existing connection is not replaced`; 409 `<toolkit> already has the maximum of N accounts` (`composio.ts:348-350,928-935`); an authorization error leaves the card `failed` (`index.ts:12245-12250`); admin only |
 | `GET /api/bots/:id/connector-cards/:messageId/status` | `?threadId=` | 200 `{connected, pending, status}` (`index.ts:12255-12276`). **This read mutates**: it refreshes the stored card from the provider and resumes the bot itself when the last app in the request is live | 404 `no such connection request`; client scope |
 | `POST /api/bots/:id/connector-cards/:messageId/(resume\|dismiss)` | `{threadId}` | `resume` 200 `{resumed:true}` once every card sharing the `resumeKey` is connected and undismissed (`:6687-6697`); `dismiss` 200 `{dismissed:true}` and the bot is **not** woken (`:12284-12287`) | `resume` 409 `finish connecting every requested app first`; 404 `no such connection request`; client scope |
@@ -219,6 +222,15 @@ and the message text is the same handoff sentence for every one of them
 `opencodeGoApiKey`, `ttsKey` and `openaiImageApiKey`
 (`shared/credential-request.ts:6-38`); the value goes to the config path that
 id owns (`:52-65`) and never into the transcript.
+
+Credential write verification reads config before and after an ambiguous
+PUT. An existing configured value cannot verify a replacement: only an
+explicit false-to-true transition permits automatic confirmation. Otherwise
+the driver reports unknown and offers resume on the stored value or provide
+again. `tts.configured` with `provider: "system"` is voice-engine readiness,
+so it cannot verify an ElevenLabs key (`tts/index.ts:28-36,57-63`). The driver
+redacts the submitted value from config error text, including provider text
+forwarded by voice validation (`tts/elevenlabs.ts:42-55,66-75`).
 
 - `from` is set only on a bot message in a group thread
   (`index.ts:2731-2732`) and on a delegation echo (`index.ts:3389`). Direct

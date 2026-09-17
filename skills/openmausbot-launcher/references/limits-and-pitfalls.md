@@ -271,7 +271,7 @@ historical reports append a reanalysis instead of replacing the original.
   delegation watch and leaves `error: turn interrupted — provider settings
   changed` on every busy bot's thread (`:7175-7207`). Of the credential
   targets that is `xaiApiKey` and `opencodeGoApiKey`; `ttsKey` and
-  `openaiImageApiKey` write excluded sections and are safe. `answer --provide`
+  `openaiImageApiKey` write excluded sections and do not reload the fleet. `answer --provide`
   checks the whole fleet and team map before reading the value, and again
   immediately before the PUT. Any busy bot or queued/running delegation on
   the server refuses the write, including other teams' work. Dry runs and

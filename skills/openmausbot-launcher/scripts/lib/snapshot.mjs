@@ -377,8 +377,8 @@ export async function snapshot(client, state, { dataDir = null, runtimeTrusted =
   // A connection whose account is live, or a credential already saved, no
   // longer needs the user, so neither is pending — but until the bot has been
   // told, each is the one thing `answer --resume` acts on (index.ts:6687-6697,
-  // 6838-6853). Keep them beside the pending set, out of the evaluation, so a
-  // request id can still reach them.
+  // 6838-6853). Keep them beside the pending set so a request id can still
+  // reach them, and stuckResumable can count failed wakes for their owner.
   const pendingAll = []; const resumableAll = []; const tails = new Map(); const seenCards = new Set(); let failedTails = 0;
   await Promise.all([...threadOwners].map(async ([threadId, botId]) => {
     const tail = await get(`thread ${threadId}`, async () => {
@@ -499,8 +499,8 @@ export async function snapshot(client, state, { dataDir = null, runtimeTrusted =
       if (!run.cards?.[cardKeyOf(p)]) claims.push(cardKeyOf(p));
     }
     // A resumable connection stays visible to every view: its siblings may
-    // belong to another run and a resume needs all of them, so ownership only
-    // decides whether it can be picked without `--request`.
+    // belong to another run. Known foreign owners require explicit selection
+    // and do not contribute to this run's verdict; ambiguous owners still do.
     const resumable = resumableAll.map((p) => {
       if (!run) return p;
       const owners = pendingOwners.get(cardKeyOf(p));

@@ -44,7 +44,7 @@ const KINDS = {
  * saving one rebuilds the whole provider fleet (S: index.ts:12003-12014).
  * That kills every in-flight turn, fails its delegation watch and leaves an
  * `error: turn interrupted — provider settings changed` chip behind
- * (S: :7175-7207). `tts` and `imageGen` are excluded sections and are safe.
+ * (S: :7175-7207). `tts` and `imageGen` do not reload the provider fleet.
  */
 const RESTARTS_PROVIDERS = new Set(["xaiApiKey", "opencodeGoApiKey"]);
 
