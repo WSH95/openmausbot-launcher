@@ -200,45 +200,6 @@ test("send: the run thread, deterministic dedupe, no retargeting on a stale thre
   assert.equal(r.code, 0, r.stdout); assert.equal(r.json.bot, "Nova"); assert.equal(r.json.threadId, run.json.threads[Object.keys(run.json.threads).find((id) => id !== lead.id && r.json.threadId === run.json.threads[id])]);
 });
 
-test("answer: approval and question cards, dead cards, several pending, unsupported requests, bare text", async (t) => {
-  const { f, dir, team, lead } = await setup(t);
-  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
-  const lt = run.json.leadThreadId;
-  const nova = team.bots.find((b) => b.key === "nova"); const novaThread = run.json.threads[nova.id];
-  let r = await runOmb(["answer", "--allow", "--project", dir], { env });
-  assert.equal(r.code, 3); assert.match(r.json.error, /nothing is pending/);
-  await f.control({ op: "card", threadId: novaThread, requestId: "ap1", kind: "approval", text: "May Nova contact Quill?" });
-  r = await runOmb(["answer", "--message", "x", "--project", dir], { env });
-  assert.equal(r.code, 2); assert.match(r.json.error, /approval card: use --allow or --deny/);
-  r = await runOmb(["answer", "--allow", "--project", dir, "--brief"], { env });
-  assert.match(r.stdout, /^answer · Nova · allow → allowed-once/);
-  await f.control({ op: "card", threadId: lt, requestId: "q1", kind: "question", text: "Which one?" });
-  await f.control({ op: "card", threadId: novaThread, requestId: "ap2", kind: "approval" });
-  r = await runOmb(["answer", "--deny", "--project", dir], { env });
-  assert.equal(r.code, 3); assert.match(r.json.error, /2 requests are pending/); assert.match(r.json.hint, /q1/); assert.match(r.json.hint, /ap2/);
-  r = await runOmb(["answer", "--deny", "--request", "ap2", "--project", dir], { env });
-  assert.equal(r.code, 0); assert.equal(r.json.outcome, "rejected");
-  r = await runOmb(["answer", "--allow", "--request", "q1", "--project", dir], { env });
-  assert.equal(r.code, 2); assert.match(r.json.error, /is a question: use --message/);
-  r = await runOmb(["answer", "--message", "the table", "--request", "q1", "--project", dir], { env });
-  assert.equal(r.code, 0); assert.equal(r.json.outcome, "answered"); assert.equal(r.json.fellBackToSend, false);
-  await f.control({ op: "card", threadId: lt, requestId: "dead-q", kind: "question", dead: true, text: "Still there?" });
-  r = await runOmb(["answer", "--message", "yes, use a table", "--project", dir], { env });
-  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.outcome, "unavailable"); assert.equal(r.json.fellBackToSend, true); assert.ok(r.json.sent.messageId);
-  assert.equal((await thread(f, lt)).filter((m) => m.role === "user" && m.text === "yes, use a table").length, 1);
-  await f.control({ op: "card", threadId: novaThread, requestId: "dead-a", kind: "approval", dead: true });
-  r = await runOmb(["answer", "--allow", "--project", dir], { env });
-  assert.equal(r.code, 5); assert.match(r.json.error, /no longer answerable/); assert.match(r.json.hint, /tell the bot in chat/);
-  await f.control({ op: "connector", threadId: novaThread });
-  r = await runOmb(["answer", "--allow", "--project", dir], { env });
-  assert.equal(r.code, 5); assert.match(r.json.error, /connector request the driver cannot answer/); assert.match(r.json.hint, /connector-cards/);
-  r = await runOmb(["answer", "no new dependency, use a table", "--project", dir], { env });
-  assert.equal(r.code, 0); assert.equal(r.json.viaSend, true);
-  assert.equal((await thread(f, lt)).at(-1).text, "no new dependency, use a table");
-  r = await runOmb(["answer", "--allow", "--project", dir, "--request", "ap1"], { env });
-  assert.equal(r.code, 3, "an answered card is no longer pending");
-});
-
 test("interrupt targets the run thread and reports a bot busy elsewhere", async (t) => {
   const { f, dir, lead } = await setup(t);
   let r = await runOmb(["interrupt", "--project", dir], { env });
@@ -251,22 +212,6 @@ test("interrupt targets the run thread and reports a bot busy elsewhere", async 
   await f.control({ op: "busyElsewhere", botId: lead.id, where: "room Dev Room" });
   r = await runOmb(["interrupt", "--project", dir], { env });
   assert.equal(r.code, 3); assert.match(r.json.error, /working in room Dev Room/); assert.match(r.json.hint, /not interrupted/);
-});
-
-test("skill and routine requests refuse every response mode before posting", async (t) => {
-  const { f, dir } = await setup(t);
-  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
-  const posts = [];
-  f.server.on("request", (req) => { if (req.method === "POST" && req.url.endsWith("/respond")) posts.push(req.url); });
-  for (const kind of ["skill", "routine"]) {
-    await f.control({ op: "card", threadId: run.json.leadThreadId, kind, requestId: kind });
-    for (const mode of [["--allow"], ["--deny"], ["--message", "yes"]]) {
-      const r = await runOmb(["answer", ...mode, "--request", kind, "--project", dir], { env });
-      assert.equal(r.code, 5, r.stdout);
-      assert.match(r.json.error, new RegExp(`${kind} request`));
-    }
-  }
-  assert.deepEqual(posts, [], "even a rejected response POST is forbidden for unsupported requests");
 });
 
 test("interrupt takes no state lock: it succeeds while another launcher holds it", async (t) => {

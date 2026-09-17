@@ -11,6 +11,8 @@ export class HttpError extends Error {
   }
 }
 
+const SECRET_BODY = /^\/api\/config(\?|$)/;
+
 export function createClient({ url, token = null, dryRun = false, timeoutMs = 15_000, allowInsecureHttp = false }) {
   const u = new URL(url);
   if (u.protocol === "http:" && !isLoopback(url) && !allowInsecureHttp) {
@@ -20,7 +22,10 @@ export function createClient({ url, token = null, dryRun = false, timeoutMs = 15
   if (token) headers.authorization = `Bearer ${token}`;
   async function request(method, path, body, opts = {}) {
     const perCall = opts.timeoutMs ?? timeoutMs;
-    if (dryRun && method !== "GET") return { dryRun: true, method, path, body };
+    // A config write is the one request whose body is a credential. Its
+    // preview says which route would be called and nothing else, so a dry run
+    // cannot put a secret on stdout or into a transcript.
+    if (dryRun && method !== "GET") return { dryRun: true, method, path, body: SECRET_BODY.test(path) ? "<redacted>" : body };
     let res; let text;
     try {
       const timeout = AbortSignal.timeout(Math.max(0, Math.floor(perCall)));
@@ -39,7 +44,7 @@ export function createClient({ url, token = null, dryRun = false, timeoutMs = 15
   }
   return {
     url: u.origin, hasToken: Boolean(token), timeoutMs,
-    get: (p, o) => request("GET", p, undefined, o), post: (p, b, o) => request("POST", p, b ?? {}, o), patch: (p, b, o) => request("PATCH", p, b ?? {}, o), del: (p, o) => request("DELETE", p, undefined, o),
+    get: (p, o) => request("GET", p, undefined, o), post: (p, b, o) => request("POST", p, b ?? {}, o), patch: (p, b, o) => request("PATCH", p, b ?? {}, o), put: (p, b, o) => request("PUT", p, b ?? {}, o), del: (p, o) => request("DELETE", p, undefined, o),
     /** A raw fetch for the event stream: same auth, caller-managed lifetime. */
     stream: (p, signal) => fetch(`${u.origin}${p}`, { headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), accept: "text/event-stream" }, signal }),
   };
@@ -49,4 +54,22 @@ export function createClient({ url, token = null, dryRun = false, timeoutMs = 15
 export function precondition(e, hint) {
   if (e instanceof HttpError) return new Fail(e.status === 409 ? EXIT.PRECONDITION : EXIT.ERROR, e.body?.error ?? e.message, { status: e.status, hint });
   return e;
+}
+
+/** A 403 this launcher cannot argue with: the session's scope, or a change the
+ * server only accepts from the app. S: request-auth.ts:344-347,369. */
+const NEEDS_A_HUMAN = /lacks the .+ scope|desktop app or a paired device/;
+
+/**
+ * How a card route's refusal is reported. The server validates each card kind
+ * itself — a stale hash, a routine that moved, a connection that is not
+ * finished — and its own words are the instruction the user acts on, so they
+ * are passed through unchanged with the status kept beside them.
+ */
+export function refused(e, hint) {
+  if (!(e instanceof HttpError)) return e;
+  const text = e.body?.error ?? e.message;
+  if (e.status === 403 && NEEDS_A_HUMAN.test(text)) return new Fail(EXIT.NEEDS_USER, text, { status: 403, hint });
+  if ([400, 404, 409, 422, 429].includes(e.status)) return new Fail(EXIT.PRECONDITION, text, { status: e.status, hint });
+  return precondition(e, hint);
 }

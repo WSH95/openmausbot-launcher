@@ -6,6 +6,7 @@ import "../skills/openmausbot-launcher/scripts/lib/verbs/pair.mjs";
 import "../skills/openmausbot-launcher/scripts/lib/verbs/repo.mjs";
 import "../skills/openmausbot-launcher/scripts/lib/verbs/team.mjs";
 import "../skills/openmausbot-launcher/scripts/lib/verbs/run.mjs";
+import "../skills/openmausbot-launcher/scripts/lib/verbs/answer.mjs";
 import "../skills/openmausbot-launcher/scripts/lib/verbs/state.mjs";
 
 const REGISTERED = "answer, bind, cleanup, doctor, down, facts, import, interrupt, pair, reconcile, report, send, state, status, task, up, watch";

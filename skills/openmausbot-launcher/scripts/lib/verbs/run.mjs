@@ -1,5 +1,5 @@
 import { stateCommand, requireSameEnvironment, requireDataDir, serverIdentity, protectServerSelection, runContext } from "../session.mjs";
-// status, task, send, answer, interrupt, watch.
+// status, task, send, interrupt, watch. `answer` is in ./answer.mjs.
 import fs from "node:fs";
 import path from "node:path";
 import { verb, EXIT, Fail, VERBS } from "../cli.mjs";
@@ -265,7 +265,7 @@ verb("task", {
   }),
 });
 
-const sendIdFor = (scope, threadId, text) => `send-${createHash("sha1").update(`${scope}|${threadId}|${text}`).digest("hex").slice(0, 16)}`;
+export const sendIdFor = (scope, threadId, text) => `send-${createHash("sha1").update(`${scope}|${threadId}|${text}`).digest("hex").slice(0, 16)}`;
 
 /**
  * Send to a run's own lead thread (design, "Delivery"). A new message reaches
@@ -329,7 +329,7 @@ export async function deliverToLead(client, { leadId, run, otherRuns = [], text,
 /** The run a run-scoped verb acts on: named, the only open one, or a question
  * for the user. A closed run is history — `report` reads it, nothing speaks to
  * it, and least of all makes its thread the lead's active task again. */
-function runFor(cfg, flags) {
+export function runFor(cfg, flags) {
   if (!flags.run && !openRuns(cfg.state).length) return null;
   const run = selectRun(cfg.state, flags.run);
   if (run.status === "closed") throw new Fail(EXIT.PRECONDITION, `run ${flags.run} is closed`, { hint: `report --run ${flags.run} reads it; a closed run takes no more messages` });
@@ -390,54 +390,6 @@ verb("send", {
     if (!r.dryRun && task) await save( (d) => { const live = d.runs?.[task.runId]; if (live) live.lastEval = { ...(live.lastEval ?? {}), lastChangeAt: Date.now() }; return d; });
     return { result: { bot: bot.name, ...r, sendId }, brief: `send · ${bot.name} · ${r.duplicate ? `duplicate of ${r.messageId}` : r.queued ? "queued" : r.steered ? "steered" : "delivered"}` };
   }),
-});
-
-verb("answer", {
-  options: { allow: { type: "boolean" }, deny: { type: "boolean" }, message: { type: "string" }, request: { type: "string" }, run: { type: "string" } },
-  allowPositionals: true,
-  handler: stateCommand(async ({ flags, positionals, cfg, save }) => {
-    const team = requireTeam(cfg);
-    const client = createClient(cfg);
-    await requireSameEnvironment(cfg, client);
-    const bare = positionals.join(" ").trim();
-    const modes = [flags.allow && "allow", flags.deny && "deny", flags.message !== undefined && "answer"].filter(Boolean);
-    if (modes.length > 1) throw new Fail(EXIT.USAGE, "pass one of --allow, --deny, --message");
-    const task = runFor(cfg, flags);
-    if (!modes.length) {
-      if (!bare) throw new Fail(EXIT.USAGE, 'usage: answer --allow|--deny|--message "<text>" [--request ID]  |  answer "<text>"');
-      const out = await VERBS.get("send").handler({ flags: { ...flags }, positionals: [bare], verb: "send" });
-      return { result: { viaSend: true, ...out.result }, brief: out.brief };
-    }
-    const snap = await snapshot(client, { team, task, runs: openRuns(cfg.state), history: cfg.state?.history }, { dataDir: null });
-    const cards = snap.pending.filter((p) => p.kind !== "waiting");
-    let target;
-    if (flags.request) { target = cards.find((p) => p.requestId === flags.request) ?? null; if (!target) throw new Fail(EXIT.PRECONDITION, `no pending request ${flags.request}`, { hint: cards.length ? `pending: ${cards.map((c) => `${c.requestId ?? c.kind} (${c.botName})`).join(", ")}` : "nothing is pending; a plain question is answered with send" }); }
-    else if (cards.length === 1) {
-      target = cards[0];
-      // A request no open run owns is answered on purpose, never by elimination.
-      if (target.shared) throw new Fail(EXIT.PRECONDITION, `no open run owns request ${target.requestId ?? target.kind} (${target.botName})`, { hint: `pass --request ${target.requestId ?? "<id>"} to answer it anyway` });
-    }
-    else if (cards.length === 0) throw new Fail(EXIT.PRECONDITION, "nothing is pending", { hint: 'a plain-text question is answered with send "…"' });
-    else throw new Fail(EXIT.PRECONDITION, `${cards.length} requests are pending; pass --request`, { hint: cards.map((c) => `${c.requestId ?? c.kind}: ${c.botName} ${c.text}`).join(" | ") });
-    if (target.kind !== "card") throw new Fail(EXIT.NEEDS_USER, `${target.botName} has a ${target.kind} request the driver cannot answer`, { hint: target.kind === "connector" ? "connect the app in OpenMausBot's UI (connector cards use /api/bots/:id/connector-cards)" : "provide the credential in OpenMausBot's UI (secret cards use /api/bots/:id/secret-cards)" });
-    if (target.cardKind === "skill" || target.cardKind === "routine") throw new Fail(EXIT.NEEDS_USER, `${target.botName} has a ${target.cardKind} request the driver cannot answer`, { hint: target.cardKind === "skill" ? "review the learned skill in OpenMausBot's app; its response requires reviewedSha256 matching the displayed preview" : "review and resolve the routine proposal in OpenMausBot's app" });
-    const behavior = modes[0];
-    if (behavior === "answer" && target.cardKind && target.cardKind !== "question") throw new Fail(EXIT.USAGE, `request ${target.requestId} is an approval card: use --allow or --deny`);
-    if (behavior !== "answer" && target.cardKind === "question") throw new Fail(EXIT.USAGE, `request ${target.requestId} is a question: use --message`);
-    if (cfg.dryRun) return { result: { dryRun: true, requestId: target.requestId, threadId: target.threadId, behavior } };
-    const res = await client.post(`/api/threads/${target.threadId}/respond`, { requestId: target.requestId, behavior, ...(behavior === "answer" ? { message: flags.message } : {}) });
-    const outcome = res.outcome ?? "unknown";
-    let fellBackToSend = false; let sent = null;
-    if (outcome === "unavailable") {
-      if (behavior === "answer" && task && target.threadId === task.leadThreadId) {
-        sent = await deliverToLead(client, { leadId: team.lead.id, run: task, otherRuns: openRuns(cfg.state).filter((x) => x.runId !== task.runId), text: flags.message, sendId: sendIdFor(task.runId, task.leadThreadId, flags.message) });
-        fellBackToSend = true;
-      } else {
-        throw new Fail(EXIT.NEEDS_USER, `the card is no longer answerable (outcome unavailable); the ${behavior} did not happen`, { hint: "the request died with the bot's turn; tell the bot in chat what you decided with send, and it will ask again if it must" });
-      }
-    }
-    return { result: { requestId: target.requestId, threadId: target.threadId, bot: target.botName, behavior, outcome, fellBackToSend, sent }, brief: `answer · ${target.botName} · ${behavior} → ${outcome}${fellBackToSend ? " (sent as chat instead)" : ""}` };
-  }, { lockWhen: ({ flags }) => flags.allow || flags.deny || flags.message !== undefined }),
 });
 
 verb("interrupt", {
@@ -551,5 +503,6 @@ verb("watch", {
   },
 });
 
-// Register the report verb after the run helpers are defined.
+// Register the verbs that build on the run helpers after they are defined.
+import "./answer.mjs";
 import "./report.mjs";

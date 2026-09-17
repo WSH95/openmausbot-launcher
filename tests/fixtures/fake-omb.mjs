@@ -36,8 +36,30 @@ const ECHO_PREFIX = "replied to the delegated task"; // S: server/index.ts:3387 
 const MAX_DESCRIPTION = 4000; // S: server/bot-package.ts (description ≤ 4000)
 const MAX_TAGLINE = 160; // S: import 400 on a long tagline (devpack EVIDENCE.md:302)
 
+// The five credentials a bot may ask for, and the config field each one is
+// written to. The id is the whole authority surface: no agent picks a path.
+// S: shared/credential-request.ts:6-38 (targets) and :52-65 (the patch shape).
+const CREDENTIAL_TARGETS = {
+  xaiApiKey: { label: "xAI API key", description: "Used by the built-in Grok provider.", placeholder: "xai-…", helpUrl: "https://console.x.ai/", section: "xai", field: "key" },
+  boxToken: { label: "Box API key", description: "Gives bots an isolated cloud computer when Box is selected.", placeholder: "Paste your Box API key", helpUrl: "https://docs.ascii.dev/box/api-keys", section: "box", field: "token" },
+  opencodeGoApiKey: { label: "OpenCode API key", description: "Used for OpenCode Go and other key-backed OpenCode providers.", placeholder: "Paste your OpenCode API key", helpUrl: "https://opencode.ai/docs/providers/", section: "opencodeGo", field: "apiKey" },
+  ttsKey: { label: "ElevenLabs API key", description: "Enables text-to-speech voices in calls.", placeholder: "Paste your ElevenLabs API key", helpUrl: "https://elevenlabs.io/app/settings/api-keys", section: "tts", field: "key" },
+  openaiImageApiKey: { label: "OpenAI API key", description: "Used only to generate custom bot avatar images.", placeholder: "sk-…", helpUrl: "https://platform.openai.com/api-keys", section: "imageGen", field: "key" },
+};
+// S: routine-requests.ts:41-48 — the label each action puts on its card.
+const ROUTINE_ACTION_COPY = {
+  create: { title: "Schedule", detail: "Create routine" }, update: { title: "Update", detail: "Update routine" },
+  pause: { title: "Pause", detail: "Pause routine" }, resume: { title: "Resume", detail: "Resume routine" },
+  run_now: { title: "Run now", detail: "Run routine now" }, delete: { title: "Delete", detail: "Delete routine" },
+};
+
 const newId = () => randomBytes(8).toString("hex");
 const now = () => Date.now();
+/** S: index.ts:6742-6744 — the only text a credential card puts in the transcript. */
+const credentialDesktopHandoff = (label) => `Securely provide the ${label} from OpenMausBot on your phone or computer. It is never added to chat.`;
+/** The card's schedule line. The real one formats in the server's time zone
+ * (S: routine-requests.ts:538); a fixture needs only a stable rendering. */
+const scheduleText = (s) => s.type === "once" ? `Once at ${new Date(s.at).toISOString()}` : s.type === "daily" ? `Daily at ${s.time}` : `Every ${s.everyMinutes} minutes`;
 
 export async function createFake(opts = {}) {
   const dataDir = opts.dataDir ?? fs.mkdtempSync(path.join(process.env.TMPDIR ?? "/tmp", "fake-omb-"));
@@ -59,6 +81,10 @@ export async function createFake(opts = {}) {
     pairings: [], sessions: [], replays: [], failures: new Map(), // S: sessions.ts:136-142
     delay: { count: 0, ms: 0 }, dropNext: 0, steer: false, lateSteerConflict: false,
     dropStreams: false, sequence: 0, instances: defaultInstances(),
+    // Cards and the settings they touch. `config` holds configured-or-not
+    // booleans only: this fake never stores a credential value anywhere.
+    routines: [], routineRuns: [], skills: new Map(), accounts: new Map(), config: {}, wakes: [],
+    providerBusy: false, phoneSaving: new Set(),
   };
   const sse = new Set();
   let lastSeq = 0;
@@ -229,6 +255,11 @@ export async function createFake(opts = {}) {
     ["POST", /^\/api\/bots\/[\w-]+\/respond$/],
     ["POST", /^\/api\/threads\/[\w-]+\/respond$/], ["PATCH", /^\/api\/bots\/[\w-]+$/], ["PATCH", /^\/api\/groups\/[\w-]+$/],
     ["POST", /^\/api\/groups\/[\w-]+\/messages$/], ["GET", /^\/api\/routines$/], ["GET", /^\/api\/config$/],
+    // Cards a client session may act on. Authorizing a connection and
+    // confirming a saved credential are the owner's (S: request-auth.ts:218-220).
+    ["GET", /^\/api\/bots\/[\w-]+\/connector-cards\/[\w-]+\/status$/],
+    ["POST", /^\/api\/bots\/[\w-]+\/connector-cards\/[\w-]+\/(?:resume|dismiss)$/],
+    ["POST", /^\/api\/bots\/[\w-]+\/secret-cards\/[\w-]+\/(?:resume|dismiss)$/],
   ];
   function authorize(req, method, pathname) {
     // Two public routes come before the gate: what this server is, and turning
@@ -323,6 +354,11 @@ export async function createFake(opts = {}) {
       if ((m = p.match(/^\/api\/bots\/([\w-]+)\/model$/)) && method === "PATCH") return patchModel(req, res, m[1]);
       if ((m = p.match(/^\/api\/bots\/([\w-]+)\/tasks$/)) && method === "POST") return postTask(req, res, m[1]);
       if ((m = p.match(/^\/api\/bots\/([\w-]+)\/tasks\/([\w-]+)$/)) && method === "POST") return switchTask(res, m[1], m[2]);
+      if (method === "GET" && p === "/api/routines") return json(res, 200, { routines: state.routines, runs: state.routineRuns }); // S: index.ts:8438-8447
+      if (method === "GET" && p === "/api/config") return json(res, 200, configStatus());
+      if ((method === "PUT" || method === "PATCH") && p === "/api/config") return putConfig(req, res);
+      if ((m = p.match(/^\/api\/bots\/([\w-]+)\/connector-cards\/([\w-]+)\/(authorize|status|resume|dismiss)$/))) return connectorCard(req, res, method, url, m[1], m[2], m[3]);
+      if ((m = p.match(/^\/api\/bots\/([\w-]+)\/secret-cards\/([\w-]+)\/(provide|provided|resume|dismiss)$/)) && method === "POST") return secretCard(req, res, m[1], m[2], m[3]);
       if ((m = p.match(/^\/api\/bots\/([\w-]+)\/messages$/)) && method === "POST") return postMessage(req, res, m[1]);
       if ((m = p.match(/^\/api\/bots\/([\w-]+)\/interrupt$/)) && method === "POST") return interrupt(req, res, m[1]);
       if ((m = p.match(/^\/api\/bots\/([\w-]+)\/respond$/)) && method === "POST") { const bot = botById(m[1]); if (!bot) return json(res, 404, { error: "no such bot" }); return respond(req, res, bot.threadId); }
@@ -455,23 +491,9 @@ export async function createFake(opts = {}) {
     const msg = list.find((m) => m.card?.requestId === body.requestId);
     if (!msg || !msg.card) return json(res, 200, { ok: true, outcome: "unavailable" });
     if (!["allow", "deny", "answer"].includes(body.behavior)) return json(res, 400, { error: "behavior must be allow, deny, or answer" });
-    // Special requests are intercepted before adapter answers (S: index.ts:10981-11013).
-    // Model the valid staged proposal cases used by these fixtures, including
-    // the hash review gate (S: index.ts:6466-6526). No blanket rejection route.
-    if (msg.card.skillRequest || msg.card.routineRequest) {
-      // Routine answers are rejected before settlement checks (S: routine-requests.ts:812-818).
-      if (msg.card.routineRequest && body.behavior === "answer") return json(res, 400, { error: "Routine confirmations must be confirmed or cancelled" });
-      if (msg.card.answered || msg.card.dismissed) return json(res, 200, { ok: true, outcome: msg.card.answered === "allow" ? "allowed-once" : "rejected", alreadySettled: true });
-      if (msg.card.skillRequest && body.behavior === "allow" && body.reviewedSha256 !== msg.card.skillRequest.sha256) return json(res, 409, { error: "reviewedSha256 must match the skill shown on the approval card" });
-      msg.card.answered = body.behavior === "allow" ? "allow" : "deny";
-      msg.card.dismissed = body.behavior !== "allow";
-      broadcast({ kind: "message.patch", threadId, message: msg });
-      // The fixture represents a valid staged create (S: index.ts:4814-4828;
-      // routine-requests.ts:919-925). It does not implement the routine scheduler.
-      const routine = msg.card.routineRequest;
-      if (routine && body.behavior === "allow") { routine.appliedAt = now(); routine.resultId = newId(); }
-      return json(res, 200, { ok: true, outcome: body.behavior === "allow" ? "allowed-once" : "rejected", ...(routine && body.behavior === "allow" ? { routineAction: routine.operation.action, resultId: routine.resultId } : {}) });
-    }
+    // Special requests are intercepted before adapter answers (S: index.ts:10980-11013).
+    if (msg.card.skillRequest) return respondSkill(res, threadId, msg, body);
+    if (msg.card.routineRequest) return respondRoutine(res, threadId, msg, body);
     if (msg.card.answered || msg.card.dismissed) return json(res, 200, { ok: true, outcome: "unavailable" });
     if (msg.card.dead) { msg.card.answered = true; broadcast({ kind: "message.patch", threadId, message: msg }); return json(res, 200, { ok: true, outcome: "unavailable" }); }
     let outcome;
@@ -484,6 +506,71 @@ export async function createFake(opts = {}) {
     broadcast({ kind: "message.patch", threadId, message: msg });
     return json(res, 200, { ok: true, outcome });
   }
+  /** S: index.ts:6438-6597. A settled card answers with its own outcome, any
+   * behaviour other than allow rejects the staged write, and an allow passes
+   * the reviewed hash, then the preview's own hash, before it is applied. */
+  function respondSkill(res, threadId, msg, body) {
+    const card = msg.card; const request = card.skillRequest;
+    const settle = (patch) => { Object.assign(card, patch); broadcast({ kind: "message.patch", threadId, message: msg }); };
+    const decide = (decision) => state.decisions.unshift({ threadId, requestId: request.requestId, botId: request.botId, tool: card.tool, summary: card.subtitle, decision, source: "user", at: now() }); // S: index.ts:6479-6488
+    if (card.answered || card.dismissed) return json(res, 200, { ok: true, outcome: card.answered === "allow" ? "allowed-once" : "rejected", alreadySettled: true }); // :6458-6468
+    if (body.behavior !== "allow") { // :6470-6504 — an `answer` rejects the skill too
+      settle({ answered: "deny", dismissed: true, held: undefined }); decide("user-denied");
+      return json(res, 200, { ok: true, outcome: "rejected" });
+    }
+    if (typeof request.preview !== "string" || typeof request.sha256 !== "string") return json(res, 409, { error: "this proposal was created by an older build — deny it and ask the bot to create it again" }); // :6506-6512
+    if (body.reviewedSha256 !== request.sha256) return json(res, 409, { error: "reviewedSha256 must match the skill shown on the approval card" }); // :6513-6519
+    if (createHash("sha256").update(request.preview).digest("hex") !== request.sha256) return json(res, 422, { error: "the skill preview changed after review — deny and recreate it" }); // :6520-6523
+    if (request.stagedGone) return json(res, 422, { error: "the staged skill no longer matches this approval card" }); // :6532-6542
+    state.skills.set(`${request.botId}/${request.name}`, request.preview);
+    settle({ answered: "allow", dismissed: false, held: undefined }); decide("user-approved");
+    return json(res, 200, { ok: true, outcome: "allowed-once" });
+  }
+
+  /** S: routine-requests.ts:800-930 and index.ts:4802-4830. A textual answer is
+   * refused before anything is read; an allow revalidates the operation and a
+   * refusal is written onto the card as `held`. */
+  function respondRoutine(res, threadId, msg, body) {
+    const card = msg.card; const payload = card.routineRequest; const operation = payload.operation;
+    const patch = () => broadcast({ kind: "message.patch", threadId, message: msg });
+    const held = (status, error) => { card.held = error; patch(); return json(res, status, { error }); }; // :896-908
+    if (body.behavior !== "allow" && body.behavior !== "deny") return json(res, 400, { error: "Routine confirmations must be confirmed or cancelled" }); // :812-818
+    if (payload.requestId !== body.requestId) return json(res, 400, { error: "This routine request id does not match its confirmation card" }); // :846
+    if (payload.threadId !== threadId) return json(res, 403, { error: "This routine request belongs to another conversation" }); // :855
+    if (card.answered) return json(res, 200, { ok: true, outcome: card.answered === "allow" ? "allowed-once" : "rejected", alreadySettled: true }); // index.ts:4811-4818
+    if (body.behavior === "deny") { card.answered = "deny"; card.held = undefined; patch(); return json(res, 200, { ok: true, outcome: "rejected" }); } // :885-888
+    if (operation.action !== "create") { // verifyManageSnapshot, :642-656
+      const current = state.routines.find((r) => r.id === operation.routineId);
+      if (!current) return held(404, "That routine no longer exists"); // :648
+      if (current.updatedAt !== operation.expectedUpdatedAt) return held(409, "That routine changed after this confirmation card was prepared. Ask the bot to review it and propose the action again."); // :650-653
+    }
+    const schedule = operation.action === "create" ? operation.routine.schedule : operation.changes?.schedule;
+    if (schedule?.type === "once" && schedule.at <= now()) return held(409, "That one-time schedule is now in the past. Ask the bot to propose a new time."); // :679-681
+    const resultId = applyRoutine(payload); // :981-1041
+    card.answered = "allow"; card.held = undefined;
+    payload.appliedAt = now(); payload.resultId = resultId; // :919-925
+    patch();
+    return json(res, 200, { ok: true, outcome: "allowed-once", routineAction: operation.action, resultId }); // index.ts:4823-4829
+  }
+
+  /** The routine each confirmed operation leaves behind; `run_now` answers with
+   * the run's id rather than the routine's (S: routine-requests.ts:981-1041). */
+  function applyRoutine(payload) {
+    const operation = payload.operation;
+    if (operation.action === "create") {
+      const routine = { id: newId(), name: operation.routine.name, prompt: operation.routine.instructions, botId: operation.forBot?.botId ?? payload.botId, schedule: operation.routine.schedule, runOn: operation.routine.runOn, durationMinutes: operation.routine.durationMinutes, enabled: true, updatedAt: now() };
+      state.routines.push(routine);
+      return routine.id;
+    }
+    const current = state.routines.find((r) => r.id === operation.routineId);
+    if (operation.action === "delete") { state.routines = state.routines.filter((r) => r.id !== operation.routineId); return operation.routineId; }
+    if (operation.action === "run_now") { const run = { id: newId(), routineId: operation.routineId, startedAt: now() }; state.routineRuns.push(run); return run.id; }
+    if (operation.action === "update") Object.assign(current, operation.changes);
+    if (operation.action === "pause" || operation.action === "resume") current.enabled = operation.action === "resume";
+    current.updatedAt = now();
+    return current.id;
+  }
+
   function threadMessages(res, url, threadId) { // S: index.ts:1937-1946 pageSize() (default 50, clamp 200, null for a non-integer or negative), 8646 (the 400), 8639-8663
     const list = messagesFor(threadId);
     const limitRaw = url.searchParams.get("limit");
@@ -537,6 +624,126 @@ export async function createFake(opts = {}) {
     broadcast({ kind: "group", group: publicGroup(g) });
     return json(res, 200, { group: publicGroup(g) });
   }
+  // ── connection and credential cards ──
+  // A card is bound to the bot AND the exact thread that raised it
+  // (S: index.ts:6612-6615, 6746-6756); anything else is "no such …".
+  const cardMessage = (botId, threadId, messageId, want) => {
+    const bot = botById(botId);
+    if (!bot || !taskByThread(bot, threadId)) return null;
+    const message = messagesFor(threadId).find((x) => x.id === messageId);
+    return message?.kind === want && message[want] ? message : null;
+  };
+  const patchCard = (threadId, message) => broadcast({ kind: "message.patch", threadId, message });
+  /** The turn a settled card starts again. Recorded rather than run: a fixture
+   * has no provider (S: index.ts:6637, 6778-6781 for the two prompts). */
+  const wake = (kind, botId, threadId, prompt) => state.wakes.push({ kind, botId, threadId, prompt, at: now() });
+
+  const connectorCards = (threadId, resumeKey) => messagesFor(threadId).filter((x) => x.kind === "connector" && x.connector?.resumeKey === resumeKey); // S: index.ts:6618-6622
+  function maybeResumeConnectors(botId, threadId, resumeKey) { // S: index.ts:6687-6697
+    const cards = connectorCards(threadId, resumeKey);
+    if (!cards.length || cards.some((x) => x.connector.dismissed || x.connector.status !== "connected")) return false;
+    if (cards.every((x) => x.connector.resumed)) return true;
+    for (const x of cards) { x.connector = { ...x.connector, resumed: true, error: undefined }; patchCard(threadId, x); }
+    wake("connector", botId, threadId, `OpenMausBot connection update: the user securely connected ${cards.map((x) => x.connector.label).join(", ")}. Continue the task that paused for this connection. Do not ask them to connect it again.`);
+    return true;
+  }
+
+  async function connectorCard(req, res, method, url, botId, messageId, action) { // S: index.ts:12234-12289
+    const body = method === "POST" ? await readBody(req) ?? {} : {};
+    const threadId = String(method === "GET" ? url.searchParams.get("threadId") ?? "" : body.threadId ?? "");
+    const message = cardMessage(botId, threadId, messageId, "connector");
+    if (!message) return json(res, 404, { error: "no such connection request" });
+    const connector = message.connector;
+    if (action === "authorize" && method === "POST") {
+      message.connector = { ...connector, status: "authorizing", error: undefined, dismissed: false };
+      patchCard(threadId, message);
+      // The browser link is handed to this caller once and never stored
+      // in the transcript (S: index.ts:12231-12233, composio.ts:937-945).
+      return json(res, 200, { url: `https://connect.example/${connector.slug}/${messageId}` });
+    }
+    if (action === "status" && method === "GET") {
+      const status = state.accounts.get(messageId) ?? "not_connected";
+      const connected = /^active$/i.test(status);
+      const failed = /failed|expired|revoked|error/i.test(status);
+      message.connector = { ...connector, status: connected ? "connected" : failed ? "failed" : "authorizing", error: failed ? `Connection ${status}` : undefined };
+      patchCard(threadId, message);
+      if (connected) maybeResumeConnectors(botId, threadId, connector.resumeKey);
+      return json(res, 200, { connected, pending: /^(initiated|initializing|pending)$/i.test(status), status });
+    }
+    if (action === "resume" && method === "POST") {
+      return maybeResumeConnectors(botId, threadId, connector.resumeKey)
+        ? json(res, 200, { resumed: true })
+        : json(res, 409, { error: "finish connecting every requested app first" });
+    }
+    if (action === "dismiss" && method === "POST") { // a dismissal never wakes the bot
+      message.connector = { ...connector, dismissed: true };
+      patchCard(threadId, message);
+      return json(res, 200, { dismissed: true });
+    }
+    return json(res, 405, { error: "method not allowed" });
+  }
+
+  const credentialIsConfigured = (target) => state.config[CREDENTIAL_TARGETS[target].section] === true;
+  function resumeSecretCard(botId, threadId, message, outcome) { // S: index.ts:6838-6853
+    if (message.secret.resumed) return true;
+    message.secret = { ...message.secret, provided: outcome === "provided" ? true : message.secret.provided, dismissed: outcome === "dismissed" ? true : message.secret.dismissed, resumed: true, error: undefined };
+    patchCard(threadId, message);
+    wake("secret", botId, threadId, outcome === "provided"
+      ? `OpenMausBot credential update: the user securely provided ${message.secret.label}. Continue the task that paused for it. You do not receive the secret and must not ask them to paste it into chat.`
+      : `OpenMausBot credential update: the user declined to provide ${message.secret.label}. Continue without it if possible, or briefly explain the limitation. Do not ask them to paste it into chat.`);
+    return true;
+  }
+
+  async function secretCard(req, res, botId, messageId, action) { // S: index.ts:12156-12229
+    if (action === "provide") return json(res, 403, { error: "Secure phone entry must come from a paired phone" }); // :12158-12160 — the desktop never uses this route
+    const body = await readBody(req) ?? {};
+    const threadId = String(body.threadId ?? "");
+    const message = cardMessage(botId, threadId, messageId, "secret");
+    if (!message) return json(res, 404, { error: "no such credential request" });
+    if (state.phoneSaving.has(messageId)) return json(res, 409, { error: "this credential is currently being saved from a phone" }); // :12191-12195
+    if (action === "provided") {
+      if (message.secret.dismissed) return json(res, 409, { error: "this credential request was dismissed" }); // :12197
+      if (!credentialIsConfigured(message.secret.target)) return json(res, 409, { error: `${message.secret.label} was not saved yet` }); // :12198-12200
+      resumeSecretCard(botId, threadId, message, "provided");
+      return json(res, 200, { provided: true, resumed: message.secret.resumed === true });
+    }
+    if (action === "resume") {
+      const provided = message.secret.provided === true; const dismissed = message.secret.dismissed === true;
+      if (provided === dismissed) return json(res, 409, { error: "this credential request is not ready to resume" }); // :12210-12212
+      if (provided && !credentialIsConfigured(message.secret.target)) return json(res, 409, { error: `${message.secret.label} is no longer configured` }); // :12213-12215
+      resumeSecretCard(botId, threadId, message, provided ? "provided" : "dismissed");
+      return json(res, 200, { resumed: message.secret.resumed === true });
+    }
+    if (!message.secret.provided) resumeSecretCard(botId, threadId, message, "dismissed"); // :12223
+    return json(res, 200, { dismissed: true, resumed: message.secret.resumed === true });
+  }
+
+  /** Configured-or-not booleans, never a value (S: index.ts:7125-7157). */
+  const configStatus = () => ({
+    xai: { configured: state.config.xai === true }, box: { configured: state.config.box === true },
+    opencodeGo: { configured: state.config.opencodeGo === true }, tts: { configured: state.config.tts === true },
+    imageGen: { configured: state.config.imageGen === true },
+    features: { skillRecorder: state.config.skillRecorder === true },
+  });
+  async function putConfig(req, res) { // S: index.ts:11675-11679, 11962-11968
+    const body = await readBody(req) ?? {};
+    const saved = [];
+    for (const spec of Object.values(CREDENTIAL_TARGETS)) {
+      const value = body[spec.section]?.[spec.field];
+      if (typeof value !== "string") continue;
+      if (!value) return json(res, 400, { error: `${spec.section}.${spec.field} must be a non-empty string` }); // parseConfigPatch's zod text stands in here
+      saved.push(spec.section);
+    }
+    const recorder = body.features?.skillRecorder;
+    if (!saved.length && typeof recorder !== "boolean") return json(res, 400, { error: "nothing to save" }); // :11678
+    if (state.providerBusy) return json(res, 409, { error: "provider settings are already being updated" }); // :11679
+    // Only the fact that something was saved is kept: a fixture that stored
+    // the value could leak it through /__fake/state or a test's assertion.
+    for (const section of saved) state.config[section] = true;
+    if (typeof recorder === "boolean") state.config.skillRecorder = recorder;
+    return json(res, 200, configStatus());
+  }
+
   function cursorSeq(raw) { // S: index.ts:2028-2035 (a cursor from another stream is rejected)
     if (!raw) return null; const [stream, seq] = String(raw).split(":"); if (stream !== STREAM_ID) return null;
     const n = Number(seq); return Number.isSafeInteger(n) && n >= 0 ? n : null;
@@ -558,7 +765,9 @@ export async function createFake(opts = {}) {
   // ── control route for tests ──
   async function control(req, res, method, p) {
     if (method === "GET" && p === "/__fake/state") {
-      return json(res, 200, { environmentId, bots: state.bots.map((b) => ({ ...publicBot(b), key: b.key })), groups: state.groups.map(publicGroup), receipts: state.receipts, decisions: state.decisions, queue: state.queue ?? [], lastSeq, streamId: STREAM_ID, threads: Object.fromEntries(state.threads) });
+      // `config` is deliberately absent: what a credential PUT leaves behind
+      // is a boolean, and no test should be able to read a value from here.
+      return json(res, 200, { environmentId, bots: state.bots.map((b) => ({ ...publicBot(b), key: b.key })), groups: state.groups.map(publicGroup), receipts: state.receipts, decisions: state.decisions, queue: state.queue ?? [], lastSeq, streamId: STREAM_ID, threads: Object.fromEntries(state.threads), routines: state.routines, wakes: state.wakes, skills: [...state.skills.keys()] });
     }
     if (method !== "POST" || p !== "/__fake") return json(res, 404, { error: "no route" });
     const body = await readBody(req) ?? {};
@@ -607,20 +816,77 @@ export async function createFake(opts = {}) {
         const kind = op.kind ?? "approval";
         const card = { title: kind === "question" ? "Your bot has a question" : "Approval needed", subtitle: op.text ?? "May I contact Quill?", options: kind === "question" ? (op.choices ?? []) : ["Allow", "Deny"], requestId: op.requestId ?? newId(), answered: false, dismissed: false, dead: op.dead === true };
         if (kind === "approval") Object.assign(card, { tool: op.tool ?? "ask_bot", ...(op.held !== undefined ? { held: op.held } : {}), ...(op.approvalScope ? { approvalScope: op.approvalScope } : {}), ...(op.allowKey ? { allowKey: op.allowKey } : {}) });
+        const owner = state.bots.find((b) => b.tasks.some((t) => t.threadId === threadId));
         if (kind === "skill") {
-          const preview = "# Example skill\nA fixture proposal.\n";
-          card.tool = "learn_skill"; card.options = ["Enable", "Deny"];
-          card.skillRequest = { botId: state.bots.find((b) => b.tasks.some((t) => t.threadId === threadId))?.id, stagedId: newId(), name: "example", action: "create", gist: op.text ?? "Example", preview, sha256: createHash("sha256").update(preview).digest("hex") };
+          // S: index.ts:6372-6431 — the copy, the options, and the durable
+          // payload; the hash covers the SKILL.md preview (S: skills.ts:1250).
+          const name = op.name ?? "example";
+          const action = op.action ?? "create";
+          const gist = op.gist ?? op.text ?? "Example";
+          const warnings = op.warnings ?? [];
+          const preview = op.preview ?? `# ${name}\nA fixture proposal.\n`;
+          card.title = action === "create" ? `Enable skill "${name}"?` : `Update skill "${name}"?`;
+          card.subtitle = `${gist || name}${warnings.length ? `\n\nWarnings:\n- ${warnings.join("\n- ")}` : ""}`;
+          card.options = [action === "create" ? "Enable" : "Update", "Deny"];
+          card.tool = "stage_skill";
+          card.skillRequest = {
+            version: 1, requestId: card.requestId, botId: owner?.id, threadId, stagedId: newId(), action, name, gist,
+            source: op.source ?? `learned:${name}`,
+            // A preview that no longer hashes to its sha256 is the card the
+            // server refuses with 422 (S: index.ts:6520-6523).
+            preview: op.stalePreview ? `${preview}an edit after review\n` : preview,
+            sha256: createHash("sha256").update(preview).digest("hex"), warnings, createdAt: now(),
+          };
         }
         if (kind === "routine") {
-          // Valid stored proposal and card shape (S: routine-requests.ts:119-157, 745-751).
-          card.tool = "create_routine"; card.options = ["Confirm", "Cancel"];
-          card.routineRequest = { version: 1, requestId: card.requestId, botId: state.bots.find((b) => b.tasks.some((t) => t.threadId === threadId))?.id, threadId, createdAt: now(), operation: { action: "create", routine: { name: "Example", instructions: "A fixture proposal.", schedule: { type: "interval", everyMinutes: 60 }, runOn: "maus", durationMinutes: 5 } } };
+          // Valid stored proposal and card shape (S: routine-requests.ts:119-157, 515-583, 742-752).
+          const action = op.action ?? "create";
+          const name = op.name ?? "Example";
+          const copy = ROUTINE_ACTION_COPY[action];
+          const forSuffix = op.forBot ? ` for @${op.forBot}` : "";
+          const schedule = op.pastOnce ? { type: "once", at: now() - 60_000 } : op.schedule ?? { type: "interval", everyMinutes: 60 };
+          const operation = action === "create"
+            ? { action, routine: { name, instructions: op.instructions ?? "A fixture proposal.", schedule, runOn: "maus", durationMinutes: 5 }, ...(op.forBot ? { forBot: { botId: op.forBotId ?? newId(), name: op.forBot } } : {}) }
+            : { action, routineId: op.routineId ?? newId(), expectedUpdatedAt: op.expectedUpdatedAt ?? 0, ...(action === "update" ? { changes: op.changes ?? { name } } : {}) };
+          card.tool = action === "create" ? "schedule_routine" : "manage_routine"; // S: routine-requests.ts:581,534
+          card.options = ["Confirm", "Cancel"];
+          card.title = `${copy.title} “${name}”${forSuffix}?`;
+          card.subtitle = [`Action: ${copy.detail}`, `Name: ${name}`, `Schedule: ${scheduleText(schedule)}`, "Runs on: This OpenMausBot setup", "", "Instructions:", op.instructions ?? "A fixture proposal."].join("\n");
+          card.routineRequest = { version: 1, requestId: card.requestId, botId: owner?.id, threadId, createdAt: now(), operation };
         }
         return { message: appendMessage(threadId, { role: "bot", kind: "options", card }) };
       }
-      case "connector": return { message: appendMessage(threadId, { role: "bot", kind: "text", text: "Connect Slack to continue", connector: { id: newId(), status: "pending", dismissed: false, resumed: false } }) };
-      case "secret": return { message: appendMessage(threadId, { role: "bot", kind: "text", text: "A credential is needed", secret: { id: newId(), provided: false, dismissed: false } }) };
+      case "connector": { // S: index.ts:8336-8399 — one card per requested app, all sharing one resume key
+        const resumeKey = op.resumeKey ?? `resume-${newId()}`;
+        const items = op.items ?? [{ slug: op.slug ?? "slack", label: op.label ?? "Slack", alias: op.alias }];
+        const messages = items.map((item) => appendMessage(threadId, {
+          role: "bot", kind: "connector",
+          connector: {
+            slug: item.slug, label: item.label ?? item.slug,
+            description: item.alias ? `Connect ${item.label ?? item.slug} as “${item.alias}” so the bot can continue` : item.description ?? `Connect ${item.label ?? item.slug} so the bot can continue`,
+            status: item.status ?? "required", resumeKey, ...(item.alias ? { alias: item.alias } : {}),
+          },
+        }));
+        return { resumeKey, messages, messageIds: messages.map((m) => m.id) };
+      }
+      // What the provider says about an account. It reaches the card only
+      // through the status read (S: index.ts:12255-12276), never on its own.
+      case "connectorAccount": state.accounts.set(op.messageId, op.status ?? "ACTIVE"); return;
+      case "secret": { // S: index.ts:8262-8277 — the allowlisted target, its copy, and the handoff text
+        const target = op.target ?? "xaiApiKey";
+        const spec = CREDENTIAL_TARGETS[target];
+        if (!spec) throw Object.assign(new Error("unsupported credential id"), { status: 400 });
+        const reason = typeof op.reason === "string" ? op.reason.trim().slice(0, 240) : "";
+        return { message: appendMessage(threadId, {
+          role: "bot", kind: "secret", text: credentialDesktopHandoff(spec.label),
+          secret: { target, label: spec.label, description: reason ? `${spec.description} ${reason}` : spec.description, placeholder: spec.placeholder, helpUrl: spec.helpUrl, requestKey: newId() },
+        }) };
+      }
+      case "providerBusy": state.providerBusy = op.busy !== false; return; // S: index.ts:11679
+      case "phoneSaving": { // S: index.ts:12191-12195
+        if (op.saving === false) state.phoneSaving.delete(op.messageId); else state.phoneSaving.add(op.messageId);
+        return;
+      }
       case "receipt": return { receipt: recordReceipt(op) };
       case "notify": { const b = botById(op.botId); if (b && b.notifications === false) return { suppressed: true }; broadcast({ kind: "notify", notification: { kind: op.kind, botId: op.botId, botName: b?.name ?? "", threadId: op.threadId ?? b?.threadId, title: op.title ?? op.kind, body: op.body ?? "" } }); return; }
       case "notifications": { if (!bot) throw Object.assign(new Error("no such bot"), { status: 404 }); bot.notifications = op.enabled !== false; return; }

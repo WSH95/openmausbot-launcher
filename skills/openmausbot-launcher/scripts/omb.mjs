@@ -7,6 +7,7 @@ import "./lib/verbs/pair.mjs";
 import "./lib/verbs/repo.mjs";
 import "./lib/verbs/team.mjs";
 import "./lib/verbs/run.mjs";
+import "./lib/verbs/answer.mjs";
 import "./lib/verbs/state.mjs";
 
 const { code, output } = await run(process.argv.slice(2));

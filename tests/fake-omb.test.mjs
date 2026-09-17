@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import net from "node:net";
+import { createHash } from "node:crypto";
 import { startFake, freePort, freePortPair, tmpDir, readSse, sleep, FAKE } from "./helpers.mjs";
 
 const PKG = {
@@ -25,6 +26,7 @@ const PKG = {
 const j = async (res) => ({ status: res.status, body: await res.json() });
 const post = (url, body, headers = {}) => fetch(url, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
 const patch = (url, body, headers = {}) => fetch(url, { method: "PATCH", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
+const put = (url, body, headers = {}) => fetch(url, { method: "PUT", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
 
 async function importTeam(f) {
   const { status, body } = await j(await post(`${f.url}/api/teams/import?mode=add`, PKG));
@@ -443,9 +445,9 @@ test("real cards use options messages and typed payloads instead of card.kind", 
     assert.equal(message.kind, "options");
     assert.equal(message.card.kind, undefined);
     assert.equal(typeof message.card.title, "string");
-    assert.equal(message.card.subtitle, "Choose a layout");
-    if (kind === "question") { assert.equal(message.card.tool, undefined); assert.deepEqual(message.card.options, ["Table", "List"]); }
-    if (kind === "approval") assert.equal(message.card.tool, "ask_bot");
+    assert.equal(typeof message.card.subtitle, "string");
+    if (kind === "question") { assert.equal(message.card.tool, undefined); assert.deepEqual(message.card.options, ["Table", "List"]); assert.equal(message.card.subtitle, "Choose a layout"); }
+    if (kind === "approval") { assert.equal(message.card.tool, "ask_bot"); assert.equal(message.card.subtitle, "Choose a layout"); }
     if (kind === "skill") assert.ok(message.card.skillRequest);
     if (kind === "routine") {
       const request = message.card.routineRequest;
@@ -466,6 +468,168 @@ test("real cards use options messages and typed payloads instead of card.kind", 
   r = await j(await post(`${f.url}/api/threads/${threadId}/respond`, { requestId: "routine", behavior: "allow" }));
   assert.equal(r.body.outcome, "allowed-once");
   assert.equal(r.body.routineAction, "create"); assert.equal(typeof r.body.resultId, "string");
+});
+
+test("learned-skill cards carry the staged payload, the review copy and the hash gate", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const { bots } = await importTeam(f); const bot = bots[0]; const threadId = bot.threadId;
+  const { message } = await f.control({ op: "card", threadId, kind: "skill", requestId: "s1", name: "release-notes", gist: "Write release notes" });
+  const card = message.card;
+  assert.equal(card.title, 'Enable skill "release-notes"?');
+  assert.equal(card.subtitle, "Write release notes");
+  assert.deepEqual(card.options, ["Enable", "Deny"]);
+  assert.equal(card.tool, "stage_skill", "the card's tool is the staging tool, not the bot's");
+  const request = card.skillRequest;
+  assert.deepEqual(Object.keys(request).sort(), ["action", "botId", "createdAt", "gist", "name", "preview", "requestId", "sha256", "source", "stagedId", "threadId", "version", "warnings"]);
+  assert.equal(request.version, 1); assert.equal(request.requestId, "s1"); assert.equal(request.botId, bot.id); assert.equal(request.threadId, threadId);
+  assert.equal(request.action, "create"); assert.equal(request.name, "release-notes");
+  assert.equal(request.sha256, createHash("sha256").update(request.preview).digest("hex"), "the hash covers the preview verbatim");
+  let r = await j(await post(`${f.url}/api/threads/${threadId}/respond`, { requestId: "s1", behavior: "allow", reviewedSha256: "0".repeat(64) }));
+  assert.equal(r.status, 409); assert.equal(r.body.error, "reviewedSha256 must match the skill shown on the approval card");
+  r = await j(await post(`${f.url}/api/threads/${threadId}/respond`, { requestId: "s1", behavior: "allow", reviewedSha256: request.sha256 }));
+  assert.deepEqual(r.body, { ok: true, outcome: "allowed-once" });
+  r = await j(await post(`${f.url}/api/threads/${threadId}/respond`, { requestId: "s1", behavior: "allow", reviewedSha256: request.sha256 }));
+  assert.deepEqual(r.body, { ok: true, outcome: "allowed-once", alreadySettled: true }, "a settled skill card answers with its outcome, never unavailable");
+  await f.control({ op: "card", threadId, kind: "skill", requestId: "s2", name: "stale", stalePreview: true });
+  const stale = (await j(await fetch(`${f.url}/api/threads/${threadId}/messages`))).body.messages.find((m) => m.card?.requestId === "s2").card.skillRequest;
+  assert.notEqual(stale.sha256, createHash("sha256").update(stale.preview).digest("hex"));
+  r = await j(await post(`${f.url}/api/threads/${threadId}/respond`, { requestId: "s2", behavior: "allow", reviewedSha256: stale.sha256 }));
+  assert.equal(r.status, 422); assert.equal(r.body.error, "the skill preview changed after review — deny and recreate it");
+  await f.control({ op: "card", threadId, kind: "skill", requestId: "s3", name: "answered" });
+  r = await j(await post(`${f.url}/api/threads/${threadId}/respond`, { requestId: "s3", behavior: "answer", message: "not now" }));
+  assert.deepEqual(r.body, { ok: true, outcome: "rejected" }, "any behaviour other than allow rejects the staged skill");
+});
+
+test("routine cards confirm into the routine list, cancel without applying, and hold a stale revalidation", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const { bots } = await importTeam(f); const threadId = bots[0].threadId;
+  const { message } = await f.control({ op: "card", threadId, kind: "routine", requestId: "rt1", name: "Nightly" });
+  assert.equal(message.card.title, "Schedule “Nightly”?");
+  assert.equal(message.card.tool, "schedule_routine");
+  assert.match(message.card.subtitle, /^Action: Create routine\nName: Nightly\n/);
+  const manage = await f.control({ op: "card", threadId, kind: "routine", requestId: "rt2", action: "pause", name: "Nightly", routineId: "does-not-exist" });
+  assert.equal(manage.message.card.tool, "manage_routine");
+  assert.equal(manage.message.card.title, "Pause “Nightly”?");
+  let r = await j(await post(`${f.url}/api/threads/${threadId}/respond`, { requestId: "rt2", behavior: "allow" }));
+  assert.equal(r.status, 404); assert.equal(r.body.error, "That routine no longer exists");
+  let msgs = (await j(await fetch(`${f.url}/api/threads/${threadId}/messages`))).body.messages;
+  assert.equal(msgs.find((m) => m.card?.requestId === "rt2").card.held, "That routine no longer exists");
+  await f.control({ op: "card", threadId, kind: "routine", requestId: "rt3", name: "Once", pastOnce: true });
+  r = await j(await post(`${f.url}/api/threads/${threadId}/respond`, { requestId: "rt3", behavior: "allow" }));
+  assert.equal(r.status, 409); assert.equal(r.body.error, "That one-time schedule is now in the past. Ask the bot to propose a new time.");
+  r = await j(await post(`${f.url}/api/threads/${threadId}/respond`, { requestId: "rt3", behavior: "deny" }));
+  assert.deepEqual(r.body, { ok: true, outcome: "rejected" });
+  r = await j(await post(`${f.url}/api/threads/${threadId}/respond`, { requestId: "rt1", behavior: "allow" }));
+  assert.equal(r.body.routineAction, "create");
+  const listed = (await j(await fetch(`${f.url}/api/routines`))).body;
+  assert.deepEqual(listed.routines.map((x) => x.id), [r.body.resultId]);
+  assert.equal(listed.routines[0].name, "Nightly");
+  r = await j(await post(`${f.url}/api/threads/${threadId}/respond`, { requestId: "rt1", behavior: "deny" }));
+  assert.deepEqual(r.body, { ok: true, outcome: "allowed-once", alreadySettled: true });
+  msgs = (await j(await fetch(`${f.url}/api/threads/${threadId}/messages`))).body.messages;
+  assert.equal(typeof msgs.find((m) => m.card?.requestId === "rt1").card.routineRequest.appliedAt, "number");
+});
+
+test("connection cards are their own message kind, share a resume key, and only the status read moves them", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const { bots } = await importTeam(f); const bot = bots[0]; const threadId = bot.threadId;
+  const made = await f.control({ op: "connector", threadId, items: [{ slug: "slack", label: "Slack" }, { slug: "github", label: "GitHub" }] });
+  const [slack, github] = made.messages;
+  assert.equal(slack.kind, "connector");
+  assert.equal(slack.text, undefined, "the copy lives on the connector payload, not in the transcript text");
+  assert.deepEqual(Object.keys(slack.connector).sort(), ["description", "label", "resumeKey", "slug", "status"]);
+  assert.equal(slack.connector.status, "required");
+  assert.equal(slack.connector.resumeKey, github.connector.resumeKey);
+  const card = (id, action, q = "") => `${f.url}/api/bots/${bot.id}/connector-cards/${id}/${action}${q}`;
+  let r = await j(await post(card("nope", "dismiss"), { threadId }));
+  assert.equal(r.status, 404); assert.equal(r.body.error, "no such connection request");
+  r = await j(await post(card(slack.id, "authorize"), { threadId }));
+  assert.match(r.body.url, /^https:\/\//);
+  let msgs = (await j(await fetch(`${f.url}/api/threads/${threadId}/messages`))).body.messages;
+  assert.equal(msgs.find((m) => m.id === slack.id).connector.status, "authorizing");
+  await f.control({ op: "connectorAccount", messageId: slack.id, status: "ACTIVE" });
+  msgs = (await j(await fetch(`${f.url}/api/threads/${threadId}/messages`))).body.messages;
+  assert.equal(msgs.find((m) => m.id === slack.id).connector.status, "authorizing", "the account only becomes visible through the status read");
+  r = await j(await fetch(card(slack.id, "status", `?threadId=${threadId}`)));
+  assert.deepEqual(r.body, { connected: true, pending: false, status: "ACTIVE" });
+  r = await j(await post(card(slack.id, "resume"), { threadId }));
+  assert.equal(r.status, 409); assert.equal(r.body.error, "finish connecting every requested app first");
+  await f.control({ op: "connectorAccount", messageId: github.id, status: "INITIATED" });
+  r = await j(await fetch(card(github.id, "status", `?threadId=${threadId}`)));
+  assert.deepEqual(r.body, { connected: false, pending: true, status: "INITIATED" });
+  await f.control({ op: "connectorAccount", messageId: github.id, status: "ACTIVE" });
+  r = await j(await fetch(card(github.id, "status", `?threadId=${threadId}`)));
+  assert.equal(r.body.connected, true);
+  assert.equal((await f.snapshot()).wakes.filter((w) => w.kind === "connector").length, 1, "the last connection resumes the bot once");
+  r = await j(await post(card(github.id, "resume"), { threadId }));
+  assert.deepEqual(r.body, { resumed: true });
+  const second = await f.control({ op: "connector", threadId, items: [{ slug: "notion", label: "Notion" }] });
+  r = await j(await post(card(second.messages[0].id, "dismiss"), { threadId }));
+  assert.deepEqual(r.body, { dismissed: true });
+  assert.equal((await f.snapshot()).wakes.filter((w) => w.kind === "connector").length, 1, "a dismissed connection never wakes the bot");
+});
+
+test("credential cards, their four routes, and a config PUT that stores booleans only", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const { bots } = await importTeam(f); const bot = bots[0]; const threadId = bot.threadId;
+  const { message } = await f.control({ op: "secret", threadId, target: "xaiApiKey" });
+  assert.equal(message.kind, "secret");
+  assert.equal(message.text, "Securely provide the xAI API key from OpenMausBot on your phone or computer. It is never added to chat.");
+  assert.deepEqual(Object.keys(message.secret).sort(), ["description", "helpUrl", "label", "placeholder", "requestKey", "target"]);
+  assert.equal(message.secret.label, "xAI API key");
+  const card = (action, id = message.id) => `${f.url}/api/bots/${bot.id}/secret-cards/${id}/${action}`;
+  let r = await j(await post(card("provide"), { threadId }));
+  assert.equal(r.status, 403); assert.equal(r.body.error, "Secure phone entry must come from a paired phone");
+  r = await j(await post(card("provided", "nope"), { threadId }));
+  assert.equal(r.status, 404); assert.equal(r.body.error, "no such credential request");
+  r = await j(await post(card("provided"), { threadId }));
+  assert.equal(r.status, 409); assert.equal(r.body.error, "xAI API key was not saved yet");
+  r = await j(await put(`${f.url}/api/config`, { profile: { name: "x" } }));
+  assert.equal(r.status, 400); assert.equal(r.body.error, "nothing to save");
+  await f.control({ op: "providerBusy", busy: true });
+  r = await j(await put(`${f.url}/api/config`, { xai: { key: "xai-secret-value" } }));
+  assert.equal(r.status, 409); assert.equal(r.body.error, "provider settings are already being updated");
+  await f.control({ op: "providerBusy", busy: false });
+  r = await j(await put(`${f.url}/api/config`, { xai: { key: "xai-secret-value" } }));
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.xai, { configured: true }, "the response is configured-or-not, never the value");
+  const control = JSON.stringify(await f.snapshot());
+  assert.equal(control.includes("xai-secret-value"), false, "the fake keeps no plaintext credential anywhere");
+  await f.control({ op: "phoneSaving", messageId: message.id, saving: true });
+  r = await j(await post(card("provided"), { threadId }));
+  assert.equal(r.status, 409); assert.equal(r.body.error, "this credential is currently being saved from a phone");
+  await f.control({ op: "phoneSaving", messageId: message.id, saving: false });
+  r = await j(await post(card("provided"), { threadId }));
+  assert.deepEqual(r.body, { provided: true, resumed: true });
+  assert.equal((await f.snapshot()).wakes.filter((w) => w.kind === "secret").length, 1);
+  const second = await f.control({ op: "secret", threadId, target: "ttsKey" });
+  r = await j(await post(`${f.url}/api/bots/${bot.id}/secret-cards/${second.message.id}/dismiss`, { threadId }));
+  assert.deepEqual(r.body, { dismissed: true, resumed: true });
+  assert.equal((await f.snapshot()).wakes.filter((w) => w.kind === "secret").length, 2, "a declined credential wakes the bot too");
+  r = await j(await post(`${f.url}/api/bots/${bot.id}/secret-cards/${second.message.id}/provided`, { threadId }));
+  assert.equal(r.status, 409); assert.equal(r.body.error, "this credential request was dismissed");
+});
+
+test("card routes follow the server's scope table: authorize and the config PUT need the owner", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const { bots } = await importTeam(f); const bot = bots[0]; const threadId = bot.threadId;
+  await f.control({ op: "token", token: "omb_sess_client", scopes: ["client"] });
+  const auth = { authorization: "Bearer omb_sess_client" };
+  const made = await f.control({ op: "connector", threadId, items: [{ slug: "slack", label: "Slack" }] });
+  const id = made.messages[0].id;
+  let r = await j(await post(`${f.url}/api/bots/${bot.id}/connector-cards/${id}/authorize`, { threadId }, auth));
+  assert.equal(r.status, 403); assert.equal(r.body.error, "forbidden: this session lacks the admin scope");
+  r = await j(await fetch(`${f.url}/api/bots/${bot.id}/connector-cards/${id}/status?threadId=${threadId}`, { headers: auth }));
+  assert.equal(r.status, 200, "a client session may read a connection's status");
+  r = await j(await post(`${f.url}/api/bots/${bot.id}/connector-cards/${id}/dismiss`, { threadId }, auth));
+  assert.equal(r.status, 200);
+  const secret = await f.control({ op: "secret", threadId, target: "ttsKey" });
+  r = await j(await put(`${f.url}/api/config`, { tts: { key: "k" } }, auth));
+  assert.equal(r.status, 403); assert.equal(r.body.error, "forbidden: this session lacks the admin scope");
+  r = await j(await post(`${f.url}/api/bots/${bot.id}/secret-cards/${secret.message.id}/provided`, { threadId }, auth));
+  assert.equal(r.status, 403, "confirming a saved credential is the owner's, since only the owner could have saved it");
+  r = await j(await post(`${f.url}/api/bots/${bot.id}/secret-cards/${secret.message.id}/dismiss`, { threadId }, auth));
+  assert.equal(r.status, 200);
 });
 
 test("the webhook receiver on port+1: /health answers, everything else is a 404, a taken port is logged and not fatal", async (t) => {

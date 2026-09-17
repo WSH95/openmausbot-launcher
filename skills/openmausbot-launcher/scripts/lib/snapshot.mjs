@@ -294,7 +294,12 @@ export function pendingMessage(m, { threadId, botId, botName }) {
   return {
     threadId, botId, botName, at: m.at, kind: card ? "card" : m.connector ? "connector" : "secret",
     requestId: card?.requestId ?? null, cardKind, messageId: m.id,
-    text: m.text ?? card?.subtitle ?? card?.title ?? "",
+    // How `answer --request` names it: a card has a request id, a connection
+    // or credential card has only the message it arrived on (store.ts:69-99).
+    handle: card?.requestId ?? m.id,
+    // A connection request puts its copy on the payload and leaves the
+    // transcript text empty (index.ts:8383-8395).
+    text: m.text || card?.subtitle || card?.title || m.connector?.description || m.secret?.description || "",
     ...(card ? { card, title: card.title, subtitle: card.subtitle, options: card.options, tool: card.tool, held: card.held, approvalScope: card.approvalScope, allowKey: card.allowKey, skillRequest: card.skillRequest, routineRequest: card.routineRequest } : {}),
     ...(m.connector ? { connector: m.connector } : {}), ...(m.secret ? { secret: m.secret } : {}),
   };
@@ -369,7 +374,12 @@ export async function snapshot(client, state, { dataDir = null, runtimeTrusted =
   }
   const stamps = runs.map((r) => r.sentAt).filter((v) => typeof v === "number");
   const sentAt = stamps.length ? Math.min(...stamps) : null;
-  const pendingAll = []; const tails = new Map(); const seenCards = new Set(); let failedTails = 0;
+  // A connection whose account is live no longer needs the user, so it is not
+  // pending — but until its bot has been resumed it is still the one thing
+  // `answer --resume` acts on, and its siblings decide whether that resume is
+  // allowed (index.ts:6687-6697). Keep it beside the pending set, out of the
+  // evaluation, so a request id can still reach it.
+  const pendingAll = []; const resumableAll = []; const tails = new Map(); const seenCards = new Set(); let failedTails = 0;
   await Promise.all([...threadOwners].map(async ([threadId, botId]) => {
     const tail = await get(`thread ${threadId}`, async () => {
       try { return await readTail(client, threadId, { sentAt: rememberedThreads.has(threadId) ? null : sentAt, deadline, signal }); }
@@ -387,6 +397,7 @@ export async function snapshot(client, state, { dataDir = null, runtimeTrusted =
     for (const m of tail) {
       if (m.card || m.connector || m.secret) seenCards.add(cardKeyOf(pendingMessage(m, { threadId, botId, botName })));
       if (messageNeedsInput(m)) pendingAll.push(pendingMessage(m, { threadId, botId, botName }));
+      else if (m.connector && m.connector.status === "connected" && !m.connector.resumed && !m.connector.dismissed) resumableAll.push(pendingMessage(m, { threadId, botId, botName }));
     }
   }));
   for (const run of ownershipRuns) for (const [key, card] of Object.entries(run.cards ?? {})) {
@@ -443,7 +454,7 @@ export async function snapshot(client, state, { dataDir = null, runtimeTrusted =
     owners.uncertain = possible.length > 0;
     return owners;
   };
-  const pendingOwners = new Map(pendingAll.map((p) => [cardKeyOf(p), ownersOf(p)]));
+  const pendingOwners = new Map([...pendingAll, ...resumableAll].map((p) => [cardKeyOf(p), ownersOf(p)]));
   const cardsByRun = Object.fromEntries(runs.map((r) => [r.runId, {}]));
   const cardOwners = {};
   for (const p of pendingAll) {
@@ -480,6 +491,15 @@ export async function snapshot(client, state, { dataDir = null, runtimeTrusted =
       pending.push({ ...p, shared: false, run: run.runId });
       if (!run.cards?.[cardKeyOf(p)]) claims.push(cardKeyOf(p));
     }
+    // A resumable connection stays visible to every view: its siblings may
+    // belong to another run and a resume needs all of them, so ownership only
+    // decides whether it can be picked without `--request`.
+    const resumable = resumableAll.map((p) => {
+      if (!run) return p;
+      const owners = pendingOwners.get(cardKeyOf(p));
+      const mine = owners.length === 1 && !owners.uncertain && owners[0].runId === run.runId;
+      return { ...p, shared: !mine, ...(mine ? { run: run.runId } : {}) };
+    });
     const runThreads = run
       ? [...new Set([...Object.values(run.threads ?? {}), leadThreadId].filter(Boolean))].map((threadId) => ({ threadId, botId: threadOwners.get(threadId) ?? null }))
       : [...threadOwners].map(([threadId, botId]) => ({ threadId, botId }));
@@ -501,7 +521,7 @@ export async function snapshot(client, state, { dataDir = null, runtimeTrusted =
       leadText: lastLead ? { id: lastLead.id, at: lastLead.at, text: lastLead.text } : null,
       lastUser: latestUser ? { id: latestUser.id, at: latestUser.at, text: latestUser.text } : null,
       outcomes: mergeOutcomes(run?.lastEval?.outcomes, observedOutcomes),
-      pending, claims, openDelegations: del,
+      pending, resumable, claims, openDelegations: del,
       markerSeen: run?.tag ? leadTexts.filter((m) => markerRe(run.tag).test(m.text)).map((m) => ({ id: m.id, at: m.at })).at(-1) ?? null : null,
       dispatchFailed: dispatchFailedAfterLatestUser(msgs),
       receipts: { supported: receipts !== null, forRun: receiptsForRun?.length ?? null }, truncatedTails: failedTails,
@@ -609,8 +629,17 @@ export function brief(ev, snap, task, now = Date.now()) {
     case "done": return `${slug} · DONE after ${elapsed} · ${lead}: "${summarize(snap.leadText?.text ?? "", 120)}"`;
     case "needs-user": {
       const p = ev.pending?.[0];
-      if (p?.kind === "card" && p.cardKind === "question") return `${slug} · NEEDS YOU · ${p.botName}: "${summarize(p.text, 100)}" → omb answer --message "…" --request ${p.requestId}`;
-      if (p?.kind === "card" && p.cardKind === "approval") return `${slug} · APPROVAL · ${p.botName}: "${summarize(p.text, 100)}" (request ${p.requestId}) → omb answer --allow --request ${p.requestId}`;
+      const id = p?.handle ?? p?.requestId ?? p?.messageId;
+      if (p?.kind === "card" && p.cardKind === "question") return `${slug} · NEEDS YOU · ${p.botName}: "${summarize(p.text, 100)}" → omb answer --message "…" --request ${id}`;
+      if (p?.kind === "card" && p.cardKind === "approval") return `${slug} · APPROVAL · ${p.botName}: "${summarize(p.text, 100)}" (request ${id}) → omb answer --allow --request ${id}`;
+      // A skill is approved by its hash, so the line carries the hash and
+      // never the preview: the preview is read to the user from `pending[]`.
+      if (p?.kind === "card" && p.cardKind === "skill") return `${slug} · SKILL · ${p.botName}: ${summarize(p.title, 80)} sha256 ${String(p.skillRequest?.sha256 ?? "").slice(0, 8)}… → omb answer --allow --reviewed ${p.skillRequest?.sha256} --request ${id} | --deny`;
+      if (p?.kind === "card" && p.cardKind === "routine") return `${slug} · ROUTINE · ${p.botName}: ${summarize(p.title, 100)} → omb answer --confirm --request ${id} | --cancel`;
+      if (p?.kind === "connector") return `${slug} · CONNECT · ${p.botName} needs ${p.connector?.label ?? p.connector?.slug}${p.connector?.alias ? ` (${p.connector.alias})` : ""} (${p.connector?.status}) → omb answer --connect --request ${id}`;
+      // The value is named, never shown: it reaches the driver through the
+      // environment or stdin, so the line says where to put it.
+      if (p?.kind === "secret") return `${slug} · CREDENTIAL · ${p.botName} needs the ${p.secret?.label ?? p.secret?.target} → OMB_SECRET=… omb answer --provide --request ${id} | --dismiss`;
       if (p?.kind === "waiting") return `${slug} · NEEDS YOU · ${p.botName} is waiting on you → read its chat`;
       return `${slug} · NEEDS YOU · ${p?.botName ?? lead} has a ${p?.kind ?? "request"} the driver cannot answer → open the app`;
     }

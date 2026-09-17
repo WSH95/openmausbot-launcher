@@ -29,7 +29,8 @@ test("classifier mirrors: lead text, echoes, needs-input, dispatch failure, mark
   assert.equal(isEcho({ role: "bot", kind: "text", text: "plain", from: { botId: "nova" } }, LEAD), false);
   assert.equal(messageNeedsInput({ card: { requestId: "r", answered: false, dismissed: false } }), true);
   assert.equal(messageNeedsInput({ card: { requestId: "r", answered: true } }), false);
-  assert.equal(messageNeedsInput({ connector: { status: "pending", dismissed: false, resumed: false } }), true);
+  assert.equal(messageNeedsInput({ connector: { status: "required", dismissed: false, resumed: false } }), true);
+  assert.equal(messageNeedsInput({ connector: { status: "connected", dismissed: false, resumed: false } }), false, "a live connection waits on the bot, not on the user");
   assert.equal(messageNeedsInput({ secret: { provided: false, dismissed: false } }), true);
   const err = { role: "bot", kind: "activity", tool: { name: "error: refused", ok: false } };
   assert.equal(dispatchFailedAfterLatestUser([{ role: "user" }, err]), true);

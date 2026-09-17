@@ -53,6 +53,38 @@ test('card shape classifies skill and routine requests before tool approvals and
   for (const k of ['tool', 'held', 'approvalScope', 'allowKey', 'options']) assert.deepEqual(snap.pending[0][k], cards[0][k]);
 });
 
+test('every pending kind carries a handle and a brief that names its own answer command', async () => {
+  const sha = 'a'.repeat(64);
+  const messages = [
+    { id: 'c1', at: 1500, role: 'bot', kind: 'options', card: { requestId: 'sk', title: 'Enable skill "release-notes"?', subtitle: 'Write release notes', options: ['Enable', 'Deny'], tool: 'stage_skill', skillRequest: { name: 'release-notes', action: 'create', preview: '# release-notes\n', sha256: sha } } },
+    { id: 'c2', at: 1501, role: 'bot', kind: 'options', card: { requestId: 'rt', title: 'Schedule “Nightly”?', subtitle: 'Action: Create routine\nName: Nightly', options: ['Confirm', 'Cancel'], tool: 'schedule_routine', routineRequest: { version: 1, operation: { action: 'create' } } } },
+    { id: 'c3', at: 1502, role: 'bot', kind: 'connector', connector: { slug: 'slack', label: 'Slack', description: 'Connect Slack so the bot can continue', status: 'required', resumeKey: 'rk' } },
+    { id: 'c4', at: 1503, role: 'bot', kind: 'secret', text: 'Securely provide the xAI API key from OpenMausBot on your phone or computer. It is never added to chat.', secret: { target: 'xaiApiKey', label: 'xAI API key', description: 'Used by the built-in Grok provider.', placeholder: 'xai-…', helpUrl: 'https://console.x.ai/', requestKey: 'k' } },
+  ];
+  const snap = await monitoring.snapshot(scripted({ threads: { lt: [user, done], wt: messages } }), { team, task });
+  assert.deepEqual(snap.pending.map((p) => p.handle), ['sk', 'rt', 'c3', 'c4'], 'a card is named by its request id, a connection or credential by its message');
+  assert.deepEqual(snap.pending.map((p) => p.kind), ['card', 'card', 'connector', 'secret']);
+  assert.equal(snap.pending[2].text, 'Connect Slack so the bot can continue', 'a connection request has no transcript text of its own');
+  const line = (i) => monitoring.brief(monitoring.evaluate({ ...snap, pending: [snap.pending[i]] }, task, { now: 100_000, quiet: { since: 0 }, quietMs: 1 }), snap, task, 100_000);
+  assert.equal(line(0), `run · SKILL · Worker: Enable skill "release-notes"? sha256 aaaaaaaa… → omb answer --allow --reviewed ${sha} --request sk | --deny`);
+  assert.equal(line(1), 'run · ROUTINE · Worker: Schedule “Nightly”? → omb answer --confirm --request rt | --cancel');
+  assert.equal(line(2), 'run · CONNECT · Worker needs Slack (required) → omb answer --connect --request c3');
+  assert.equal(line(3), 'run · CREDENTIAL · Worker needs the xAI API key → OMB_SECRET=… omb answer --provide --request c4 | --dismiss');
+  for (const i of [0, 3]) assert.equal(/# release-notes|xai-|Grok/.test(line(i)), false, 'a brief never carries a skill preview or anything that looks like a value');
+});
+
+test('a connected connection card stays selectable for its resume even though it needs no input', async () => {
+  const cards = [
+    { id: 'c1', at: 1500, role: 'bot', kind: 'connector', connector: { slug: 'slack', label: 'Slack', description: 'Connect Slack', status: 'connected', resumeKey: 'rk' } },
+    { id: 'c2', at: 1501, role: 'bot', kind: 'connector', connector: { slug: 'github', label: 'GitHub', description: 'Connect GitHub', status: 'required', resumeKey: 'rk' } },
+    { id: 'c3', at: 1502, role: 'bot', kind: 'connector', connector: { slug: 'notion', label: 'Notion', description: 'Connect Notion', status: 'connected', resumed: true, resumeKey: 'other' } },
+  ];
+  const snap = await monitoring.snapshot(scripted({ threads: { lt: [user, done], wt: cards } }), { team, task });
+  assert.deepEqual(snap.pending.map((p) => p.handle), ['c2'], 'only an unfinished connection needs the user');
+  assert.deepEqual(snap.resumable.map((p) => p.handle), ['c1'], 'a connected card that has not resumed its bot is still actionable');
+  assert.equal(snap.resumable[0].connector.resumeKey, 'rk');
+});
+
 test('lead hydration reaches run boundary beyond the old ten page cap', async () => {
   const snap = await monitoring.snapshot(scripted({ threads: { lt: [user, done, ...Array.from({ length: 260 }, (_, i) => activity(i))], wt: [] } }), { team, task });
   assert.equal(snap.complete, true);
