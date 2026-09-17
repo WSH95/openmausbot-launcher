@@ -368,7 +368,9 @@ connection by its app and status, a credential by its label with
 The connection line asks for `--connect` while the card is `required` or
 `failed` and for `--resume` once it is `authorizing` or `connected`, since
 from then on what is missing is the status read, not another authorization;
-the credential line offers `--resume` only on a card whose wake failed.
+the credential line prints only the complete `--resume --request <id>`
+command for a settled card in `resumable`, including `--run` when needed.
+Pending credentials keep the provide/dismiss choices.
 A connection whose account went live, and a credential already settled
 (provided or declined), need nothing from the user, so they leave `pending`
 (mirroring `mcp-server.ts:652-660`) and are kept in `resumable`: each is still
