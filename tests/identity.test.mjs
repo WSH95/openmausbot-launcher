@@ -205,9 +205,14 @@ test("in remote mode the binding is the environment id, so another URL to the sa
 test("a run opened locally is watchable and interruptible through the remote observer's URL", async (t) => {
   const { f, run, task } = await setup(t);
   const sameServer = `http://localhost:${f.port}`;
-  const w = await run(["watch", "--remote", "--url", sameServer, "--max-seconds", "2", "--quiet-seconds", "1", "--drop-seconds", "1", "--poll", "1"]);
+  // Verify remote identity/checkpointing on a settled run. With no lead
+  // reply this watch could only hit its deadline, where the Phase 5 contract
+  // permits an unverified, uncheckpointed result regardless of URL identity.
+  await f.control({ op: "leadSay", threadId: task.leadThreadId, text: `Finished.\nDONE ${task.tag}` });
+  const w = await run(["watch", "--remote", "--url", sameServer, "--max-seconds", "8", "--quiet-seconds", "1", "--drop-seconds", "1", "--poll", "1"]);
   assert.notEqual(w.code, 3, w.stdout);
-  assert.equal(w.json.checkpointed, true, "the remote observer wrote the shared state file");
+  assert.equal(w.json.state, "done", w.stdout);
+  assert.equal(w.json.checkpointed, true, `the remote observer wrote the shared state file: ${w.stdout}`);
   const i = await run(["interrupt", "--remote", "--url", sameServer]);
   assert.equal(i.code, 0, i.stdout);
   assert.equal(i.json.threadId, task.leadThreadId);
