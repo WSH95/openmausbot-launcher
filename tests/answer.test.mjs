@@ -167,6 +167,10 @@ test("skill: a deny rejects the staged write, and a refused allow is reported in
   assert.equal(r.json.error, "this proposal was created by an older build — deny it and ask the bot to create it again");
   r = await runOmb(["answer", "--deny", "--request", "s3", "--project", dir], { env });
   assert.equal(r.code, 0, "a card the server will not allow can still be denied");
+  await f.control({ op: "card", threadId: lt, kind: "skill", requestId: "s4", name: "gone", stagedGone: true });
+  r = await runOmb(["answer", "--allow", "--reviewed", await shaOf("s4"), "--request", "s4", "--project", dir], { env });
+  assert.equal(r.code, 3); assert.equal(r.json.status, 422);
+  assert.equal(r.json.error, "the staged skill no longer matches this approval card");
   assert.deepEqual((await f.snapshot()).skills, []);
 });
 
@@ -215,6 +219,25 @@ test("credential: empty sources refuse and dry-run does not read a held stdin", 
     assert.equal(r.code, 2); assert.match(r.json.error, /empty/);
   }
   assert.equal((await (await fetch(`${f.url}/api/config`)).json()).imageGen.configured, false);
+});
+
+test("credential: every writable target uses its own config patch and strips exactly one trailing newline", async (t) => {
+  const { f, dir } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const bodies = [];
+  f.server.on("request", (req) => {
+    if (req.method !== "PUT" || req.url !== "/api/config") return;
+    let body = ""; req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => { bodies.push(JSON.parse(body)); });
+  });
+  for (const [target, section, field] of [["xaiApiKey", "xai", "key"], ["opencodeGoApiKey", "opencodeGo", "apiKey"], ["ttsKey", "tts", "key"], ["openaiImageApiKey", "imageGen", "key"]]) {
+    const card = await f.control({ op: "secret", threadId: run.json.leadThreadId, target });
+    const r = await runOmb(["answer", "--provide", "--secret-stdin", "--request", card.message.id, "--project", dir], { env, stdin: "dummy-audit-key\n\n" });
+    assert.equal(r.code, 0, r.stdout);
+    assert.deepEqual(bodies.at(-1), { [section]: { [field]: "dummy-audit-key\n" } });
+    assert.equal(r.stdout.includes("dummy-audit-key"), false);
+    assert.equal(r.stderr.includes("dummy-audit-key"), false);
+  }
 });
 
 test("credential: the value reaches the server through the environment or stdin and appears nowhere else", async (t) => {
@@ -527,8 +550,8 @@ test("credential: an ambiguous replacement cannot verify the new value from an a
   let r = await runOmb(args, { env, stdin: "dummy-old-key\n" });
   assert.equal(r.code, 3); assert.match(r.json.error, /was saved, the card was not resumed/);
   await f.control({ op: "phoneSaving", messageId: card.message.id, saving: false });
-  for (const op of ["configPutFailsBeforeSaving", "configPutHangs"]) {
-    await f.control({ op });
+  for (const fault of [{ op: "configPutFailsBeforeSaving" }, { op: "configPutHangs" }, { op: "configPutError", status: 503 }]) {
+    await f.control(fault);
     r = await runOmb(args, { env, stdin: "dummy-replacement-key\n" });
     assert.equal(r.code, 3, r.stdout);
     assert.equal(r.json.saveOutcome, "unknown");
@@ -544,6 +567,21 @@ test("credential: an ambiguous replacement cannot verify the new value from an a
   r = await runOmb(["answer", "--resume", "--request", card.message.id, "--run", "t10", "--project", dir], { env });
   assert.equal(r.code, 0, r.stdout);
   assert.equal(r.json.resumed, true, "the user can explicitly choose the value already stored");
+});
+
+test("credential: unreadable readback after a lost save response leaves outcome unknown and the bot asleep", async (t) => {
+  const { f, dir } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const card = await f.control({ op: "secret", threadId: run.json.leadThreadId, target: "ttsKey" });
+  await f.control({ op: "configPutHangs" });
+  let reads = 0;
+  const drop = (req, res) => { if (req.method === "GET" && req.url === "/api/config" && ++reads > 1) res.dropped = true; };
+  f.server.prependListener("request", drop);
+  const r = await runOmb(["answer", "--provide", "--secret-stdin", "--request", card.message.id, "--project", dir], { env, stdin: "dummy-key\n" });
+  f.server.off("request", drop);
+  assert.equal(r.code, 3); assert.equal(r.json.saveOutcome, "unknown");
+  assert.match(r.json.hint, /--resume/); assert.match(r.json.hint, /--provide/);
+  assert.deepEqual((await f.snapshot()).wakes, []);
 });
 
 test("with two runs open, every command the driver prints names the run it belongs to", async (t) => {
