@@ -307,8 +307,13 @@ export async function watchRun({ client, team, task, runs = [], getRuns = null, 
     return r;
   };
   try {
+    // `streamReady` only resolves, so this sentinel is the guard's own deadline,
+    // which it can reach a millisecond before `outOfBudget` agrees. Latch the
+    // expiry rather than swallow it: a startup that never established the stream
+    // or the polling fallback must not read, neither in the loop nor in the
+    // fallback snapshot below, and the watch reports the ordinary timeout.
     try { await withinDeadline(() => streamReady, deadline, controller.signal); }
-    catch (e) { if (!expired()) throw e; }
+    catch (e) { if (e.message !== "observation deadline reached") throw e; controller.abort(); }
     while (!expired()) {
       if (!immediate && appliedInvalidations !== invalidations && lastSnapAt !== null) {
         // Leave time for the read: batching must not spend the entire budget

@@ -240,6 +240,45 @@ test("a held wait that is never released fails within a bounded real time", asyn
   await assert.rejects(c.finish(p, 20), /the held watch did not finish/);
 });
 
+// ── a startup that reaches the deadline ends the observation (oml-47p) ──
+// `streamReady` only resolves, so the guard that waits for it can only reject
+// with its own deadline, a millisecond before `outOfBudget` agrees. Neither the
+// loop nor the fallback snapshot may read on a startup that never established
+// the stream, and the operator gets a timeout, not exit 1.
+
+test("a startup the deadline ends returns a timeout without reading", async (t) => {
+  const c = heldWatchTimers(t);
+  const f = fixture();
+  const routes = []; let checkpoints = 0; let nudges = 0;
+  const { value: p, guards } = c.guards(() => watchRun({
+    // The stream never connects, so only the readiness guard can end the wait.
+    client: { stream: () => new Promise(() => {}), get: (route) => { routes.push(route); return f.client.get(route); } },
+    team, task: a, runs: [a, b], maxSeconds: 1, quietMs: 30_000, pollMs: 5000, coalesceMs: 0, stallMs: Infinity,
+    nudge: async () => { nudges++; }, checkpoint: async () => { checkpoints++; return true; },
+  }));
+  assert.equal(guards.length, 2, "the stream connection's guard, then the readiness guard");
+  guards[1].fire(998.5); // a millisecond and a half before the deadline
+  const r = await c.finish(p);
+  assert.deepEqual(routes, [], "a startup that never established the stream starts no read");
+  assert.equal(r.outcome, "timeout"); assert.equal(r.snap.complete, false);
+  assert.deepEqual(r.ev.reasons, ["observation deadline reached before verification"]);
+  assert.equal(r.checkpointed, false); assert.equal(checkpoints, 0); assert.equal(nudges, 0);
+});
+
+test("a startup rejection that is not the deadline still propagates", async (t) => {
+  // The guard computes its own timeout in a microtask of its own, after the
+  // stream request has been issued: a clock that throws there rejects it with
+  // an error the watch has no answer for.
+  const realNow = performance.now.bind(performance);
+  let boom = false;
+  t.mock.method(performance, "now", () => { if (boom) { boom = false; throw new Error("the clock stopped"); } return realNow(); });
+  const f = fixture();
+  await assert.rejects(watchRun({
+    client: { ...f.client, stream: () => { boom = true; return new Promise(() => {}); } },
+    team, task: a, runs: [a, b], maxSeconds: 1, quietMs: 30_000, pollMs: 5000, coalesceMs: 0, stallMs: Infinity,
+  }), /the clock stopped/);
+});
+
 test("an invalidation during the checkpoint wait still returns unverified", async (t) => {
   const c = heldWatchTimers(t);
   const f = fixture();

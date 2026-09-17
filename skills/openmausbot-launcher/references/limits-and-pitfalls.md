@@ -232,6 +232,16 @@ historical reports append a reanalysis instead of replacing the original.
   budget it needs where waiting is all that is missing; `report` names the same
   watch while it leaves such a run open.
   `report --close` records a run as it is; it does not settle it.
+- **A wake a few milliseconds short of the deadline still reads** (bead
+  `oml-47p`, accepted). Only a wait the deadline itself ended leaves without
+  reading; an ordinary quiet or poll wake that lands just before it starts a
+  read that cannot come back and verify in what is left, so the watch reports
+  `state: timeout` with `complete: false`, `checkpointed: false`, the reason
+  `observation deadline reached before verification` and exit 4, however quiet
+  the run had been. It is not repaired: the cut-short read may have seen a new
+  card, busy work or an outcome, and predicting from the previous read's
+  duration would suppress reads that still have seconds of budget. Call `watch`
+  again — the next call reads what this one could not.
 - **A busy lead belongs to every open run** unless the runtime log names the
   thread its turn is on, and a pending request nobody can place is `shared`
   and needs `--request`. The driver would rather keep both runs waiting than

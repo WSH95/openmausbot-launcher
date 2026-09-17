@@ -82,12 +82,17 @@ export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export function heldWatchTimers(t, { retryPauses = false } = {}) {
   let now = 0;
   const held = new Set();
+  let guarding = null;
   const realSetTimeout = globalThis.setTimeout; const realClearTimeout = globalThis.clearTimeout; const realNow = performance.now;
   performance.now = () => now;
   globalThis.setTimeout = (fn, ms = 0, ...args) => {
-    if (!["wokeUp", "reachDeadline"].includes(fn?.name) && !(retryPauses && fn?.name === "done" && ms === 2000)) return realSetTimeout(fn, ms, ...args);
+    // `withinDeadline` names no timer of its own, so its guards are held only
+    // while `guards()` is capturing them.
+    const guard = guarding !== null && !fn?.name;
+    if (!guard && !["wokeUp", "reachDeadline"].includes(fn?.name) && !(retryPauses && fn?.name === "done" && ms === 2000)) return realSetTimeout(fn, ms, ...args);
     const handle = { ms, name: fn.name, fire(at) { if (!held.delete(handle)) return; if (at !== undefined) now = at; fn(...args); } };
     held.add(handle);
+    if (guard) guarding.push(handle);
     return handle;
   };
   globalThis.clearTimeout = (handle) => (held.has(handle) ? held.delete(handle) : realClearTimeout(handle));
@@ -96,6 +101,16 @@ export function heldWatchTimers(t, { retryPauses = false } = {}) {
   return {
     at: (ms) => { now = ms; },
     held: (name) => [...held].find((h) => h.name === name),
+    /** Hold every `withinDeadline` deadline timer installed while `fn` runs, in
+     * installation order: `watchRun` installs the stream connection's guard
+     * (watch.mjs:214) and then the stream-readiness guard (watch.mjs:315)
+     * before it awaits anything, so a test can reach one of them alone. The
+     * REST guards, installed later, keep their real timers. */
+    guards(fn) {
+      const captured = [];
+      guarding = captured;
+      try { return { value: fn(), guards: captured }; } finally { guarding = null; }
+    },
     async until(name, budgetMs = 15000, previous = null) {
       const stop = Date.now() + budgetMs;
       while (Date.now() < stop) {

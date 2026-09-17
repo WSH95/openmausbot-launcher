@@ -534,6 +534,14 @@ Notifications are wake-ups only (a bot's notifications can be off,
    checkpoint wait and the final freshness checks are unchanged, so the
    boundary never promotes elapsed quiet to a verdict, authorizes a nudge, or
    preserves a pre-nudge observation.
+
+   The boundary covers only a wait the deadline itself ended (bead `oml-47p`):
+   a quiet or poll wake a few milliseconds earlier is an ordinary wake, reads
+   as usual, and returns the unverified timeout when that read cannot verify
+   in time. A startup the deadline ends is the same boundary: the guard waiting
+   for the stream, or for the polling fallback, latches the expiry rather than
+   letting the loop or the final snapshot read with a millisecond left, so that
+   watch reports a timeout with `complete: false` instead of failing.
 6. A verified non-dry return attempts a checkpoint with at most a one-second
    lock wait, while the stream and receipt watcher remain subscribed. A
    freshness guard runs under the lock before writing, after the checkpoint
