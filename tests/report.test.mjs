@@ -301,6 +301,20 @@ test("not yet remains a negated merge predicate", () => {
   for (const negative of ["not yet", "not  yet", "never yet", "hasn't yet"]) assert.equal(mergedShaFrom(`Alpha was ${negative} merged as abc1234.`, null, { run: { slug: "alpha" } }), null, negative);
 });
 
+test("a merge that is still to come, impossible or undone is not a merge", async () => {
+  const { recordCommitSha } = await import("../skills/openmausbot-launcher/scripts/lib/report.mjs");
+  const run = { slug: "alpha", title: "Alpha" };
+  for (const denial of ["is yet to be", "has yet to be", "is complete but yet to be", "cannot be", "is no longer"]) assert.equal(mergedShaFrom(`Alpha ${denial} merged as abc1234.`, null, { run }), null, denial);
+  // "yet" still resets an earlier negation when it is not "yet to".
+  assert.equal(mergedShaFrom("Alpha was not squashed yet was merged as abc1234.", null, { run }), "abc1234");
+  // The record subject is read by the same rule as the closing text.
+  assert.equal(recordCommitSha("docs(team): Alpha not merged as abc1234", run), null);
+  assert.equal(recordCommitSha("docs(team): Alpha has not yet been merged as abc1234", run), null);
+  assert.equal(recordCommitSha("docs(team): Alpha merged as abc1234", run), "abc1234");
+  // A title is free text: its own "not" is wording, not a denial of the merge.
+  assert.equal(recordCommitSha("docs(team): Alpha do not crash on empty input merged as abc1234", run), "abc1234");
+});
+
 for (const shared of ["title", "bead"]) test(`a shared ${shared} cannot attribute a concurrent merge to either run`, async () => {
   const { recordCommitSha } = await import("../skills/openmausbot-launcher/scripts/lib/report.mjs");
   const alpha = { slug: "alpha", title: "Alpha", bead: "bead-a", [shared]: "Shared", sentAt: day("05:30") };

@@ -352,7 +352,15 @@ const mergedRe = () => new RegExp(String.raw`(?<![\w-])merged\s+(?:${TOKEN}\s+)?
 // Both endpoints are bounded like the merge forms: hex inside a word, or a
 // forty-first digit, is not a commit at either end of `a..b`.
 const rangeRe = () => new RegExp(String.raw`(?<![\w-])\`?[0-9a-f]{7,40}\.\.${HEX}`, "gi");
-const NEGATED = /\b(?:not|never)\b|n['’]t\b/i;
+// A merge that is denied, still to come, impossible or undone is not asserted.
+// Only the predicate governing `merged` is read: "but", "however", "instead"
+// and a bare "yet" (neither "not yet" nor "yet to") start it afresh.
+const NEGATED = /\b(?:not|never|cannot)\b|n['’]t\b|\bno longer\b|\byet\s+to\b/i;
+const RESET = /\b(?:but|however|instead|(?<!\b(?:not|never)\s+|n['’]t\s+)yet(?!\s+to\b))\b/i;
+const denied = (prefix) => NEGATED.test(prefix.split(RESET).at(-1));
+// A record subject's task text is a free title, where "not" is ordinary
+// wording; there only a denial standing directly before `merged` counts.
+const DENIED_VERB = /(?:\b(?:not|never|cannot|no longer)|n['’]t|\byet\s+to)(?:\s+(?:yet|be|been))*\s*$/i;
 
 /** Clauses, split outside backticked spans on newlines, `;`, the ` - ` bullets
  * of a flattened report, and sentence-ending punctuation before whitespace or
@@ -384,8 +392,7 @@ function ownedSha(text, run, others, pattern, at) {
     const mine = owners.length === 0 || (owners.length === 1 && owners[0] === run);
     const shared = owners.length > 1 && owners.includes(run);
     for (const m of clause.matchAll(pattern())) {
-      const predicate = clause.slice(0, m.index).split(/\b(?:but|however|instead|(?<!\b(?:not|never)\s+|n['’]t\s+)yet)\b/i).at(-1);
-      if (NEGATED.test(predicate)) continue;
+      if (denied(clause.slice(0, m.index))) continue;
       if (shared) return null;
       if (mine) found.add(m[1] ?? m[2]);
     }
@@ -406,7 +413,7 @@ export function recordCommitSha(subject, run, others = [], { at } = {}) {
   const qualifying = [];
   for (const segment of text.replace(/^docs\(team\):\s*/i, "").split(",")) {
     const m = /^(.*)(?<![\w-])merged as `?([0-9a-f]{7,40})`?$/i.exec(segment.trim());
-    if (!m || !namesRun(m[1], run) || others.some((r) => namesRival(m[1], r, run, at))) continue;
+    if (!m || DENIED_VERB.test(m[1]) || !namesRun(m[1], run) || others.some((r) => namesRival(m[1], r, run, at))) continue;
     qualifying.push(m[2]);
   }
   return qualifying.length === 1 ? qualifying[0] : null;

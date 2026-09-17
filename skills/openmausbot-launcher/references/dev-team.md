@@ -217,10 +217,14 @@ window (`sentAt` to `closedAt`, or to now while open, ±1 s). Outside that
 window, the rival counts only through identifiers the target does not share.
 Closing text uses the lead message's time; a record subject uses the commit's
 time. Unknown time, including historical closing text without its timestamp,
-permits no window exclusion. In closing text, negation applies to the merge predicate, with
-`but`, `however`, `yet` and `instead` starting a new predicate; `not yet` stays
-negative. A record subject is split on commas and must have exactly one
-qualifying segment for the target, even if several segments name the same sha.
+permits no window exclusion. In closing text, a merge that is denied, still to
+come, impossible or undone (`not`, `never`, `n't`, `cannot`, `no longer`,
+`yet to`) is not a merge; the denial is read in the merge predicate, with
+`but`, `however`, `yet` and `instead` starting a new predicate, while `not yet`
+and `yet to` stay negative. A record subject is split on commas and must have
+exactly one qualifying segment for the target, even if several segments name
+the same sha; its task text is a free title, so there only a denial directly
+before `merged` disqualifies the segment.
 
 The first three checks read the lead's native log, `native/<leadThreadId>.ndjson`
 (`server/drivers/native.ts:11-25` writes one `{at, dir, source, msg}` record per
