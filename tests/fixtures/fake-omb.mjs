@@ -252,6 +252,7 @@ export async function createFake(opts = {}) {
   // ── auth ── S: request-auth.ts:319-384. loopback without proxy headers = admin;
   // a bearer session wins over loopback; client scope is a default-deny table.
   const CLIENT_ALLOW = [ // S: request-auth.ts:185-250 (the subset the driver can hit)
+    ["DELETE", /^\/api\/routines\/[\w-]+$/], // S: request-auth.ts:241
     ["GET", /^\/api\/auth\/session$/], ["GET", /^\/api\/health$/], ["GET", /^\/api\/events$/],
     ["GET", /^\/api\/bots$/], ["GET", /^\/api\/team-map$/], ["GET", /^\/api\/threads\/[\w-]+\/messages$/],
     ["POST", /^\/api\/bots\/[\w-]+\/messages$/], ["POST", /^\/api\/bots\/[\w-]+\/interrupt$/],
@@ -359,6 +360,16 @@ export async function createFake(opts = {}) {
       if ((m = p.match(/^\/api\/bots\/([\w-]+)\/tasks$/)) && method === "POST") return postTask(req, res, m[1]);
       if ((m = p.match(/^\/api\/bots\/([\w-]+)\/tasks\/([\w-]+)$/)) && method === "POST") return switchTask(res, m[1], m[2]);
       if (method === "GET" && p === "/api/routines") return json(res, 200, { routines: state.routines, runs: state.routineRuns }); // S: index.ts:8438-8447
+      if ((m = p.match(/^\/api\/routines\/([\w-]+)$/)) && method === "DELETE") { // S: index.ts:8461-8464
+        const found = state.routines.some((r) => r.id === m[1]);
+        state.routines = state.routines.filter((r) => r.id !== m[1]);
+        return found ? json(res, 200, { ok: true }) : json(res, 404, { error: "no such routine" });
+      }
+      if ((m = p.match(/^\/api\/bots\/([\w-]+)\/skills\/([a-z0-9-]+)$/))) { // S: index.ts:10557-10574
+        const key = `${m[1]}/${m[2]}`;
+        if (method === "GET") return state.skills.has(key) ? json(res, 200, { text: state.skills.get(key) }) : json(res, 404, { error: "no such skill" });
+        if (method === "DELETE") return state.skills.delete(key) ? json(res, 200, { ok: true }) : json(res, 404, { error: `no imported skill named "${m[2]}"` }); // S: skills.ts:742-746
+      }
       if (method === "GET" && p === "/api/config") return json(res, 200, configStatus());
       if ((method === "PUT" || method === "PATCH") && p === "/api/config") return putConfig(req, res);
       if ((m = p.match(/^\/api\/bots\/([\w-]+)\/connector-cards\/([\w-]+)\/(authorize|status|resume|dismiss)$/))) return connectorCard(req, res, method, url, m[1], m[2], m[3]);
@@ -491,10 +502,10 @@ export async function createFake(opts = {}) {
   }
   async function respond(req, res, threadId) { // outcomes S: server/contracts.ts:162; unavailable marks the card S: index.ts:2116
     const body = await readBody(req) ?? {};
+    if (!["allow", "deny", "answer"].includes(body.behavior)) return json(res, 400, { error: "behavior must be allow, deny, or answer" }); // S: index.ts:10978
     const list = messagesFor(threadId);
     const msg = list.find((m) => m.card?.requestId === body.requestId);
     if (!msg || !msg.card) return json(res, 200, { ok: true, outcome: "unavailable" });
-    if (!["allow", "deny", "answer"].includes(body.behavior)) return json(res, 400, { error: "behavior must be allow, deny, or answer" });
     // Special requests are intercepted before adapter answers (S: index.ts:10980-11013).
     if (msg.card.skillRequest) return respondSkill(res, threadId, msg, body);
     if (msg.card.routineRequest) return respondRoutine(res, threadId, msg, body);
@@ -515,6 +526,9 @@ export async function createFake(opts = {}) {
    * the reviewed hash, then the preview's own hash, before it is applied. */
   function respondSkill(res, threadId, msg, body) {
     const card = msg.card; const request = card.skillRequest;
+    const owner = state.bots.find((b) => taskByThread(b, threadId)); // S: index.ts:10983-10986
+    if (!owner) return json(res, 400, { error: "this skill request has no valid owner" });
+    if (request.botId !== owner.id) return json(res, 403, { error: "this skill request belongs to a different bot" }); // S: index.ts:6455-6457
     const settle = (patch) => { Object.assign(card, patch); broadcast({ kind: "message.patch", threadId, message: msg }); };
     const decide = (decision) => state.decisions.unshift({ threadId, requestId: request.requestId, botId: request.botId, tool: card.tool, summary: card.subtitle, decision, source: "user", at: now() }); // S: index.ts:6479-6488
     if (card.answered || card.dismissed) return json(res, 200, { ok: true, outcome: card.answered === "allow" ? "allowed-once" : "rejected", alreadySettled: true }); // :6458-6468
@@ -536,15 +550,19 @@ export async function createFake(opts = {}) {
    * refusal is written onto the card as `held`. */
   function respondRoutine(res, threadId, msg, body) {
     const card = msg.card; const payload = card.routineRequest; const operation = payload.operation;
+    const owner = state.bots.find((b) => taskByThread(b, threadId)); // S: index.ts:11002-11005
+    if (!owner) return json(res, 400, { error: "this routine request has no valid owner" });
+    const decide = (decision) => state.decisions.unshift({ threadId, requestId: body.requestId, botId: owner.id, botName: owner.name, tool: card.tool, summary: card.subtitle, decision, source: "user", at: now() }); // S: index.ts:4836-4854
+    const deny = () => { card.answered = "deny"; card.held = undefined; patch(); decide("user-denied"); return json(res, 200, { ok: true, outcome: "rejected" }); };
     const patch = () => broadcast({ kind: "message.patch", threadId, message: msg });
     const held = (status, error) => { card.held = error; patch(); return json(res, status, { error }); }; // :896-908
     if (body.behavior !== "allow" && body.behavior !== "deny") return json(res, 400, { error: "Routine confirmations must be confirmed or cancelled" }); // :812-818
-    if (payload.requestId !== body.requestId) return json(res, 400, { error: "This routine request id does not match its confirmation card" }); // :846
-    if (payload.threadId !== threadId) return json(res, 403, { error: "This routine request belongs to another conversation" }); // :855
+    if (payload.requestId !== body.requestId) return body.behavior === "deny" ? deny() : json(res, 400, { error: "This routine request id does not match its confirmation card" }); // S: routine-requests.ts:839-846
+    if (payload.botId !== owner.id || payload.threadId !== threadId) return body.behavior === "deny" ? deny() : json(res, 403, { error: "This routine request belongs to another conversation" }); // S: routine-requests.ts:848-855
     if (card.answered) return json(res, 200, { ok: true, outcome: card.answered === "allow" ? "allowed-once" : "rejected", alreadySettled: true }); // index.ts:4811-4818
-    if (body.behavior === "deny") { card.answered = "deny"; card.held = undefined; patch(); return json(res, 200, { ok: true, outcome: "rejected" }); } // :885-888
+    if (body.behavior === "deny") return deny(); // S: routine-requests.ts:885-888
     if (operation.action !== "create") { // verifyManageSnapshot, :642-656
-      const current = state.routines.find((r) => r.id === operation.routineId);
+      const current = state.routines.find((r) => r.id === operation.routineId && r.botId === payload.botId);
       if (!current) return held(404, "That routine no longer exists"); // :648
       if (current.updatedAt !== operation.expectedUpdatedAt) return held(409, "That routine changed after this confirmation card was prepared. Ask the bot to review it and propose the action again."); // :650-653
     }
@@ -554,6 +572,7 @@ export async function createFake(opts = {}) {
     card.answered = "allow"; card.held = undefined;
     payload.appliedAt = now(); payload.resultId = resultId; // :919-925
     patch();
+    decide("user-approved");
     return json(res, 200, { ok: true, outcome: "allowed-once", routineAction: operation.action, resultId }); // index.ts:4823-4829
   }
 
@@ -661,6 +680,17 @@ export async function createFake(opts = {}) {
     if (action === "authorize" && method === "POST") {
       message.connector = { ...connector, status: "authorizing", error: undefined, dismissed: false };
       patchCard(threadId, message);
+      // Model project-session account guards, including the default 400 for
+      // a missing alias (S: composio.ts:348-350, 924-935).
+      const accounts = [...state.threads.values()].flat().filter((m) => m.connector?.slug === connector.slug && state.accounts.has(m.id));
+      const usable = accounts.filter((m) => /^(active|initiated|initializing|pending)$/i.test(state.accounts.get(m.id)));
+      const refusal = usable.length >= 5 ? { status: 409, error: `${connector.slug} already has the maximum of 5 accounts` }
+        : usable.length && !connector.alias ? { status: 400, error: "Add an account alias so the existing connection is not replaced" }
+        : connector.alias && accounts.some((m) => m.connector.alias?.trim().toLowerCase() === connector.alias.toLowerCase()) ? { status: 409, error: `Account alias "${connector.alias}" is already in use for ${connector.slug}` } : null;
+      if (refusal) { // S: index.ts:12245-12250
+        message.connector = { ...connector, status: "failed", error: refusal.error.slice(0, 180) }; patchCard(threadId, message);
+        return json(res, refusal.status, { error: refusal.error });
+      }
       // The browser link is handed to this caller once and never stored
       // in the transcript (S: index.ts:12231-12233, composio.ts:937-945).
       return json(res, 200, { url: `https://connect.example/${connector.slug}/${messageId}` });
@@ -734,8 +764,10 @@ export async function createFake(opts = {}) {
     const saved = [];
     for (const spec of Object.values(CREDENTIAL_TARGETS)) {
       const value = body[spec.section]?.[spec.field];
-      if (typeof value !== "string") continue;
-      if (!value) return json(res, 400, { error: `${spec.section}.${spec.field} must be a non-empty string` }); // parseConfigPatch's zod text stands in here
+      if (value === undefined) continue;
+      // S: config.ts:14,234-252,395-400; schema.ts:14-18. Empty strings
+      // clear credentials; the optional string schema has no minimum length.
+      if (typeof value !== "string") return json(res, 400, { error: `${spec.section}.${spec.field} Invalid input: expected string, received ${value === null ? "null" : Array.isArray(value) ? "array" : typeof value}` });
       saved.push(spec.section);
     }
     const recorder = body.features?.skillRecorder;
@@ -751,7 +783,7 @@ export async function createFake(opts = {}) {
     if (state.configPutFails > 0) { state.configPutFails--; res.destroy(); return; }
     // Only the fact that something was saved is kept: a fixture that stored
     // the value could leak it through /__fake/state or a test's assertion.
-    for (const section of saved) state.config[section] = true;
+    for (const spec of Object.values(CREDENTIAL_TARGETS)) if (saved.includes(spec.section)) state.config[spec.section] = Boolean(spec.section === "box" ? body[spec.section][spec.field].trim() : body[spec.section][spec.field]); // S: index.ts:11715,7125-7140
     if (typeof recorder === "boolean") state.config.skillRecorder = recorder;
     // A section outside the excluded list rebuilds the whole provider fleet
     // (S: index.ts:12003-12018), which kills every in-flight turn and settles

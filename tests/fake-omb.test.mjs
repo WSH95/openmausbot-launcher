@@ -584,7 +584,7 @@ test("credential cards, their four routes, and a config PUT that stores booleans
   assert.equal(r.status, 404); assert.equal(r.body.error, "no such credential request");
   r = await j(await post(card("provided"), { threadId }));
   assert.equal(r.status, 409); assert.equal(r.body.error, "xAI API key was not saved yet");
-  r = await j(await put(`${f.url}/api/config`, { profile: { name: "x" } }));
+  r = await j(await put(`${f.url}/api/config`, { unknownConfigField: true }));
   assert.equal(r.status, 400); assert.equal(r.body.error, "nothing to save");
   await f.control({ op: "providerBusy", busy: true });
   r = await j(await put(`${f.url}/api/config`, { xai: { key: "xai-secret-value" } }));
