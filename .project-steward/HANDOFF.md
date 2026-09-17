@@ -1,5 +1,5 @@
 ---
-updated_at: 2026-09-17T20:42:17Z
+updated_at: 2026-09-17T20:58:34Z
 updated_by: claude
 session_status: closed
 branch: main
@@ -12,7 +12,12 @@ Every non-macOS bead is closed: `oml-fg8`, `oml-j4r`, `oml-2rc`, and three
 found on the way, `oml-jc1`, `oml-47p` and `oml-507`. `main` went from
 `2234084` to `0278dfd` (eight commits) and then to `c769e53` (three follow-up
 commits); the merged tree passed 466/466 tests in 80.1 s. Only `oml-hou`
-(macOS) is open.
+(macOS) is open. The repairs were then confirmed on real OpenMausBot 0.1.56
+with two overlapping probe runs, V16 and V17 (2 bot turns, both Sudo's; server
+stopped, clone unchanged at `ddd4684`): after a sibling opened or closed,
+`report` left the run open with the settlement hint, an 8 s and a 20 s watch
+returned the observed idle time with the budget hint, a 40 s and a 35 s watch
+settled `done`, and the second report closed each run.
 Nothing was pushed, no OpenMausBot server was started and no bot turn was
 spent. Every check ran against `tests/fixtures/fake-omb.mjs`.
 
@@ -37,11 +42,11 @@ removed.
 
 1. Leave `oml-hou` open until macOS work is requested and a Mac or an explicit
    implementation decision is available. `bd ready` shows nothing else.
-2. The next real parallel run should confirm the new output on OpenMausBot
-   0.1.56: after closing the first run, `report --run <b>` should carry the
-   settlement hint, one `watch --run <b> --max-seconds 35` or longer should
-   settle it, and a second report should close it. Record it in
-   `docs/evidence.md`; the fake-server checks are not evidence.
+2. Nothing else is queued. The `oml-j4r` report attribution repairs have not
+   been seen on a real run that merges work and writes a record; the next
+   ordinary dev-team task run will exercise them, and its `report --md
+   --check-042` section belongs in `docs/evidence.md` as usual. Do not spend
+   bot turns for that alone.
 
 ## Blockers
 
@@ -50,6 +55,9 @@ decision.
 
 ## Key files
 
+- `docs/evidence.md`, last section, and
+  `docs/validation/2026-09-17-watch-budget-v16-v17.json`: the real-server
+  confirmation (V16/V17), with every command, id and output.
 - `docs/review/2026-09-17-watch-budget-report-attribution.md`: the pipeline,
   what each bead turned out to be, the decisions the reviews changed, and what
   was left open.

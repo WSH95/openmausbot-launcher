@@ -37,14 +37,19 @@ pass"). The devpack gate `atw-07l.27` is met.
 
 ## v2 pass (2026-09-16/17, complete except macOS)
 
+Status on 2026-09-17: every defect named below is fixed and closed, and the
+repairs were confirmed on a real server (`docs/evidence.md`, V16/V17). Only
+`oml-hou` is open.
+
 Seven beads in one pass, hosts first: OpenClaw, Hermes Agent and DeepSeek
 Harness verified (`oml-n2f`, `oml-5bw`); the `pair` verb and a Tailscale
 remote run (`oml-xnn`); more than one run per team (`oml-no8`); `answer` for
 skill, routine, secret and connector requests (`oml-170`); long SSE inside
 Codex's sandbox (`oml-u1j`, closed as a documented restriction); macOS
 lifecycle (`oml-hou`) left open for the user's decision. Defects found on the
-way: `oml-60s` and `oml-9kp` (fixed), `oml-2rc` (flaky tests, open),
-`oml-fg8` (a run that never settles after its sibling closes, open). The
+way: `oml-60s` and `oml-9kp` (fixed), `oml-2rc` (flaky tests, fixed 2026-09-17),
+`oml-fg8` (a run that never settles after its sibling closes, fixed
+2026-09-17: the cause was watch budgets below the quiet window). The
 real session on 2026-09-17 merged T14 and T15 through two overlapping runs;
 evidence in `docs/evidence.md` "v2 validation". Progress in `PROGRESS.md`;
 every ruling in the SDD ledger under `.superpowers/sdd/`.
@@ -65,8 +70,9 @@ OpenMausBot server or OMB bot turn was used.
 
 ## Later
 
-Fix `oml-fg8` and the two report attribution gaps the real run exposed
-(`oml-j4r`: task-log headings that do not name the run; the merged-commit
-phrase).
+Done on 2026-09-17: `oml-fg8`, the two report attribution gaps of `oml-j4r`,
+`oml-2rc`, and three beads found on the way (`oml-jc1`, `oml-47p`, `oml-507`);
+record in `docs/review/2026-09-17-watch-budget-report-attribution.md`.
+
 macOS lifecycle when a Mac or a decision turns up. Any proposed package
 changes belong to the dev pack's project and are not launcher prerequisites.

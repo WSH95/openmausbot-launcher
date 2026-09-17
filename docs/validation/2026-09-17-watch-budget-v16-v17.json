@@ -1,0 +1,294 @@
+{
+  "recordedAt": "2026-09-17T20:57:16Z",
+  "purpose": "Real-server confirmation of the watch budget and report settlement output (beads oml-fg8, oml-jc1) on two overlapping runs; HANDOFF next step of 2026-09-17",
+  "driver": {
+    "repository": "openmausbot-launcher",
+    "commit": "da024c7"
+  },
+  "server": {
+    "version": "0.1.56",
+    "url": "http://127.0.0.1:8899",
+    "healthPid": 2873981,
+    "supervisorPid": 2873974,
+    "environmentId": "b4962439-c550-4971-805b-25b11863b797",
+    "ports": [
+      8899,
+      8900
+    ],
+    "dataDir": "/home/wsh/.cache/agent-team/omb-launcher-data-v2run-20260917T050914-20260917T050915-XwqQxP",
+    "started": "up on the existing data directory (not --fresh), then import --adopt and bind"
+  },
+  "fixture": {
+    "project": "/home/wsh/.cache/agent-team/validate-0.4.1/slugkit",
+    "commit": "ddd4684",
+    "cleanBeforeAndAfter": true
+  },
+  "botTurns": {
+    "total": 2,
+    "byBot": {
+      "Sudo": 2
+    },
+    "note": "one lead turn per run; no delegation, no specialist turn, no card"
+  },
+  "runs": [
+    {
+      "runId": "cae5d8c515e11d01",
+      "slug": "v16",
+      "tag": "oml:cae5d8c5",
+      "implementer": "Nova",
+      "leadThreadId": "b0a77652-07ff-4778-9207-b5e13d4204f0",
+      "sentAt": "2026-09-17T20:51:45.066Z"
+    },
+    {
+      "runId": "8a197196a6dae33a",
+      "slug": "v17",
+      "tag": "oml:8a197196",
+      "implementer": "Forge",
+      "leadThreadId": "6586d8b2-3102-44fa-8061-3a37cc67d3d9",
+      "sentAt": "2026-09-17T20:52:52.273Z"
+    }
+  ],
+  "steps": [
+    {
+      "step": "watch --run v16 --max-seconds 100",
+      "result": {
+        "state": "done",
+        "outcome": "terminal",
+        "reasons": [
+          "the lead's last text carries the run marker"
+        ],
+        "hint": null,
+        "quietFor": 30013.732421875,
+        "inflight": false,
+        "busy": [],
+        "pending": 0,
+        "outcomes": 0,
+        "changes": [
+          {
+            "from": "running",
+            "to": "running"
+          },
+          {
+            "from": "running",
+            "to": "running"
+          },
+          {
+            "from": "running",
+            "to": "done"
+          }
+        ],
+        "elapsedSec": 51,
+        "checkpointed": true,
+        "complete": true,
+        "brief": "v16 · DONE after 52s · Sudo: \"V16 acknowledged. DONE oml:cae5d8c5\""
+      }
+    },
+    {
+      "step": "task V17 while v16 is open, then watch --run v17 --max-seconds 100",
+      "result": {
+        "state": "done",
+        "outcome": "terminal",
+        "reasons": [
+          "the lead's last text carries the run marker"
+        ],
+        "hint": null,
+        "quietFor": 30017.5498046875,
+        "inflight": false,
+        "busy": [],
+        "pending": 0,
+        "outcomes": 0,
+        "changes": [
+          {
+            "from": "running",
+            "to": "running"
+          },
+          {
+            "from": "running",
+            "to": "done"
+          }
+        ],
+        "elapsedSec": 41,
+        "checkpointed": true,
+        "complete": true,
+        "brief": "v17 · DONE after 41s · Sudo: \"V17 acknowledged. DONE oml:8a197196\""
+      }
+    },
+    {
+      "step": "report --run v16 (its stored verdict no longer carries: opening v17 masked the bots v17 claims)",
+      "result": {
+        "state": "running",
+        "carried": false,
+        "result": "incomplete",
+        "closed": false,
+        "hint": "the run has not settled; run watch --run v16 with --max-seconds 35 or more (30 s default quiet window) until it settles, then report --run v16 again; report --close records the current result without establishing settlement",
+        "openRuns": [
+          "v17"
+        ],
+        "failedChecks": [
+          "run-done",
+          "task-log-changed",
+          "record-commit"
+        ],
+        "unknown": [],
+        "tests": {
+          "ran": true,
+          "ok": true
+        },
+        "closing": "V16 acknowledged.\nDONE oml:cae5d8c5"
+      }
+    },
+    {
+      "step": "watch --run v16 --max-seconds 8",
+      "exit": 4,
+      "result": {
+        "state": "timeout",
+        "outcome": "timeout",
+        "reasons": [
+          "idle for 8 s when the watch budget ended; the 30 s quiet window was not confirmed"
+        ],
+        "hint": "--max-seconds 8 cannot cover the 30 s quiet window; use 35 or more",
+        "quietFor": 7904,
+        "inflight": false,
+        "busy": [],
+        "pending": 0,
+        "outcomes": 0,
+        "changes": [
+          {
+            "from": "done",
+            "to": "running"
+          }
+        ],
+        "elapsedSec": 8,
+        "checkpointed": true,
+        "complete": true,
+        "brief": "v16 · running 2m · idle for 8 s when the watch budget ended; the 30 s quiet window was not confirmed · outcomes 0 · Sudo 2m ago: \"V16 acknowledged. DONE oml:cae5d8c5\""
+      }
+    },
+    {
+      "step": "watch --run v16 --max-seconds 40",
+      "exit": 0,
+      "result": {
+        "state": "done",
+        "outcome": "terminal",
+        "reasons": [
+          "the lead's last text carries the run marker"
+        ],
+        "hint": null,
+        "quietFor": 30020.742431640625,
+        "inflight": false,
+        "busy": [],
+        "pending": 0,
+        "outcomes": 0,
+        "changes": [
+          {
+            "from": "running",
+            "to": "done"
+          }
+        ],
+        "elapsedSec": 30,
+        "checkpointed": true,
+        "complete": true,
+        "brief": "v16 · DONE after 3m · Sudo: \"V16 acknowledged. DONE oml:cae5d8c5\""
+      }
+    },
+    {
+      "step": "report --run v16",
+      "result": {
+        "state": "done",
+        "carried": true,
+        "result": "incomplete",
+        "closed": true,
+        "hint": null,
+        "openRuns": [
+          "v17"
+        ],
+        "failedChecks": [
+          "task-log-changed",
+          "record-commit"
+        ],
+        "unknown": [],
+        "tests": {
+          "ran": true,
+          "ok": true
+        },
+        "closing": "V16 acknowledged.\nDONE oml:cae5d8c5"
+      }
+    },
+    {
+      "step": "report --run v17 (one second after its sibling closed: the oml-fg8 sequence)",
+      "result": {
+        "state": "running",
+        "carried": false,
+        "result": "incomplete",
+        "closed": false,
+        "hint": "the run has not settled; run watch --run v17 with --max-seconds 35 or more (30 s default quiet window) until it settles, then report --run v17 again; report --close records the current result without establishing settlement",
+        "openRuns": [],
+        "failedChecks": [
+          "run-done",
+          "task-log-changed",
+          "record-commit"
+        ],
+        "unknown": [],
+        "tests": {
+          "ran": true,
+          "ok": true
+        },
+        "closing": "V17 acknowledged.\nDONE oml:8a197196"
+      }
+    },
+    {
+      "step": "watch --run v17 --max-seconds 20 (the largest budget the 2026-09-17 session used)",
+      "exit": 4,
+      "result": {
+        "state": "timeout",
+        "outcome": "timeout",
+        "reasons": [
+          "idle for 20 s when the watch budget ended; the 30 s quiet window was not confirmed"
+        ],
+        "hint": "--max-seconds 20 cannot cover the 30 s quiet window; use 35 or more",
+        "quietFor": 19931,
+        "inflight": false,
+        "busy": [],
+        "pending": 0,
+        "outcomes": 0,
+        "changes": [
+          {
+            "from": "done",
+            "to": "running"
+          }
+        ],
+        "elapsedSec": 20,
+        "checkpointed": true,
+        "complete": true,
+        "brief": "v17 · running 3m · idle for 20 s when the watch budget ended; the 30 s quiet window was not confirmed · outcomes 0 · Sudo 2m ago: \"V17 acknowledged. DONE oml:8a197196\""
+      }
+    },
+    {
+      "step": "watch --run v17 --max-seconds 35 (the documented minimum)",
+      "exit": 0,
+      "result": {
+        "state": "done",
+        "outcome": "terminal",
+        "reasons": [
+          "the lead's last text carries the run marker"
+        ],
+        "hint": null,
+        "quietFor": 30031.25439453125,
+        "inflight": false,
+        "busy": [],
+        "pending": 0,
+        "outcomes": 0,
+        "changes": [
+          {
+            "from": "running",
+            "to": "done"
+          }
+        ],
+        "elapsedSec": 30,
+        "checkpointed": true,
+        "complete": true,
+        "brief": "v17 · DONE after 3m · Sudo: \"V17 acknowledged. DONE oml:8a197196\""
+      }
+    }
+  ]
+}

@@ -1956,3 +1956,126 @@ escalation evidence remain valid; this is an additional opt-in path, not a
 rewrite of those runs. The probe used a clean temporary `CODEX_HOME`; it did
 not test a layered installation that still contains legacy `sandbox_mode` or
 `[sandbox_workspace_write]` settings, which override permission profiles.
+
+## 2026-09-17 — Watch budget and report settlement output on two overlapping runs, V16/V17 (2 bot turns)
+
+Purpose: confirm on a real server what the repairs for `oml-fg8` and `oml-jc1`
+were tested against the fake for: a run whose stored verdict stops carrying
+when a sibling run opens or closes, the truthful output of a watch shorter
+than the quiet window, and the hints from `watch` and `report`. Driver at
+`da024c7`. OpenMausBot 0.1.56, started with
+`omb up --project <clone> --port 8899 --data-dir
+~/.cache/agent-team/omb-launcher-data-v2run-20260917T050914-20260917T050915-XwqQxP`
+(the data directory of the T14/T15 run, not `--fresh`, so its six-bot team and
+the second implementer Forge already existed): health pid 2873981, supervisor
+pid 2873974, environment `b4962439-c550-4971-805b-25b11863b797`, ports 8899 and
+8900. `doctor` 6 checks and `doctor --server` 11 checks, 0 failed. Then
+`import --adopt "Agent Team dev team"` (lead Sudo, 6 bots, 1 room) and `bind`
+with the user's roster: Sudo `codex/gpt-5.6-luna/high`, Sage
+`claude/claude-sonnet-5/high`, Vale `codex/gpt-5.6-terra/high`, Nova and Forge
+`claude/claude-opus-5/high`, Quill `grok/grok-4.6/medium`. Project: the slugkit
+clone at `ddd4684`, reconciled and clean before and after; no bead, no TODO
+item.
+
+The runs were probes, not development tasks, so that the check cost one lead
+turn each instead of a full plan, implement and review chain. Brief, verbatim
+for V16 (V17's differs only in its number, the words "while a second run is
+open", `.worktrees/v17`, `task/v17`, `@Forge` and its marker):
+
+> Launcher validation probe V16. This is not a development task: the launcher
+> is checking its own watch and report output against this server. Do not
+> plan, delegate to, ask or message any teammate, do not create a worktree or
+> a branch, do not edit or commit any file, do not update the task log or
+> Beads, and do not post to a room. The worktree and the implementer named
+> below are recorded by the launcher for this run only; do not use them. Reply
+> once with the single sentence 'V16 acknowledged.' and then close exactly as
+> instructed below. Use the worktree .worktrees/v16 on branch task/v16 for
+> this task. Use @Nova as the implementer for this task.
+>
+> When the task is finished, end your closing report with a line containing
+> only `DONE oml:cae5d8c5`.
+
+| Run | Run id | Tag | Implementer | Lead thread | Dispatched | Closed |
+| --- | --- | --- | --- | --- | --- | --- |
+| V16 | `cae5d8c515e11d01` | `oml:cae5d8c5` | Nova | `b0a77652-07ff-4778-9207-b5e13d4204f0` | 20:51:45.066Z | 20:54:48.728Z |
+| V17 | `8a197196a6dae33a` | `oml:8a197196` | Forge | `6586d8b2-3102-44fa-8061-3a37cc67d3d9` | 20:52:52.273Z | 20:56:01.771Z |
+
+Both runs record the same five specialist threads (V17 has
+`leadThreadsOnly: true`), the shape T14 and T15 had. Bot turns: 2, both Sudo's
+(`events/<lead thread>.ndjson`: 1 `turn.started` and 1 `turn.completed` on each
+lead thread; no other thread had a turn). The lead followed the brief: "V16
+acknowledged." and "V17 acknowledged.", each with its marker line, no
+delegation, no card, no file touched.
+
+Sequence and what the driver printed (times UTC; full JSON in
+`docs/validation/2026-09-17-watch-budget-v16-v17.json`):
+
+1. `task --title V16 --implementer Nova "<brief>"`, then
+   `watch --run v16 --max-seconds 100`: `done` after 51 s, `quietFor` 30014,
+   `checkpointed: true`.
+2. `task --title V17 --implementer Forge "<brief>"` while V16 was open, then
+   `watch --run v17 --max-seconds 100`: `done` after 41 s. `status` then read
+   V16 as `running`, "idle for 0 s, not yet settled": opening V17 masked the
+   bot V17 claims in V16's view, V16's evidence changed, and its stored `done`
+   no longer carried.
+3. 20:53:59 `report --run v16`: `state: "running"`, `carried: false`,
+   `closed: false`, tests passed, and the new hint, identical in JSON, in
+   `--brief` and in the Markdown: "the run has not settled; run watch --run
+   v16 with --max-seconds 35 or more (30 s default quiet window) until it
+   settles, then report --run v16 again; report --close records the current
+   result without establishing settlement".
+4. 20:54:01 `watch --run v16 --max-seconds 8`: exit 4, `state: "timeout"`,
+   `quietFor: 7904`, reason "idle for 8 s when the watch budget ended; the 30 s
+   quiet window was not confirmed", hint "--max-seconds 8 cannot cover the 30 s
+   quiet window; use 35 or more", `complete: true`, `checkpointed: true`. The
+   `--brief` line ends "watch timed out after 8s, call again · --max-seconds 8
+   cannot cover the 30 s quiet window; use 35 or more". Before the repair this
+   watch printed "idle for 0 s, not yet settled".
+5. 20:54:17 `watch --run v16 --max-seconds 40`: `done` after 30 s.
+6. 20:54:48 `report --run v16`: `done`, `carried: true`, `closed: true`, no
+   hint.
+7. 20:55:08 `report --run v17`, twenty seconds after its sibling closed, which
+   is the `oml-fg8` sequence: `state: "running"`, `carried: false`,
+   `closed: false`, `openRuns: []`, and the same settlement hint naming `v17`.
+   Closing V16 unmasked Nova, V17's evidence changed once, and its stored
+   `done` was correctly refused.
+8. 20:55:10 `watch --run v17 --max-seconds 20`, the largest budget the
+   2026-09-17 session gave T15: exit 4, `quietFor: 19931`, "idle for 20 s when
+   the watch budget ended; the 30 s quiet window was not confirmed", the hint
+   "--max-seconds 20 cannot cover the 30 s quiet window; use 35 or more",
+   `checkpointed: true`.
+9. 20:55:30 `watch --run v17 --max-seconds 35`, the documented minimum: `done`
+   after 30 s.
+10. 20:56:01 `report --run v17 --md`: closed. `status`: no run, team idle.
+    `reconcile` clean, `cleanup` 0 orphans, `down` stopped the owned server;
+    ports 8899 and 8900 free.
+
+Both reports close `incomplete`, as they must: a probe writes no task-log entry
+and no record commit (`task-log-changed` and `record-commit` are `no`), and
+tests passed in 1 s. `merged-ancestor` does not appear because neither closing
+text names a merge. The report sections as the driver printed them:
+
+```
+## 2026-09-17 — V16 (incomplete)
+Run cae5d8c515e11d01, tag oml:cae5d8c5, OpenMausBot 0.1.56, lead Sudo (codex/gpt-5.6-luna/high), implementer Nova, branch task/v16, project /home/wsh/.cache/agent-team/validate-0.4.1/slugkit, dispatched 2026-09-17T20:51:45.066Z from ddd4684; final state done.
+| Sudo | 1 turn | 22 bot seconds | input 29260 | cached 26368 | output 182 | (Forge, Quill, Nova, Vale, Sage: 0 turns)
+Outcomes: 0. Commits since dispatch: 0. Record step: task log no, record commit none, no bead named in the run. Root: clean.
+Closing report from Sudo: "V16 acknowledged. DONE oml:cae5d8c5"
+
+## 2026-09-17 — V17 (incomplete)
+Run 8a197196a6dae33a, tag oml:8a197196, OpenMausBot 0.1.56, lead Sudo (codex/gpt-5.6-luna/high), implementer Forge, branch task/v17, project /home/wsh/.cache/agent-team/validate-0.4.1/slugkit, dispatched 2026-09-17T20:52:52.273Z from ddd4684; final state done.
+| Sudo | 1 turn | 11 bot seconds | input 23155 | cached 9984 | output 221 | (Forge, Quill, Nova, Vale, Sage: 0 turns)
+Outcomes: 0. Commits since dispatch: 0. Record step: task log no, record commit none, no bead named in the run. Tests: passed in 1 s. Root: clean.
+Closing report from Sudo: "V17 acknowledged. DONE oml:8a197196"
+```
+
+What this run does not show. The report attribution repairs of `oml-j4r` (the
+task-log entry and the merged commit) need a run that merges work and writes a
+record; they stay verified against the saved T13, T14 and T15 texts and the
+fake only. The deadline boundary of `oml-jc1` concerns a millisecond alignment
+that a real run cannot stage; the two short watches above did end at their
+deadline with `checkpointed: true` and the verified reason, which is the output
+that boundary protects. One thing seen and left alone: `status`, which is a
+single snapshot, still words an idle run whose verdict does not carry as "idle
+for 0 s, not yet settled" and gives no hint; the skill already says never to
+read settlement from `status`.

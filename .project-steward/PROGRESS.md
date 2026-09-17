@@ -3,6 +3,22 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-17 — Real-server confirmation of the watch and report output (2 bot turns)
+The handoff's remaining next step was done at the user's request. Real
+OpenMausBot 0.1.56 was started on the T14/T15 data directory, the team adopted
+and bound, and two probe runs, V16 and V17, were opened at once with briefs
+that asked the lead only to acknowledge: 2 bot turns, both Sudo's. Opening V17
+stopped V16's stored verdict from carrying, and closing V16 did the same to
+V17, which is the `oml-fg8` sequence. Each time `report` left the run open
+with the settlement hint, a short watch (8 s, then the original 20 s) reported
+the idle time it observed with the budget hint and `checkpointed: true`, an
+adequate watch (40 s, then the documented 35 s) settled `done`, and the second
+report closed the run. Server stopped, ports free, clone unchanged. Record:
+`docs/evidence.md` and `docs/validation/2026-09-17-watch-budget-v16-v17.json`.
+The stale `PLAN.md` "Later" section was corrected. An 11-hour-old hung
+`npm test` under `codex-linux-sandbox`, left by an earlier session, was killed
+at the user's request.
+
 ### 2026-09-17 — Follow-up: oml-47p and oml-507 closed
 The user asked why the two beads filed during the repairs were left open, so
 they were closed the same day. `main` fast-forwarded from `88a319e` to
