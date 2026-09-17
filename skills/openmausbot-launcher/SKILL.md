@@ -73,7 +73,11 @@ servers two apart. Each spawn writes its own
 `<data dir>/serve.<stamp>.<random>.log`, which `up` reports as `log` and names
 in its hints. Exit 3 `data directory … is in use` means another OpenMausBot
 holds that directory: attach to it with `up --port <its port>`, or give this
-project its own `--data-dir` or `--fresh`. A `doctor` failure named `stop-hook` means the
+project its own `--data-dir` or `--fresh`. `down` refuses (exit 3, `others`)
+while it can see work that is not this project's on that server — a bot busy or
+waiting on a card, a delegation, a working room, another project's open run —
+and says what it saw and what it could not read; finish that work, or pass
+`down --stop-others`, which overrides that guard and nothing else. A `doctor` failure named `stop-hook` means the
 project's Project Steward Stop hook would replace a Claude bot's report:
 set `auto_handoff_mode = "off"` in its `config.toml` and exclude
 `.project-steward/runtime/` before any task. `bind` sets the working

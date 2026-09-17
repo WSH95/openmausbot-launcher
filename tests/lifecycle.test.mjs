@@ -338,6 +338,174 @@ test("a lease record from another machine is refused, and its path is printed wi
   assert.equal(loadState(statePaths(dir)), null);
 });
 
+/** A server this launcher owns, with the fake's control route reachable. */
+async function ownedServer(t, pids, project) {
+  const env = { OMB_BIN: FAKE, OMB_TOKEN: "" };
+  const dataDir = path.join(tmpDir("oml-owned-"), "data");
+  const up = await runOmb(["up", "--project", project, "--port", String(await freePortPair()), "--data-dir", dataDir], { env });
+  assert.equal(up.code, 0, up.stdout + up.stderr);
+  pids.push(up.json.supervisorPid, up.json.healthPid);
+  const control = async (op) => { const r = await fetch(`${up.json.url}/__fake`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(op) }); const b = await r.json(); if (!r.ok) throw new Error(b.error); return b; };
+  const setCwd = (botId, cwd) => fetch(`${up.json.url}/api/bots/${botId}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ cwd }) });
+  return { env, url: up.json.url, dataDir, environmentId: up.json.environmentId, control, setCwd, down: (...args) => runOmb(["down", "--project", project, ...args], { env }) };
+}
+/** Another project's folder, with the state file the test wants in it. */
+function foreignProject(doc) {
+  const dir = tmpDir("oml-foreign-project-");
+  if (doc !== undefined) { fs.mkdirSync(path.join(dir, ".omb")); fs.writeFileSync(path.join(dir, ".omb", "state.json"), typeof doc === "string" ? doc : JSON.stringify(doc)); }
+  return dir;
+}
+const openRun = (environmentId) => ({ r1: { runId: "abcdef1234567890", status: "dispatched", slug: "t10", title: "T10", context: { server: { environmentId } } } });
+
+test("down refuses a server under work it can observe, and --stop-others overrides exactly that", { skip: !linux && "needs /proc" }, async (t) => {
+  const { dir } = makeRepo();
+  const pids = reaper(t);
+  const s = await ownedServer(t, pids, dir);
+  const stranger = (await s.control({ op: "bot", name: "Stranger", section: "Other team" })).bot;
+  const mate = (await s.control({ op: "bot", name: "Mate", section: "Other team" })).bot;
+  await s.control({ op: "activity", botId: stranger.id, activity: "working" });
+  const dry = await s.down("--dry-run");
+  assert.equal(dry.code, 3, dry.stdout);
+  assert.deepEqual(dry.json.others.busyBots, ["Stranger"]);
+  let r = await s.down();
+  assert.equal(r.code, 3, r.stdout);
+  assert.match(r.json.error, /busy bot/);
+  assert.deepEqual(r.json.others.busyBots, ["Stranger"]);
+  assert.equal(r.json.others.counts.busyBots, 1);
+  assert.match(r.json.hint, /--stop-others/);
+  assert.equal(await healthOk(s.url), true, "nothing was signalled");
+  await s.control({ op: "activity", botId: stranger.id, activity: "waiting-on-you" });
+  r = await s.down();
+  assert.equal(r.code, 3); assert.deepEqual(r.json.others.waitingBots, ["Stranger"]);
+  await s.control({ op: "activity", botId: stranger.id, activity: "idle" });
+  await s.control({ op: "queued", sourceBotId: stranger.id, targetBotId: mate.id });
+  r = await s.down();
+  assert.equal(r.code, 3); assert.deepEqual(r.json.others.delegations, [{ state: "queued", source: "Stranger", target: "Mate" }]);
+  await s.control({ op: "clearDelegations" });
+  await s.control({ op: "running", sourceBotId: mate.id, targetBotId: stranger.id });
+  r = await s.down();
+  assert.equal(r.code, 3); assert.equal(r.json.others.delegations[0].state, "running", "either end of a delegation counts");
+  await s.control({ op: "clearDelegations" });
+  const room = (await s.control({ op: "group", name: "Their Room", memberIds: [stranger.id] })).group;
+  await s.control({ op: "roomWorking", groupId: room.id });
+  r = await s.down();
+  assert.equal(r.code, 3); assert.deepEqual(r.json.others.workingRooms, ["Their Room"]);
+  await s.control({ op: "roomWorking", groupId: room.id, working: false });
+  const theirs = foreignProject({ version: 2, rev: 3, project: { dir: "/elsewhere" }, server: { environmentId: s.environmentId }, runs: openRun(null), history: [] });
+  await s.setCwd(stranger.id, theirs);
+  r = await s.down();
+  assert.equal(r.code, 3, r.stdout);
+  assert.deepEqual(r.json.others.projects, [{ folder: theirs, runs: ["t10 (abcdef12, dispatched)"] }], "the file's own server names this environment");
+  await s.control({ op: "failRoute", route: "^/api/team-map", count: 1 });
+  await s.control({ op: "activity", botId: stranger.id, activity: "working" });
+  r = await s.down();
+  assert.equal(r.code, 3, r.stdout);
+  assert.deepEqual(r.json.others.busyBots, ["Stranger"], "a failed source erases no positive another one found");
+  assert.ok(r.json.others.unknown.some((u) => u.source === "team-map"), JSON.stringify(r.json.others.unknown));
+  r = await s.down("--stop-others");
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.equal(r.json.stopped, true);
+  assert.deepEqual(r.json.others.busyBots, ["Stranger"], "the override lists what it overrode");
+  assert.equal(await healthOk(s.url), false);
+  const stale = await s.down("--stop-others");
+  assert.equal(stale.code, 3, "--stop-others bypasses only the other-work guard");
+  assert.match(stale.json.error, /attached, not owned/);
+});
+
+test("down stops on known negatives, keeps what it could not read under unknown, and never treats this project as foreign", { skip: !linux && "needs /proc" }, async (t) => {
+  const { dir } = makeRepo();
+  const pids = reaper(t);
+  const s = await ownedServer(t, pids, dir);
+  await updateState(statePaths(dir), (d) => { d.runs = openRun(s.environmentId); return d; });
+  const stranger = (await s.control({ op: "bot", name: "Stranger", section: "Other team" })).bot;
+  const look = async (cwd, why) => {
+    await s.setCwd(stranger.id, cwd);
+    const r = await s.down("--dry-run");
+    assert.equal(r.code, 0, `${why}: ${r.stdout}`);
+    return r.json.others;
+  };
+  let others = await look(foreignProject(), "an idle foreign team with no launcher state");
+  assert.deepEqual(others.sharedConfiguration.length, 1);
+  assert.deepEqual(others.ownOpenRuns, ["t10 (abcdef12, dispatched)"], "this project's own open runs are listed and do not block");
+  assert.deepEqual(others.projects, []);
+  others = await look(foreignProject({ version: 1, rev: 1, task: { runId: "zz", status: "closed", title: "old" } }), "a closed version 1 task");
+  assert.deepEqual(others.projects, []); assert.deepEqual(others.unknown, []);
+  others = await look(foreignProject({ version: 2, rev: 1, server: { environmentId: "someone-else" }, runs: openRun(null) }), "another environment");
+  assert.deepEqual(others.projects, []); assert.deepEqual(others.unknown, []);
+  for (const [doc, why] of [
+    [{ version: 2, rev: 1, server: { environmentId: s.environmentId }, runs: { x: "garbage" } }, "a run that is not an object"],
+    [{ version: 3, rev: 1, runs: {} }, "an unsupported version"],
+    [{ version: 2, rev: 1, server: { environmentId: null }, runs: openRun(null) }, "two null environment ids"],
+    ["{not json", "a malformed file"],
+  ]) {
+    others = await look(foreignProject(doc), why);
+    assert.deepEqual(others.projects, [], why);
+    assert.equal(others.unknown.length, 1, `${why}: ${JSON.stringify(others.unknown)}`);
+  }
+  const oversized = foreignProject({ version: 2, rev: 1, runs: {} });
+  fs.writeFileSync(path.join(oversized, ".omb", "state.json"), Buffer.alloc(9 * 1024 * 1024, 32));
+  others = await look(oversized, "an oversized file");
+  assert.match(others.unknown[0].why, /larger than/);
+  const linked = foreignProject();
+  fs.mkdirSync(path.join(linked, ".omb"));
+  fs.symlinkSync(path.join(oversized, ".omb", "state.json"), path.join(linked, ".omb", "state.json"));
+  others = await look(linked, "a symlinked state file");
+  assert.match(others.unknown[0].why, /symlink/);
+  const disguised = foreignProject();
+  fs.mkdirSync(path.join(disguised, ".omb"));
+  fs.symlinkSync(path.join(dir, ".omb", "state.json"), path.join(disguised, ".omb", "state.json"));
+  others = await look(disguised, "a symlink to this project's own state file");
+  assert.deepEqual(others.unknown, []); assert.deepEqual(others.projects, []);
+  const blocked = foreignProject();
+  fs.writeFileSync(path.join(blocked, "file"), ""); // a path through a file is unreadable, not absent
+  others = await look(path.join(blocked, "file", "inner"), "an unreadable folder");
+  assert.equal(others.unknown.length, 1, JSON.stringify(others));
+  assert.deepEqual(others.sharedConfiguration, [], "what could not be read is never counted as absent");
+  others = await look(dir, "a foreign bot configured for this project's own folder");
+  assert.deepEqual(others.projects, []); assert.deepEqual(others.unknown, []); assert.deepEqual(others.sharedConfiguration, []);
+  assert.deepEqual(others.ownOpenRuns, ["t10 (abcdef12, dispatched)"]);
+  const r = await s.down();
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+});
+
+test("down counts a same-section helper as this team's, and a numbered section as another team", { skip: !linux && "needs /proc" }, async (t) => {
+  const { dir } = makeRepo();
+  const pids = reaper(t);
+  const s = await ownedServer(t, pids, dir);
+  const lead = (await s.control({ op: "bot", name: "Sudo", section: "Dev team", chiefOfStaff: true })).bot;
+  assert.equal((await runOmb(["import", "--adopt", "Dev team", "--project", dir, "--url", s.url], { env: s.env })).code, 0);
+  const helper = (await s.control({ op: "bot", name: "Helper", section: "Dev team" })).bot;
+  const twin = (await s.control({ op: "bot", name: "Twin", section: "Dev team 2" })).bot;
+  await s.control({ op: "activity", botId: helper.id, activity: "working" });
+  let r = await s.down("--dry-run");
+  assert.equal(r.code, 0, `a helper the lead created is this team's: ${r.stdout}`);
+  await s.control({ op: "activity", botId: twin.id, activity: "working" });
+  r = await s.down("--dry-run");
+  assert.equal(r.code, 3, r.stdout);
+  assert.deepEqual(r.json.others.busyBots, ["Twin"], "Dev team and Dev team 2 are two teams");
+  await s.control({ op: "newEnvironment" });
+  r = await s.down();
+  assert.equal(r.code, 3, "a changed environment is refused by verification, before any of this");
+  assert.match(r.json.error, /environment id changed/);
+  assert.equal(r.json.others, undefined);
+});
+
+test("cleanup --down propagates a down refusal before it does any further work", { skip: !linux && "needs /proc" }, async (t) => {
+  const { dir } = makeRepo();
+  const pids = reaper(t);
+  const s = await ownedServer(t, pids, dir);
+  const stranger = (await s.control({ op: "bot", name: "Stranger", section: "Other team" })).bot;
+  await s.control({ op: "activity", botId: stranger.id, activity: "working" });
+  const r = await runOmb(["cleanup", "--down", "--project", dir], { env: s.env });
+  assert.equal(r.code, 3, r.stdout);
+  assert.match(r.json.error, /busy bot/);
+  assert.match(r.json.hint, /down --stop-others/);
+  assert.deepEqual(r.json.others.busyBots, ["Stranger"]);
+  assert.equal(r.json.orphans, undefined, "no scan, no reconcile, no kill");
+  assert.equal(await healthOk(s.url), true);
+  assert.equal((await s.down("--stop-others")).code, 0);
+});
+
 test("up reports a server that dies at startup with the log tail and a sandbox hint", { skip: !linux && "needs /proc" }, async (t) => {
   const { dir } = makeRepo();
   const r = await upWithPortTaken(t, { dir, dataDir: path.join(tmpDir("oml-dead-"), "data") });

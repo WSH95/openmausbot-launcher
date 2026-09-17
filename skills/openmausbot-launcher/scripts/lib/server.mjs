@@ -174,7 +174,18 @@ export async function verifyOwned(server, client) {
   return { ok: reasons.length === 0, reasons };
 }
 
+/** The recorded processes, read now: pid alive, start ticks, and the parent
+ * link. Synchronous on purpose — an identity read before an awaited request is
+ * already old, so this is what runs last, with no await before the signal. */
+export function processIdentityOk(server) {
+  const sup = procInfo(server.supervisorPid);
+  const child = procInfo(server.healthPid);
+  return Boolean(sup?.alive && sup.startTicks === server.supervisorStart
+    && child?.alive && child.startTicks === server.healthStart && child.ppid === server.supervisorPid);
+}
+
 export async function stopOwned(server, { timeoutMs = 15_000 } = {}) {
+  if (!processIdentityOk(server)) throw new Fail(EXIT.PRECONDITION, "the recorded processes changed while the server was being verified", { hint: `verify with ps -o pid,lstart,args -p ${server.supervisorPid},${server.healthPid}, then run down again` });
   process.kill(server.supervisorPid, "SIGTERM");
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {

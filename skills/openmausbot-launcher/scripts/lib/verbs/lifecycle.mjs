@@ -10,7 +10,7 @@ import { openRuns } from "../runs.mjs";
 import { gitAvailable, gitTopLevel, gitPath } from "../git.mjs";
 import * as srv from "../server.mjs";
 import { scanOrphans } from "../proc.mjs";
-import { membership, foreignFolders, cap } from "../others.mjs";
+import { membership, foreignFolders, observeOthers, describeOthers, cap } from "../others.mjs";
 
 const num = (v, d) => (v === undefined ? d : Number(v));
 
@@ -187,26 +187,41 @@ verb("up", {
 });
 
 verb("down", {
-  options: { timeout: { type: "string" } },
+  options: { timeout: { type: "string" }, "stop-others": { type: "boolean" } },
   handler: stateCommand(async ({ flags, cfg, save }) => {
     const server = cfg.state?.server;
     if (!server) throw new Fail(EXIT.PRECONDITION, "no server is recorded in the state", { hint: "nothing to stop; up records the server it starts" });
     if (!server.owned) throw new Fail(EXIT.PRECONDITION, "the recorded server is attached, not owned", { hint: "stop it where you started it" });
     const client = createClient({ url: server.url });
-    const v = await srv.verifyOwned(server, client);
-    if (!v.ok) {
+    const unverified = (reasons) => {
       const alive = [server.supervisorPid, server.healthPid].filter((pid) => srv.procInfo(pid)?.alive);
-      throw new Fail(EXIT.PRECONDITION, `refusing to stop: ${v.reasons.join("; ")}`, {
+      return new Fail(EXIT.PRECONDITION, `refusing to stop: ${reasons.join("; ")}`, {
         hint: alive.length
           ? `pid(s) ${alive.join(", ")} are alive but no longer match the record, so the launcher will not signal them: verify with ps -o pid,lstart,args -p ${server.supervisorPid},${server.healthPid}, then kill ${server.supervisorPid} yourself (the supervisor stops its child); when both are gone, run up to record a new server`
           : "if that server is gone, run up to record a new one",
       });
+    };
+    const v = await srv.verifyOwned(server, client);
+    if (!v.ok) throw unverified(v.reasons);
+    // What `down` protects is other work it has **observed**; an inspection
+    // that finds nothing is not proof that there is none, and the race between
+    // the last look and the signal is accepted.
+    const { others, blocking } = await observeOthers({ client, cfg, environmentId: server.environmentId });
+    if (blocking && !flags["stop-others"]) {
+      throw new Fail(EXIT.PRECONDITION, `refusing to stop: ${describeOthers(others)}`, { hint: "finish or abandon that work where it runs, or stop this server anyway with down --stop-others", others });
     }
-    if (cfg.dryRun) return { result: { dryRun: true, signal: "SIGTERM", supervisorPid: server.supervisorPid }, brief: `down · dry run · SIGTERM ${server.supervisorPid}` };
+    const overrode = blocking ? describeOthers(others) : "";
+    const unknowns = others.counts.unknown ? ` · ${others.counts.unknown} unknown` : "";
+    if (cfg.dryRun) return { result: { dryRun: true, signal: "SIGTERM", supervisorPid: server.supervisorPid, others }, brief: `down · dry run · SIGTERM ${server.supervisorPid}${overrode ? ` · would override ${overrode}` : ""}${unknowns}` };
+    // Ownership is verified again after an inspection that may have been slow,
+    // and `stopOwned` reads the process identities one last time with nothing
+    // awaited between that read and the signal.
+    const again = await srv.verifyOwned(server, client);
+    if (!again.ok) throw unverified(again.reasons);
     const stopped = await srv.stopOwned(server, { timeoutMs: num(flags.timeout, 15) * 1000 });
     if (!stopped) throw new Fail(EXIT.ERROR, "the server did not exit after SIGTERM", { hint: `pids ${server.supervisorPid} and ${server.healthPid} are still alive; see ${server.log}` });
     await save( (doc) => { doc.server = { ...server, owned: false, supervisorPid: null, healthPid: null, supervisorStart: null, healthStart: null, stoppedAt: new Date().toISOString() }; return doc; });
     const scan = scanOrphans({ pattern: "codex-linux-sandbox", worktreesDir: path.join(cfg.projectDir, ".worktrees") });
-    return { result: { stopped: true, supervisorPid: server.supervisorPid, healthPid: server.healthPid, url: server.url, orphans: scan.orphans }, brief: `down · stopped ${server.url}${scan.orphans.length ? ` · ${scan.orphans.length} orphan(s): run cleanup --kill` : ""}` };
+    return { result: { stopped: true, supervisorPid: server.supervisorPid, healthPid: server.healthPid, url: server.url, orphans: scan.orphans, others }, brief: `down · stopped ${server.url}${overrode ? ` · overrode ${overrode}` : ""}${unknowns}${scan.orphans.length ? ` · ${scan.orphans.length} orphan(s): run cleanup --kill` : ""}` };
   }),
 });

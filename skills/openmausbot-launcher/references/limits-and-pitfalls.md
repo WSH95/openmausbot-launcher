@@ -168,9 +168,19 @@ recovery errors can name a file whose name carries a token
 A shared *server* is allowed and partly guarded. `up` reports
 `otherConfiguredFolders`, the folders the server's other bots are configured
 for; `bind` and `facts` refuse a team configured for another project's folder
-unless `bind --take-over` says to move it. All of this is configuration, not
+unless `bind --take-over` says to move it; `down` refuses while it can see
+another project's work — a foreign bot busy or waiting on a card, a delegation
+with a foreign bot at either end, a working room, or another project's
+`.omb/state.json` with an open run on this environment — and `down
+--stop-others` overrides exactly that and nothing else. Its `others` object
+says what was seen and, under `unknown`, what could not be read; `cleanup
+--down` stops there too. All of this is configuration and observation, not
 activity: a bot with no configured folder, a task already pinned to a folder,
-and two projects that adopted the same ids are invisible to it. Two writable
+a project whose state lives somewhere `--state` moved it, a bot pointed at a
+sub-folder, and two projects that adopted the same ids are invisible to it. A
+pending credential card on a foreign thread is seen only when it also left that
+bot `waiting-on-you` (`index.ts:8263`); conversely an unanswered foreign card
+keeps refusing `down` until someone answers it or passes `--stop-others`. Two writable
 launcher states for one team are not made safe by any of it — a shared team
 needs one authoritative state.
 

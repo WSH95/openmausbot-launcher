@@ -73,7 +73,10 @@ verb("cleanup", {
     if (cfg.mode === "remote") throw new Fail(EXIT.PRECONDITION, "cleanup needs the project machine");
     let down = null;
     if (flags.down) {
+      // A refusal to stop the server ends the cleanup: whatever `down`
+      // protected is still running, and the scan and the kills come after it.
       const out = await VERBS.get("down").handler({ flags: { ...flags, down: undefined }, positionals: [], verb: "down" });
+      if ((out.code ?? EXIT.OK) !== EXIT.OK) throw new Fail(out.code, out.result?.error ?? "down did not stop the server", { hint: out.result?.hint ?? "finish or abandon that work, or run down --stop-others", ...(out.result?.others ? { others: out.result.others } : {}) });
       down = out.result;
     }
     const server = cfg.state?.server;
