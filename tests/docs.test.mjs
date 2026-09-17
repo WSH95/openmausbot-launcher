@@ -38,7 +38,8 @@ test("every docs/upstream reference points at the dev pack, which owns that dire
 });
 
 test("no shipped instruction asks the agent to compose a command that carries a credential", () => {
-  const files = ["skills/openmausbot-launcher/SKILL.md", ...fs.readdirSync(path.join(SKILL_DIR, "references")).map((f) => `skills/openmausbot-launcher/references/${f}`)];
+  const docs = fs.readdirSync(path.join(ROOT, "docs"), { recursive: true }).filter((f) => f.endsWith(".md")).map((f) => `docs/${f}`);
+  const files = ["skills/openmausbot-launcher/SKILL.md", ...docs, ...fs.readdirSync(path.join(SKILL_DIR, "references")).map((f) => `skills/openmausbot-launcher/references/${f}`)];
   for (const file of files) {
     const text = read(file);
     // `OMB_SECRET=` in an instruction is an invitation to substitute the value
