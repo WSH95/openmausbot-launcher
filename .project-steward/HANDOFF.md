@@ -2,40 +2,32 @@
 updated_at: 2026-09-17
 updated_by: codex
 session_status: closed
-branch: main
+branch: codex/rotate-openclaw-telegram-bot
 ---
 # Handoff
 
 ## Now
 
-The portable Codex loopback profile is integrated into `main`. The user chose
-a local merge, so `main` fast-forwarded from `c156e59` to `20ac090`, including
-the feature commit `06c28e6` and its stewardship commit. Bead `oml-9mc` is
-closed. The merged skill carries an opt-in profile that extends `:workspace`
-and allows only `127.0.0.1` and `localhost`; it never changes user
-configuration. The repository-only `omb-loopback-dev` profile adds
-`127.0.0.2` for the fake proxy scenario and is not selected by default.
+The OpenClaw Telegram token rotation is complete on
+`codex/rotate-openclaw-telegram-bot`. The earlier screenshot-exposed token was
+independently confirmed revoked before the replacement token for `OpenClaw
+Laptop` (`@WSHOpenClawLaptopBot`, id `8904072141`) was privately staged,
+token-safely validated and atomically installed in the 0600 token file. No secret
+is stored in this repository or handoff.
 
-The merged `main` passed all 404 tests under `omb-loopback-dev` in 104.512 s.
-The feature worktree was clean, then removed; its local branch was fully
-merged and deleted with `git branch -d`. Independent review reported no
-remaining findings. No OpenMausBot server or bot turn was used, and nothing
-was pushed.
-
-The earlier v2 pass remains complete except its conditional macOS phase. Its
-real T14/T15 session, 39-of-50 turn total, and remaining defects are recorded
-in `docs/evidence.md`, `.project-steward/PROGRESS.md`, and Beads.
+The gateway is active. `dmPolicy=pairing` and `groupPolicy=disabled` remain in
+force; BotFather group joining is enabled by the user's choice, but OpenClaw still
+refuses group processing. The existing approved sender remains valid under the
+default account. The previous validation bot, `@OMBLauncherCheckBot`, was deleted
+after the replacement passed the DM gate. Bead `oml-8v0` is closed. This was
+OpenClaw infrastructure validation with zero OpenMausBot server starts and zero
+OMB bot turns.
 
 ## In flight
 
-Nothing is in flight. The main working tree is the only registered worktree.
-No real OpenMausBot server was started during this follow-up; the test suite
-closed its fake servers. The previous handoff recorded
-`openclaw-gateway.service` and `hermes-gateway.service` as installed user
-services, with Hermes login linger enabled. Their runtime state was not
-changed or rechecked here. The OpenClaw Telegram token file remains outside
-the repository; an earlier session warned that the token appeared in one
-screenshot and should be revoked and re-issued if the bot is kept.
+Nothing is in flight for this rotation. The token file remains outside the
+repository and was not read here. Existing unrelated ready Beads remain
+preserved for future work.
 
 ## Next steps
 
@@ -54,16 +46,13 @@ None for the launcher. The macOS lifecycle task needs a Mac or a user decision.
 
 ## Key files
 
-- `skills/openmausbot-launcher/assets/codex/omb-loopback.config.toml`: the
-  consumer profile.
-- `skills/openmausbot-launcher/references/hosts.md`: installation, precedence,
-  smoke checks, rollback, and fallback guidance.
-- `skills/openmausbot-launcher/scripts/lib/http.mjs`: exact loopback proxy
-  bypass merge.
-- `docs/evidence.md`: the zero-bot-turn Codex profile probe and earlier real
-  runs.
-- `.project-steward/VERIFY.md`, `DECISIONS.md` 0017, and `RISKS.md`: checks,
-  rationale, and residual risks.
+- `docs/evidence.md`: historical phone validation and the dated token-rotation
+  remediation note.
+- `.project-steward/VERIFY.md`, `DECISIONS.md` 0018, and `RISKS.md`: safe
+  checks, gateway-boundary decision and screenshot/UI-capture mitigation.
+- `skills/openmausbot-launcher/assets/codex/omb-loopback.config.toml` and
+  `skills/openmausbot-launcher/references/hosts.md`: the completed, unrelated
+  Codex loopback profile work.
 
 ## Tried and rejected
 
@@ -76,12 +65,6 @@ None for the launcher. The macOS lifecycle task needs a Mac or a user decision.
 
 ## Warnings
 
-A managed Codex policy or a legacy `sandbox_mode` /
-`[sandbox_workspace_write]` setting can override the opt-in profile. The host
-instructions document detection and fallbacks. Use `watch` before `answer`;
-never answer a human decision for the user or accept an always-allow approval.
-A provider-key write restarts the provider fleet, so the driver refuses it
-while any bot is busy. Keep credentials out of commands and transcripts: use
-a user-owned 0600 file through `--secret-stdin`, or an `OMB_SECRET` value
-exported in the user's own shell. Every push still requires explicit user
-permission.
+Treat every token shown in a screenshot or UI capture as compromised. Keep it out
+of browser automation, argv and transcripts; revoke it before replacement and use
+a user-owned 0600 token file. Every push still requires explicit user permission.

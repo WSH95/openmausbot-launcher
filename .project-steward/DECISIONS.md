@@ -340,3 +340,16 @@ both variables before the first request. Remote clients do not change either
 variable. The repository-only `omb-loopback-dev` profile adds `127.0.0.2`
 for the fake proxy-host test; that address and profile are not shipped as
 consumer permissions. This follow-up is bead `oml-9mc` and uses no bot turns.
+
+## 0018 — 2026-09-17 — One Telegram bot identifies the OpenClaw gateway
+
+The token exposed through an earlier screenshot was revoked and the user replaced
+the old validation bot with `OpenClaw Laptop` (`@WSHOpenClawLaptopBot`, id
+`8904072141`). Telegram identifies the general OpenClaw gateway, while OMB is an
+OpenClaw skill rather than a separate Telegram trust boundary.
+
+Keep one bot for the gateway. Pairing-only DMs and OpenClaw's disabled group
+processing remain the access policy. The user may use Telegram forum topics and
+per-topic OpenClaw agent routing for future projects. Defer a second bot unless
+users, permissions or workspaces require isolation. The former validation bot was
+deleted after replacement validation; its revoked token was never restored.

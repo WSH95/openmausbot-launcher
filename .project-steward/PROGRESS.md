@@ -3,6 +3,17 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-17 — OpenClaw Telegram bot rotation completed
+The screenshot-exposed token was independently confirmed revoked before the user
+created `OpenClaw Laptop` (`@WSHOpenClawLaptopBot`, id `8904072141`). Its privately
+staged replacement passed a token-safe probe and atomically replaced the 0600 token
+file; subsequent DM/channel checks passed. The gateway remains active with
+pairing-only DMs and OpenClaw group processing disabled; the user kept BotFather
+group joining enabled.
+The prior validation bot was deleted after the DM gate. This was infrastructure
+validation with zero OpenMausBot server starts and zero OMB bot turns. Bead
+`oml-8v0` is closed; no secret is recorded and nothing was pushed.
+
 ### 2026-09-17 — Codex loopback profile integrated into main
 The user chose local integration. `main` fast-forwarded from `c156e59` to
 `20ac090`, including feature commit `06c28e6`. The merged tree passed all

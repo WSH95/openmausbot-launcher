@@ -8,6 +8,28 @@ Run the relevant checks before marking work as verified in `HANDOFF.md`.
 | Tests | `npm test` | all pass |
 | Lint | `none` | clean |
 
+## OpenClaw Telegram bot rotation (2026-09-17)
+
+Final safe snapshot: `2026-09-17T11:40:11Z`; OpenClaw `2026.9.4 (3a9d69d)`.
+The old 0600 token file was checked with a token-safe `getMe` probe that returned
+HTTP 401 and `ok:false`, without printing the token. The privately staged
+replacement for `OpenClaw Laptop` (`@WSHOpenClawLaptopBot`, id `8904072141`) passed
+a token-safe probe and atomically replaced `/home/wsh/.openclaw/telegram-bot.token`.
+The final file was mode 0600 and owned by `wsh:wsh`; the configuration still uses
+that `tokenFile` and has no inline `botToken`.
+
+Safe gateway and channel checks found `dmPolicy=pairing`, `groupPolicy=disabled`,
+an active gateway, and a configured, running, connected Telegram account using the
+token file with available token status, zero reconnect attempts and no last error.
+The final BotFather probe reported `can_join_groups:true` and
+`can_read_all_group_messages:false`; OpenClaw still refuses group processing. The
+user's `/start` and `/status` produced fresh inbound and outbound timestamps; the
+existing approved sender under `default` needed no new pairing approval. There was
+one existing command owner and zero pending Telegram pairing requests. The former
+validation bot was deleted after the DM gate. No token, owner identifier or message
+content is recorded. This validation started zero OpenMausBot servers and used zero
+OMB bot turns.
+
 ## Codex loopback permission profile (2026-09-17)
 
 The final suite ran under the repository's opt-in, least-privilege profile:

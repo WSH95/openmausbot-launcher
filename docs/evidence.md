@@ -845,6 +845,40 @@ TGLH7375`, which also made that user the command owner. An earlier DM attempt fa
 with "Something went wrong" while `tools.exec.mode=allowlist`, the preflight refusal
 quoted above.
 
+### 2026-09-17 — Telegram bot rotation remediation
+
+The token visible in an earlier screenshot was treated as compromised. Before a
+replacement was made, a token-safe `getMe` probe using the old 0600 file returned
+HTTP 401 and `ok:false`; the token was not printed. The user then created
+`OpenClaw Laptop` (`@WSHOpenClawLaptopBot`, Telegram bot id `8904072141`). Its
+replacement token was staged privately, validated with a token-safe probe, and
+atomically replaced `/home/wsh/.openclaw/telegram-bot.token`.
+
+The final safe snapshot at `2026-09-17T11:40:11Z` records OpenClaw
+`2026.9.4 (3a9d69d)`, token-file mode 0600 and owner `wsh:wsh`.
+`channels.telegram.tokenFile` still names that file and no inline `botToken` is
+configured. `dmPolicy=pairing` and `groupPolicy=disabled` remain explicit. The
+user kept BotFather group joining enabled: the final safe probe reports
+`can_join_groups:true` and `can_read_all_group_messages:false`; OpenClaw still
+refuses group processing under `groupPolicy=disabled`.
+
+The gateway service was active. The final Telegram account was configured,
+running and connected, using `tokenFile` with token status available, zero
+reconnect attempts and no last error. The user's `/start` and `/status` produced
+fresh inbound and outbound channel timestamps. The existing approved sender
+remained valid under account `default`, so no new pairing approval was needed.
+There was one existing command owner and zero pending Telegram pairing requests;
+no owner identifier or message content is recorded here.
+
+After the replacement passed the DM gate, the user confirmed that
+`@OMBLauncherCheckBot` was deleted in BotFather. Its already revoked token was
+never restored. This was OpenClaw infrastructure validation: zero OpenMausBot
+server starts and zero OMB bot turns. Telegram identifies the general OpenClaw
+gateway; OMB is an OpenClaw skill, not a separate Telegram trust boundary. Future
+projects may use Telegram forum topics and per-topic OpenClaw agent routing
+through this bot. A second bot is deferred unless users, permissions or
+workspaces require isolation.
+
 **Automations** (`openclaw automations create`, aliased as `openclaw cron`) answer
 the open question about `--announce` on empty output. Two jobs were created against
 the fixture and run manually:
