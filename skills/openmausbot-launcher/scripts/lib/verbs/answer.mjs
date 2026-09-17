@@ -19,10 +19,12 @@ const MODES = [
   ["deny", (f) => f.deny === true || f.cancel === true],
   ["answer", (f) => f.message !== undefined],
   ["provide", (f) => f.provide === true],
+  ["connect", (f) => f.connect === true],
+  ["resume", (f) => f.resume === true],
   ["dismiss", (f) => f.dismiss === true],
 ];
 const modesIn = (flags) => MODES.filter(([, has]) => has(flags)).map(([name]) => name);
-const MODE_FLAGS = "--allow (--confirm), --deny (--cancel), --message, --provide, --dismiss";
+const MODE_FLAGS = "--allow (--confirm), --deny (--cancel), --message, --provide, --connect, --resume, --dismiss";
 
 /** Which modes each kind of request accepts, and what it is called when it refuses one. */
 const KINDS = {
@@ -34,6 +36,7 @@ const KINDS = {
   // the skill away while reading like a comment.
   skill: { label: "a learned-skill card", accepts: ["allow", "deny"], use: "--allow --reviewed <sha256> or --deny; a message would reject the skill" },
   secret: { label: "a credential request", accepts: ["provide", "dismiss"], use: "--provide or --dismiss" },
+  connector: { label: "a connection request", accepts: ["connect", "resume", "dismiss"], use: "--connect, --resume or --dismiss" },
 };
 
 /**
@@ -78,6 +81,7 @@ verb("answer", {
     allow: { type: "boolean" }, deny: { type: "boolean" }, message: { type: "string" },
     confirm: { type: "boolean" }, cancel: { type: "boolean" }, reviewed: { type: "string" },
     provide: { type: "boolean" }, "secret-stdin": { type: "boolean" }, dismiss: { type: "boolean" },
+    connect: { type: "boolean" }, resume: { type: "boolean" },
     request: { type: "string" }, run: { type: "string" },
   },
   allowPositionals: true,
@@ -94,8 +98,11 @@ verb("answer", {
       const out = await VERBS.get("send").handler({ flags: { ...flags }, positionals: [bare], verb: "send" });
       return { result: { viaSend: true, ...out.result }, brief: out.brief };
     }
+    const behavior = modes[0];
     const snap = await snapshot(client, { team, task, runs: openRuns(cfg.state), history: cfg.state?.history }, { dataDir: null });
-    const cards = snap.pending.filter((p) => p.kind !== "waiting");
+    // A resume also reaches a connection that is already live and waiting only
+    // for its bot to be told, which by then needs nothing from the user.
+    const cards = [...snap.pending.filter((p) => p.kind !== "waiting"), ...(behavior === "resume" ? snap.resumable ?? [] : [])];
     let target;
     if (flags.request) { target = cards.find((p) => handleOf(p) === flags.request) ?? null; if (!target) throw new Fail(EXIT.PRECONDITION, `no pending request ${flags.request}`, { hint: cards.length ? `pending: ${cards.map((c) => `${handleOf(c)} (${c.botName})`).join(", ")}` : "nothing is pending; a plain question is answered with send" }); }
     else if (cards.length === 1) {
@@ -107,19 +114,16 @@ verb("answer", {
     else throw new Fail(EXIT.PRECONDITION, `${cards.length} requests are pending; pass --request`, { hint: cards.map((c) => `${handleOf(c)}: ${c.botName} ${c.text}`).join(" | ") });
     const kind = kindOf(target);
     const spec = KINDS[kind];
-    const behavior = modes[0];
     // Every kind is checked against its own card before anything is posted: a
     // response the server would refuse costs a round trip, and on some kinds
     // the wrong one settles the card the wrong way.
-    if (!spec) {
-      if (target.kind !== "card") throw new Fail(EXIT.NEEDS_USER, `${target.botName} has a ${target.kind} request the driver cannot answer`, { hint: target.kind === "connector" ? "connect the app in OpenMausBot's UI (connector cards use /api/bots/:id/connector-cards)" : "provide the credential in OpenMausBot's UI (secret cards use /api/bots/:id/secret-cards)" });
-      throw new Fail(EXIT.NEEDS_USER, `${target.botName} has a ${kind} request the driver cannot answer`, { hint: "review the learned skill in OpenMausBot's app; its response requires reviewedSha256 matching the displayed preview" });
-    }
+    if (!spec) throw new Fail(EXIT.NEEDS_USER, `${target.botName} has a ${kind ?? target.kind} request the driver cannot answer`, { hint: "open OpenMausBot and settle it there" });
     if (flags.reviewed !== undefined && kind !== "skill") throw new Fail(EXIT.USAGE, "--reviewed belongs to a learned-skill card", { hint: `request ${handleOf(target)} is ${spec.label}` });
     if (!spec.accepts.includes(behavior)) throw new Fail(EXIT.USAGE, `request ${handleOf(target)} is ${spec.label}: use ${spec.use}`);
     if (kind === "routine") return routine(client, cfg, target, behavior);
     if (kind === "skill") return skill(client, cfg, target, behavior, flags.reviewed);
     if (kind === "secret") return secret(client, cfg, target, behavior, flags);
+    if (kind === "connector") return connector(client, cfg, snap, target, behavior);
     if (cfg.dryRun) return { result: { dryRun: true, requestId: target.requestId, threadId: target.threadId, behavior } };
     const res = await client.post(`/api/threads/${target.threadId}/respond`, { requestId: target.requestId, behavior, ...(behavior === "answer" ? { message: flags.message } : {}) });
     const outcome = res.outcome ?? "unknown";
@@ -135,6 +139,65 @@ verb("answer", {
     return { result: { requestId: target.requestId, threadId: target.threadId, bot: target.botName, behavior, outcome, fellBackToSend, sent }, brief: `answer · ${target.botName} · ${behavior} → ${outcome}${fellBackToSend ? " (sent as chat instead)" : ""}` };
   }, { lockWhen: ({ flags }) => modesIn(flags).length > 0 }),
 });
+
+/**
+ * A connection request. One agent call can ask for several apps at once and
+ * they share a resume key: the bot is told to carry on only when every one of
+ * them is connected and none was dismissed (`index.ts:6687-6697`), so each
+ * mode reports the whole family, not just the card that was named.
+ */
+async function connector(client, cfg, snap, target, mode) {
+  const own = target.connector ?? {};
+  const route = (p, action, query = "") => `/api/bots/${p.botId}/connector-cards/${p.messageId}/${action}${query}`;
+  const family = [...snap.pending, ...(snap.resumable ?? [])]
+    .filter((p) => p.kind === "connector" && p.threadId === target.threadId && p.connector?.resumeKey === own.resumeKey)
+    .sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
+  const listed = (p) => ({ messageId: p.messageId, slug: p.connector?.slug ?? null, label: p.connector?.label ?? null, alias: p.connector?.alias ?? null, status: p.connector?.status ?? null });
+  const base = { messageId: target.messageId, threadId: target.threadId, bot: target.botName, kind: "connector", label: own.label ?? null, slug: own.slug ?? null, alias: own.alias ?? null };
+  if (mode === "connect") {
+    if (cfg.dryRun) return { result: { dryRun: true, ...base, action: "connect", siblings: family.map(listed) } };
+    let res;
+    try { res = await client.post(route(target, "authorize"), { threadId: target.threadId }); }
+    catch (e) { throw refused(e, "nothing was authorized; the card keeps whatever status it had"); }
+    // The link is returned to this caller and never written to the transcript
+    // (index.ts:12231-12233): it is handed to the user now or not at all.
+    return {
+      code: EXIT.NEEDS_USER,
+      result: { ...base, url: res.url ?? null, status: "authorizing", siblings: family.map(listed), hint: `the user opens this link once; then omb answer --resume --request ${target.messageId}` },
+      brief: `answer · ${target.botName} · open once to connect ${base.label}: ${res.url}`,
+    };
+  }
+  if (mode === "dismiss") {
+    if (cfg.dryRun) return { result: { dryRun: true, ...base, action: "dismiss" } };
+    let res;
+    try { res = await client.post(route(target, "dismiss"), { threadId: target.threadId }); }
+    catch (e) { throw refused(e, "the card was not dismissed; read the server's words"); }
+    // Unlike a declined credential, a dismissed connection wakes nobody
+    // (index.ts:12284-12287): the bot is still waiting for an answer.
+    return { result: { ...base, dismissed: res.dismissed === true, woken: false, hint: `the bot is not woken; omb send "…" to tell it to continue without ${base.label}` }, brief: `answer · ${target.botName} · dismissed ${base.label} (the bot is not woken)` };
+  }
+  // The status read is what refreshes the stored card from the provider, and
+  // it resumes the bot itself once the last one is live (index.ts:12255-12276).
+  // A dry run therefore does not make it.
+  if (cfg.dryRun) return { result: { dryRun: true, ...base, action: "resume", siblings: family.map(listed), note: "a status read refreshes the cards and can resume the bot, so it is not previewed" } };
+  const siblings = [];
+  for (const p of family) {
+    try {
+      const st = await client.get(route(p, "status", `?threadId=${encodeURIComponent(p.threadId)}`));
+      siblings.push({ ...listed(p), connected: st.connected === true, pending: st.pending === true, status: st.status ?? null });
+    } catch (e) { throw refused(e, `${p.connector?.label ?? p.messageId} could not be checked; nothing was resumed`); }
+  }
+  let resumed = true;
+  if (family.some((p) => p.connector?.resumed !== true)) {
+    try { resumed = (await client.post(route(target, "resume"), { threadId: target.threadId })).resumed === true; }
+    catch (e) { throw refused(e, `every app in this request resumes together: ${siblings.filter((s) => !s.connected).map((s) => s.label).join(", ") || "one of them"} is not connected yet`); }
+  }
+  const mine = siblings.find((s) => s.messageId === target.messageId) ?? {};
+  return {
+    result: { ...base, connected: mine.connected === true, pending: mine.pending === true, status: mine.status ?? null, resumed, siblings },
+    brief: `answer · ${target.botName} · ${base.label} ${mine.connected ? "connected" : mine.status ?? "not connected"}${resumed ? " · the bot was resumed" : ""}`,
+  };
+}
 
 /**
  * A credential request. The card is a handoff, not a channel: the value never

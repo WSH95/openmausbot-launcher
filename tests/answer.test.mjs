@@ -172,7 +172,7 @@ test("a connection and a credential card are named by the message they arrived o
   assert.equal(r.json.pending[0].handle, made.messages[0].id);
   assert.equal(r.json.pending[0].text, "Connect Slack so the bot can continue");
   r = await runOmb(["answer", "--allow", "--request", made.messages[0].id, "--project", dir], { env });
-  assert.equal(r.code, 5, r.stdout); assert.match(r.json.error, /connector request the driver cannot answer/);
+  assert.equal(r.code, 2, r.stdout); assert.match(r.json.error, /is a connection request: use --connect, --resume or --dismiss/);
   const secret = await f.control({ op: "secret", threadId: novaThread, target: "ttsKey" });
   r = await runOmb(["answer", "--allow", "--request", secret.message.id, "--project", dir], { env });
   assert.equal(r.code, 2, r.stdout); assert.match(r.json.error, /is a credential request: use --provide or --dismiss/);
@@ -240,4 +240,59 @@ test("credential: a Box token is refused, a dismissal wakes the bot, and a save 
 
 test("OMB_SECRET never reaches a server this launcher starts", () => {
   assert.equal(STRIPPED_ENV.includes("OMB_SECRET"), true);
+});
+
+test("connection: the authorization link is handed over once, and the resume waits for every app in the request", async (t) => {
+  const { f, dir } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const lt = run.json.leadThreadId;
+  const reads = [];
+  f.server.on("request", (req) => { if (req.url.includes("/connector-cards/")) reads.push(`${req.method} ${req.url.split("?")[0].split("/").slice(-2).join("/")}`); });
+  const made = await f.control({ op: "connector", threadId: lt, items: [{ slug: "slack", label: "Slack" }, { slug: "github", label: "GitHub", alias: "work" }] });
+  const [slack, github] = made.messages;
+  let r = await runOmb(["status", "--project", dir, "--brief"], { env });
+  assert.equal(r.stdout, `t10 · CONNECT · Sudo needs Slack (required) → omb answer --connect --request ${slack.id}\n`);
+  r = await runOmb(["answer", "--connect", "--request", slack.id, "--project", dir, "--dry-run"], { env });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.dryRun, true);
+  assert.deepEqual(reads, [], "a preview asks the provider nothing");
+  r = await runOmb(["answer", "--connect", "--request", slack.id, "--project", dir], { env });
+  assert.equal(r.code, 5, "the user has to open the link");
+  assert.match(r.json.url, /^https:\/\//);
+  assert.equal(r.json.status, "authorizing"); assert.equal(r.json.label, "Slack");
+  assert.deepEqual(r.json.siblings.map((s) => s.label), ["Slack", "GitHub"], "every app in one request is named, because they resume together");
+  assert.equal(r.json.siblings[1].alias, "work");
+  r = await runOmb(["answer", "--resume", "--request", slack.id, "--project", dir], { env });
+  assert.equal(r.code, 3, r.stdout); assert.equal(r.json.error, "finish connecting every requested app first");
+  await f.control({ op: "connectorAccount", messageId: slack.id, status: "ACTIVE" });
+  r = await runOmb(["answer", "--resume", "--request", slack.id, "--project", dir], { env });
+  assert.equal(r.code, 3, r.stdout); assert.equal(r.json.error, "finish connecting every requested app first");
+  assert.equal(reads.filter((x) => x.startsWith("GET")).length, 4, "both resumes read the status of both siblings before attempting anything");
+  r = await runOmb(["status", "--project", dir], { env });
+  assert.equal(r.json.pending.length, 1, "the connected card no longer needs the user");
+  assert.equal(r.json.pending[0].handle, github.id);
+  await f.control({ op: "connectorAccount", messageId: github.id, status: "ACTIVE" });
+  r = await runOmb(["answer", "--resume", "--request", slack.id, "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout);
+  assert.equal(r.json.resumed, true); assert.equal(r.json.connected, true); assert.equal(r.json.status, "ACTIVE");
+  assert.deepEqual(r.json.siblings.map((s) => s.connected), [true, true]);
+  assert.equal((await f.snapshot()).wakes.filter((w) => w.kind === "connector").length, 1, "the bot is woken once, when the last app is connected");
+  assert.equal((await runOmb(["status", "--project", dir], { env })).json.pending.length, 0);
+});
+
+test("connection: a dismissal leaves the bot asleep, and authorizing needs the owner", async (t) => {
+  const { f, dir } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const lt = run.json.leadThreadId;
+  const made = await f.control({ op: "connector", threadId: lt, items: [{ slug: "notion", label: "Notion" }] });
+  const id = made.messages[0].id;
+  await f.control({ op: "token", token: "omb_sess_client", scopes: ["client"] });
+  let r = await runOmb(["answer", "--connect", "--request", id, "--project", dir], { env: { ...env, OMB_TOKEN: "omb_sess_client" } });
+  assert.equal(r.code, 5, r.stdout);
+  assert.equal(r.json.error, "forbidden: this session lacks the admin scope");
+  r = await runOmb(["answer", "--dismiss", "--request", id, "--project", dir], { env: { ...env, OMB_TOKEN: "omb_sess_client" } });
+  assert.equal(r.code, 0, r.stdout);
+  assert.equal(r.json.dismissed, true); assert.equal(r.json.woken, false);
+  assert.match(r.json.hint, /the bot is not woken/);
+  assert.deepEqual((await f.snapshot()).wakes, [], "dismissing a connection tells the bot nothing");
+  assert.equal((await runOmb(["status", "--project", dir], { env })).json.pending.length, 0);
 });
