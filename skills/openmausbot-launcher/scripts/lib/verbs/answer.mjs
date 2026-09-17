@@ -275,9 +275,12 @@ async function secret(client, cfg, target, mode, flags, runFlag = "") {
     let res;
     try { res = await client.post(route(action), { threadId: target.threadId }); }
     catch (e) {
-      throw refused(e, /was not saved yet/.test(e.body?.error ?? "")
+      const hint = settled
+        ? `${/is no longer configured/.test(e.body?.error ?? "") ? "open OpenMausBot to restore the credential, then" : "the card is settled; after resolving the server's refusal,"} retry omb answer --resume --request ${target.messageId}${runFlag}`
+        : /was not saved yet/.test(e.body?.error ?? "")
         ? `the server has no value for this credential: ask the user for it and run answer --provide --secret-stdin --request ${target.messageId}${runFlag} < the file they wrote`
-        : `the card was not resumed; answer --dismiss --request ${target.messageId}${runFlag} lets the bot continue without it`);
+        : `the card was not resumed; answer --dismiss --request ${target.messageId}${runFlag} lets the bot continue without it`;
+      throw Object.assign(refused(e, hint), { hint });
     }
     return {
       result: { ...base, provided: res.provided === true || card.provided === true, resumed: res.resumed === true, woken: true },

@@ -296,6 +296,27 @@ test("credential: --resume retries the card, and says where the value is when th
   assert.equal(r.json.error, "forbidden: this session lacks the admin scope", "confirming a saved credential is the owner's step");
 });
 
+test("credential: a failed settled resume suggests only actions that can still select the card", async (t) => {
+  const { f, dir } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const card = await f.control({ op: "secret", threadId: run.json.leadThreadId, target: "ttsKey" });
+  const id = card.message.id;
+  assert.equal((await runOmb(["answer", "--provide", "--secret-stdin", "--request", id, "--project", dir], { env, stdin: "dummy-key\n" })).code, 0);
+  await f.control({ op: "secretResumeFailed", messageId: id });
+  await f.control({ op: "phoneSaving", messageId: id });
+  let r = await runOmb(["answer", "--resume", "--request", id, "--project", dir], { env });
+  assert.equal(r.code, 3);
+  assert.match(r.json.hint, new RegExp(`answer --resume --request ${id}`));
+  assert.equal(/--dismiss|--provide/.test(r.json.hint), false);
+  await f.control({ op: "phoneSaving", messageId: id, saving: false });
+  await fetch(`${f.url}/api/config`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ tts: { key: "" } }) });
+  r = await runOmb(["answer", "--resume", "--request", id, "--project", dir], { env });
+  assert.equal(r.code, 3); assert.match(r.json.error, /is no longer configured/);
+  assert.match(r.json.hint, /OpenMausBot.*restore/);
+  assert.match(r.json.hint, new RegExp(`answer --resume --request ${id}`));
+  assert.equal(/--dismiss|--provide/.test(r.json.hint), false);
+});
+
 test("a wake that never fired keeps the run out of a terminal verdict and shows up in status", async (t) => {
   const { f, dir } = await setup(t);
   const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
