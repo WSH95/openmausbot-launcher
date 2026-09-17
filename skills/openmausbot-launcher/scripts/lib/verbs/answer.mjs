@@ -188,7 +188,7 @@ async function connector(client, cfg, snap, target, mode, runFlag = "") {
     catch (e) { throw refused(e, "the card was not dismissed; read the server's words"); }
     // Unlike a declined credential, a dismissed connection wakes nobody
     // (index.ts:12284-12287): the bot is still waiting for an answer.
-    return { result: { ...base, dismissed: res.dismissed === true, woken: false, hint: `the bot is not woken; omb send "…" to tell it to continue without ${base.label}` }, brief: `answer · ${target.botName} · dismissed ${base.label} (the bot is not woken)` };
+    return { result: { ...base, dismissed: res.dismissed === true, woken: false, hint: `the bot is not woken; omb send "…"${runFlag} to tell it to continue without ${base.label}` }, brief: `answer · ${target.botName} · dismissed ${base.label} (the bot is not woken)` };
   }
   // That status read also WRITES: anything the provider does not report as
   // connected or failed is stored as `authorizing` (index.ts:12269-12274). So

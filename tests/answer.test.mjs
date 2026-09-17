@@ -194,7 +194,7 @@ test("credential: the value reaches the server through the environment or stdin 
   const card = await f.control({ op: "secret", threadId: lt, target: "xaiApiKey", reason: "so Grok can run." });
   let r = await runOmb(["status", "--project", dir, "--brief"], { env });
   assert.equal(r.stdout, `t10 · CREDENTIAL · Sudo needs the xAI API key → omb answer --provide --secret-stdin --request ${card.message.id} < <file the user wrote> | --dismiss\n`);
-  r = await runOmb(["answer", "--provide", "--secret", VALUE, "--project", dir], { env });
+  r = await runOmb(["answer", "--provide", "--secret", "--project", dir], { env });
   assert.equal(r.code, 2, "there is no flag that would put a credential in argv"); assert.match(r.json.error, /Unknown option '--secret'/);
   r = await runOmb(["answer", "--provide", "--project", dir], { env });
   assert.equal(r.code, 5, r.stdout);
@@ -488,7 +488,7 @@ test("with two runs open, every command the driver prints names the run it belon
   assert.equal(r.code, 3, r.stdout);
   assert.match(r.json.hint, new RegExp(`omb answer --connect --request ${github.id} --run t10`));
   r = await runOmb(["answer", "--dismiss", "--request", slack.id, "--run", "t10", "--project", dir], { env });
-  assert.match(r.json.hint, /omb send "…" to tell it/);
+  assert.match(r.json.hint, /omb send "…" --run t10 to tell it/);
   await runOmb(["answer", "--dismiss", "--request", github.id, "--run", "t10", "--project", dir], { env });
   const card = await f.control({ op: "secret", threadId: lt, target: "ttsKey" });
   r = await runOmb(["status", "--project", dir, "--brief"], { env });
