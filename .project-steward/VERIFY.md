@@ -53,6 +53,16 @@ open with the settlement hint; `watch --max-seconds 40` settled `attention`;
 `report --no-tests` then closed the run with `carried: true` and read
 `mergedSha: "abc1234"` from ``merged into `main` as `abc1234` ``.
 
+Follow-up for `oml-47p` and `oml-507`, merged at `c769e53`: **466 passed, 0
+failed** on `main` in 80.1 s. On the branch the implementer ran the focused
+files (58/58), the full suite twice (466/466, 71 s and 81 s) and
+`tests/repo.test.mjs` ten times in a row beside a concurrent full suite (10/10,
+and that suite 466/466); the orchestrator's own branch run was 466/466 in
+79.7 s. Non-vacuity: with the child's `chdir()` removed the cleanup test fails
+with `{"killed":true,"signal":"SIGKILL"}`; with the controller abort removed
+the startup-expiry test fails with "the held watch did not finish". Both edits
+were reverted before the commits.
+
 ## OpenClaw Telegram bot rotation (2026-09-17)
 
 Final safe snapshot: `2026-09-17T11:40:11Z`; OpenClaw `2026.9.4 (3a9d69d)`.

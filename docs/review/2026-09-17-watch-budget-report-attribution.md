@@ -1,8 +1,10 @@
 # Watch budget, report attribution and timing repairs: review record
 
 Base: `2234084`. Work branch: `fix/oml-fg8-j4r-2rc`, eight commits,
-fast-forwarded into `main` at `0278dfd` on 2026-09-17. Beads closed:
-`oml-fg8`, `oml-j4r`, `oml-2rc`, `oml-jc1`. Beads filed: `oml-507`, `oml-47p`.
+fast-forwarded into `main` at `0278dfd` on 2026-09-17, and a follow-up branch
+`fix/oml-47p-507`, three commits, merged at `c769e53` the same day. Beads
+closed: `oml-fg8`, `oml-j4r`, `oml-2rc`, `oml-jc1`, and in the follow-up
+`oml-47p`, `oml-507`.
 No real OpenMausBot run was started and no bot turn was spent; every check
 ran against `tests/fixtures/fake-omb.mjs`.
 
@@ -76,13 +78,36 @@ silent TCP blocker.
   `checkpointed: true` where it used to report an unverified line, and a fast
   final read that would have found a change is skipped until the next call.
 
+## Follow-up: oml-47p and oml-507
+
+The user asked why these two were left open. They went through the same
+pipeline in a lighter form: two gpt-6-astra plan reviews of Addendum E, an
+Opus 5 implementer, one gpt-5.6-sol code review (code clean, two documentation
+claims narrowed), 466 tests on `main`.
+
+- `oml-47p`, second half, fixed: the `streamReady` guard's early `observation
+  deadline reached` latches a startup expiry by aborting the observation
+  controller. No REST read starts and the watch returns the normal unverified
+  timeout (exit 4) instead of a thrown error.
+- `oml-47p`, first half, closed as an accepted limit. A quiet- or poll-bound
+  wake a few milliseconds before the deadline starts a read that may fail or
+  finish too late to verify, and the watch reports an unverified timeout. Two
+  repairs were blocked in plan review. Restoring the last verified observation
+  can hide facts the cut-short read saw, and the incomplete entries of a
+  snapshot cannot reliably say the deadline was the only cause. Extending the
+  wait when the budget left is smaller than the last read took treats an
+  estimate as a bound: a slow first read would suppress a quiet-confirming
+  read with many seconds left, and in polling-only mode the only reads that
+  can find a change. The present output is accurate, so it is documented in
+  `references/limits-and-pitfalls.md` and `docs/design.md` instead.
+- `oml-507`, fixed test-only: the child installs its SIGTERM handler before
+  announcing readiness and confirms its `chdir()` with a second marker; the
+  test holds the clock `killOrphan` reads until that marker exists, under
+  real-time failure bounds, then advances it to the grace deadline.
+  `lib/proc.mjs` did not change.
+
 ## Left open
 
-- `oml-47p`: a quiet-bound wait that ends a few milliseconds before the
-  deadline still starts a read that cannot verify, and `streamReady`'s early
-  rejection can rethrow while the budget is not yet spent.
-- `oml-507`: `tests/repo.test.mjs:173` guesses a 100 ms grace; it failed once
-  in 16 concurrent full suites.
 - The closing-text denial rule matches `not` inside a hyphenated word
   (`T14 was not-blocked and merged as …`); the result is a conservative
   `null`.

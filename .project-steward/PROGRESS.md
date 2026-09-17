@@ -3,6 +3,22 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-17 — Follow-up: oml-47p and oml-507 closed
+The user asked why the two beads filed during the repairs were left open, so
+they were closed the same day. `main` fast-forwarded from `88a319e` to
+`c769e53` (three commits from `fix/oml-47p-507`); the merged tree passed
+466/466 in 80.1 s. Nothing was pushed and no bot turn was spent.
+
+`oml-507` is a test-only repair: the cleanup test now waits for the child's
+confirmed `chdir()` on a held clock instead of a 100 ms grace. `oml-47p`'s
+second half is fixed: a startup whose readiness guard reaches the deadline a
+millisecond early now ends as the normal unverified timeout instead of a
+thrown error. Its first half is closed as an accepted limit: two designs for
+the quiet- or poll-bound wake just before the deadline were blocked in
+gpt-6-astra plan review, the present unverified timeout is accurate, and it is
+documented in `references/limits-and-pitfalls.md` and `docs/design.md`. Only
+`oml-hou` (macOS) remains open.
+
 ### 2026-09-17 — Watch budget, report attribution and timing repairs merged
 The three non-macOS beads and one found on the way are closed: `oml-fg8`,
 `oml-j4r`, `oml-2rc`, `oml-jc1`. `main` fast-forwarded from `2234084` to

@@ -1,5 +1,5 @@
 ---
-updated_at: 2026-09-17T19:35:39Z
+updated_at: 2026-09-17T20:42:17Z
 updated_by: claude
 session_status: closed
 branch: main
@@ -8,9 +8,11 @@ branch: main
 
 ## Now
 
-The three non-macOS beads are closed, plus one found on the way: `oml-fg8`,
-`oml-j4r`, `oml-2rc`, `oml-jc1`. `main` fast-forwarded from `2234084` to
-`0278dfd` (eight commits); the merged tree passed 464/464 tests in 81.5 s.
+Every non-macOS bead is closed: `oml-fg8`, `oml-j4r`, `oml-2rc`, and three
+found on the way, `oml-jc1`, `oml-47p` and `oml-507`. `main` went from
+`2234084` to `0278dfd` (eight commits) and then to `c769e53` (three follow-up
+commits); the merged tree passed 466/466 tests in 80.1 s. Only `oml-hou`
+(macOS) is open.
 Nothing was pushed, no OpenMausBot server was started and no bot turn was
 spent. Every check ran against `tests/fixtures/fake-omb.mjs`.
 
@@ -33,20 +35,9 @@ removed.
 
 ## Next steps
 
-1. `oml-47p` (P3): read its description with `bd show oml-47p`. Decide the
-   rule for a quiet-bound wait that ends a few milliseconds before the
-   deadline (`skills/openmausbot-launcher/scripts/lib/watch.mjs`, the idle
-   wait near the end of `watchRun`); `tests/watch-deadline.test.mjs` pins that
-   wake as a re-read today, so write the new expectation first. Do not use a
-   time threshold. The `streamReady` early-rejection boundary is the second
-   half of the same bead.
-2. `oml-507` (P3): in `tests/repo.test.mjs:173`, replace the dependence on
-   `killOrphan`'s `graceMs: 100` with a condition (have the child report that
-   its SIGTERM handler ran) or a generous bound; keep the production default.
-   It failed once in 16 concurrent full suites and never in a normal run.
-3. Leave `oml-hou` open until macOS work is requested and a Mac or an explicit
-   implementation decision is available.
-4. The next real parallel run should confirm the new output on OpenMausBot
+1. Leave `oml-hou` open until macOS work is requested and a Mac or an explicit
+   implementation decision is available. `bd ready` shows nothing else.
+2. The next real parallel run should confirm the new output on OpenMausBot
    0.1.56: after closing the first run, `report --run <b>` should carry the
    settlement hint, one `watch --run <b> --max-seconds 35` or longer should
    settle it, and a second report should close it. Record it in
@@ -87,6 +78,13 @@ decision.
   a branch is, and ancestry cannot tell a right sha from a wrong one.
 - Letting the time window select a task-log entry: parallel runs overlap, so
   the window only excludes.
+- Repairing the quiet- or poll-bound wake that lands a few milliseconds before
+  the deadline (`oml-47p`, first half). Restoring the last verified
+  observation after a cut-short read can hide facts that read saw. Extending
+  the wait when the budget left is smaller than the last read took treats an
+  estimate as a bound and can suppress required reads with seconds left. Both
+  were blocked in plan review; the unverified timeout it produces is accurate
+  and is documented in `references/limits-and-pitfalls.md`.
 - Fixing `oml-jc1` with a minimum-budget threshold before a read: a condition
   (the wait was the deadline's, nothing arrived, inputs unchanged) replaced
   it.
