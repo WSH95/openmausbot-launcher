@@ -28,6 +28,17 @@ test("fake config accepts empty credential strings as clearing, rejects wrong ty
   assert.deepEqual(r, { status: 400, body: { error: "nothing to save" } });
 });
 
+test("fake config validates section and feature types and accepts empty known sections", async (t) => {
+  const { call } = await setup(t);
+  assert.equal((await call("PUT", "/api/config", { xai: {} })).status, 200);
+  assert.equal((await call("PUT", "/api/config", { features: {} })).status, 200);
+  for (const [body, path, type] of [[{ xai: "invalid" }, "xai", "object"], [{ features: null }, "features", "object"], [{ features: { skillRecorder: "true" } }, "features.skillRecorder", "boolean"]]) {
+    const r = await call("PUT", "/api/config", body);
+    assert.equal(r.status, 400);
+    assert.match(r.body.error, new RegExp(`^${path} .*${type}`));
+  }
+});
+
 test("fake skill settlement checks the trusted owner and provides verification and cleanup routes", async (t) => {
   const { bot, card, call, respond } = await setup(t);
   const bad = card("skill", { name: "foreign" }); bad.skillRequest.botId = "another-bot";

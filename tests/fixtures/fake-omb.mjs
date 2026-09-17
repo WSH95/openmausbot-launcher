@@ -762,18 +762,33 @@ export async function createFake(opts = {}) {
     features: { skillRecorder: state.config.skillRecorder === true },
   });
   async function putConfig(req, res) { // S: index.ts:11675-11679, 11962-11968
-    const body = await readBody(req) ?? {};
+    const body = await readBody(req);
+    // Model the driver's config subset with the same optional field types,
+    // stripping unknown fields as the object schemas do (S: config.ts:14,
+    // 234-267,395-400; schema.ts:14-18).
+    const object = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+    const invalid = (field, type, value) => json(res, 400, { error: `${field ? `${field} ` : ""}Invalid input: expected ${type}, received ${value === null ? "null" : Array.isArray(value) ? "array" : typeof value}` });
+    if (!object(body)) return invalid("", "object", body);
+    const sections = [];
     const saved = [];
     for (const spec of Object.values(CREDENTIAL_TARGETS)) {
+      if (body[spec.section] === undefined) continue;
+      if (!object(body[spec.section])) return invalid(spec.section, "object", body[spec.section]);
+      sections.push(spec.section);
       const value = body[spec.section]?.[spec.field];
       if (value === undefined) continue;
       // S: config.ts:14,234-252,395-400; schema.ts:14-18. Empty strings
       // clear credentials; the optional string schema has no minimum length.
-      if (typeof value !== "string") return json(res, 400, { error: `${spec.section}.${spec.field} Invalid input: expected string, received ${value === null ? "null" : Array.isArray(value) ? "array" : typeof value}` });
+      if (typeof value !== "string") return invalid(`${spec.section}.${spec.field}`, "string", value);
       saved.push(spec.section);
     }
     const recorder = body.features?.skillRecorder;
-    if (!saved.length && typeof recorder !== "boolean") return json(res, 400, { error: "nothing to save" }); // :11678
+    if (body.features !== undefined) {
+      if (!object(body.features)) return invalid("features", "object", body.features);
+      if (recorder !== undefined && typeof recorder !== "boolean") return invalid("features.skillRecorder", "boolean", recorder);
+      sections.push("features");
+    }
+    if (!sections.length) return json(res, 400, { error: "nothing to save" }); // S: index.ts:11678
     if (state.providerBusy) return json(res, 409, { error: "provider settings are already being updated" }); // :11679
     // Fault injection for provider-supplied error text. Real voice validation
     // returns it as a 400 (S: index.ts:11899-11903; tts/elevenlabs.ts:42-55,66-75).
@@ -790,7 +805,7 @@ export async function createFake(opts = {}) {
     // A section outside the excluded list rebuilds the whole provider fleet
     // (S: index.ts:12003-12018), which kills every in-flight turn and settles
     // the bot it belonged to (S: :7188-7207).
-    if (saved.some((section) => !CONFIG_NO_RELOAD.has(section))) {
+    if (sections.some((section) => !CONFIG_NO_RELOAD.has(section))) {
       state.providerReloads++;
       for (const bot of state.bots.filter((b) => BUSY.has(b.activity))) {
         appendMessage(bot.threadId, { role: "bot", kind: "activity", tool: { name: "error: turn interrupted — provider settings changed", ok: false } });
