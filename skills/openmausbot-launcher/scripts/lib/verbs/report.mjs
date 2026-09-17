@@ -52,11 +52,10 @@ verb("report", {
     // ones inside this run's open-delegation windows are this run's; the rest
     // are counted as shared rather than claimed (design, "Attribution").
     const windows = delegationWindows(messages ?? [], sinceMs);
-    const elsewhere = new Set();
-    for (const other of [...(cfg.state?.history ?? []), ...Object.values(cfg.state?.runs ?? {})]) {
-      if (other.runId === task.runId) continue;
-      for (const threadId of Object.values(other.threads ?? {})) elsewhere.add(threadId);
-    }
+    // Every other dispatch, open or closed: their threads are shared, and their
+    // names can stand in the same task log and the same closing text as this one.
+    const others = [...(cfg.state?.history ?? []), ...Object.values(cfg.state?.runs ?? {})].filter((r) => r.runId !== task.runId);
+    const elsewhere = new Set(others.flatMap((other) => Object.values(other.threads ?? {})));
     const counted = new Set();
     const threads = Object.entries(task.threads ?? {}).map(([botId, threadId]) => {
       const bot = team?.bots.find((b) => b.id === botId);
@@ -74,7 +73,7 @@ verb("report", {
     const taskLog = facts.taskLog && facts.taskLog !== "none" ? facts.taskLog : null;
     const taskLogText = taskLog ? (() => { try { return fs.readFileSync(path.join(cfg.projectDir, taskLog), "utf8"); } catch { return null; } })() : null;
     const recordCommit = taskLog ? commits.find((c) => /^docs\(team\): .* merged as [0-9a-f]{7,}/.test(c.subject) && namesRun(c.subject, task) && c.files.length > 0 && c.files.every((f) => f === taskLog || f.startsWith(".beads/"))) : null;
-    const logEntry = taskLog ? taskLogEntry(taskLogText, task) : null;
+    const logEntry = taskLog ? taskLogEntry(taskLogText, task, { others, sinceMs, untilMs }) : null;
     // The task log moved for this run when a commit in its window touched it
     // AND the log carries an entry that names the run. A log that cannot be
     // read — deleted, or unreadable — proves neither, so it stays unknown: a
@@ -82,7 +81,7 @@ verb("report", {
     const taskLogChanged = !taskLog ? null : taskLogText === null ? null : commits.some((c) => c.files.includes(taskLog)) && logEntry !== null;
     const bead = { ...beadStatus(task.bead, cfg.projectDir), applicable: Boolean(task.bead) };
     const closing = snap.leadText?.text ?? null;
-    const mergedSha = mergedShaFrom(closing, recordCommit?.subject);
+    const mergedSha = mergedShaFrom(closing, recordCommit?.subject, { run: task, others });
     // Tests are required evidence even when unset or intentionally skipped.
     const tests = flags["no-tests"] || cfg.dryRun || !context.ok ? { ran: false, ok: null, detail: cfg.dryRun ? "skipped: dry run" : flags["no-tests"] ? "skipped with --no-tests" : "unknown run facts" } : runTests(facts.test, cfg.projectDir);
     tests.applicable = true;

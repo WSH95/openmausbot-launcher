@@ -1782,7 +1782,12 @@ refused its stored `attention`, and the watches that followed asked for 8, 8,
 12 and 20 seconds against the 30 s quiet window, so each returned the one
 evaluation its own window had made. A watch that ends inside the window now
 reports the idle time it observed and the budget the window needs, and `report`
-names the watch that settles a run it leaves open (bead `oml-fg8`).
+names the watch that settles a run it leaves open (bead `oml-fg8`). Incident 5
+was the report reading whichever section mentioned T14: an entry now belongs to
+the run it names before any other, inside that run's own window, and the merged
+commit is the one the closing text asserts for this run — which is why T15's
+"`main` at `11ff1e6`" stays unknown until the record commit supplies it (bead
+`oml-j4r`).
 
 ### Host watch proofs during the live run
 

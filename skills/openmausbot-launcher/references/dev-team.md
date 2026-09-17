@@ -201,11 +201,11 @@ validation (`EVIDENCE.md`, "Deviations and findings").
 | Check | What it proves |
 |---|---|
 | `worktree-after-approval` | The last attributable reviewer reply before the first `git worktree add` explicitly approves. Correlate `ask_bot.bot_id` and its tool result id, or a server-authored delegation echo's `from.botId`; the lead's paraphrase is not evidence. Negative, conditional, contradictory, or ambiguous verdicts cannot pass |
-| `record-time-from-date-u` | this run's own task log entry — the heading whose section names the run, or the log's first heading when there is none to attribute — carries the timestamp the lead's last `date -u` returned; 0.4.1's T11 entry went to the bottom of the file with an invented time |
+| `record-time-from-date-u` | this run's own task log entry — the section that names this run before any other, dated inside the run's own window, or the log's first heading when there is none to attribute — carries the timestamp the lead's last `date -u` returned; 0.4.1's T11 entry went to the bottom of the file with an invented time, and on 2026-09-17 two runs writing one log under identical headings gave T14 the entry T15 had written |
 | `no-host-listagents` | no host `ListAgents` among the lead's tool calls, and `list_bots` present — 0.4.1's lead called `ListAgents` first, nine times across two tasks. `ListAgents` is a Claude Code built-in (`server/drivers/claude.ts:777-781`); a Codex lead cannot call it, so for Codex the check is `list_bots` present |
 | `bead-closed` | the brief's bead is closed |
 | `record-commit` | the `docs(team)` commit exists and touched only the task log and `.beads` |
-| `merged-ancestor` | the sha the closing report names as merged is an ancestor of the default branch (the task branch is gone by then, so the check uses the commit id) |
+| `merged-ancestor` | the sha the closing report asserts this run was merged as — "merged as `<sha>`", or "merged … into `<branch>` as\|at `<sha>`", in a clause no other run shares — is an ancestor of the default branch (the task branch is gone by then, so the check uses the commit id). Where a branch now points is not a merge: a report that only says "`main` at `<sha>`" leaves this unknown, and the sha then has to come from the record commit's subject |
 | `task-branch-and-worktree-absent` | the cleanup gate ran: no `task/*` branch and no worktree left **with no owner** — another open run's own pair is that run's, and with no other run open this is again "exactly one worktree, no `task/*` branch" |
 | `root-clean` | after tests, the root is on the default branch with nothing modified or untracked |
 | `tests-pass` | the Project facts test command passes when `report` runs it itself |

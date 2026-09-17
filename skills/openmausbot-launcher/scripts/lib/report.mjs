@@ -191,25 +191,71 @@ export function commitsSince(projectDir, sinceSha) {
 
 const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** Does this text name the run — its slug, its title, or the bead it carries —
- * as a whole word? "T10" and "foo-10" must not answer for T1 and foo-1, or one
- * run's record commit and log entry would close the other. */
-export const namesRun = (text, run) => {
+const wholeWord = (n) => new RegExp(`(?<![\\w-])${escapeRe(n)}(?![\\w-])`, "i");
+
+/** Where this text first names the run — its slug, its title, or the bead it
+ * carries — as a whole word, or -1. "T10" and "foo-10" must not answer for T1
+ * and foo-1, or one run's record commit and log entry would close the other. */
+export function namedAt(text, run) {
   const hay = String(text ?? "");
-  return [run?.slug, run?.title, run?.bead].filter(Boolean)
-    .some((n) => new RegExp(`(?<![\\w-])${escapeRe(n)}(?![\\w-])`, "i").test(hay));
+  let at = -1;
+  for (const n of [run?.slug, run?.title, run?.bead].filter(Boolean)) {
+    const m = wholeWord(n).exec(hay);
+    if (m && (at < 0 || m.index < at)) at = m.index;
+  }
+  return at;
+}
+
+export const namesRun = (text, run) => namedAt(text, run) >= 0;
+
+const identifiers = (run) => [run?.slug, run?.title, run?.bead, run?.tag].filter(Boolean);
+// A heading is dated only by a full ISO time: a bare date carries no time of
+// day and would fall outside every run's window by hours.
+const headingTime = (heading) => {
+  const m = /\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?Z?/.exec(heading);
+  const at = m ? Date.parse(m[0]) : NaN;
+  return Number.isNaN(at) ? null : at;
 };
 
-/** The task log entry this run wrote: the heading whose section names the run. */
-export function taskLogEntry(text, run) {
+/**
+ * The task log entry this run wrote. A section is about whichever run it names
+ * first — heading included, in any order of slug, title and bead — so an entry
+ * that mentions another run afterwards stays its author's. A name several
+ * dispatches answer to claims the section for all of them, and only an
+ * identifier no rival has, or a heading time inside exactly one of their
+ * windows, resolves that; ambiguity is `null`, never a guess. A run's window
+ * (`sentAt` to `closedAt`, or to now, ±1 s) only ever excludes a dated heading.
+ * Among this run's own entries: dated before undated, newest first, top-most on
+ * a tie.
+ */
+export function taskLogEntry(text, run, { others = [], sinceMs = null, untilMs = null } = {}) {
   if (!text) return null;
+  const now = Date.now();
+  const windows = new Map([[run, { from: sinceMs === null ? -Infinity : sinceMs - 1000, to: untilMs === null ? Infinity : untilMs + 1000 }]]);
+  for (const other of others) windows.set(other, { from: (other.sentAt ?? -Infinity) - 1000, to: (other.closedAt ? Date.parse(other.closedAt) : now) + 1000 });
+  const known = [run, ...others];
   const lines = text.split("\n");
   const heads = lines.map((l, i) => (/^#{2,4} /.test(l) ? i : -1)).filter((i) => i >= 0);
+  const mine = [];
   for (let k = 0; k < heads.length; k++) {
-    const end = k + 1 < heads.length ? heads[k + 1] : lines.length;
-    if (namesRun(lines.slice(heads[k], end).join("\n"), run)) return lines[heads[k]].trim();
+    const section = lines.slice(heads[k], k + 1 < heads.length ? heads[k + 1] : lines.length).join("\n");
+    const marks = known.map((r) => namedAt(section, r));
+    if (marks[0] < 0) continue;
+    const at = Math.min(...marks.filter((i) => i >= 0));
+    const claimants = known.filter((_, i) => marks[i] === at);
+    if (!claimants.includes(run)) continue;
+    const headingAt = headingTime(lines[heads[k]]);
+    const inWindow = (r) => headingAt === null || (headingAt >= windows.get(r).from && headingAt <= windows.get(r).to);
+    if (claimants.length > 1) {
+      const rivals = claimants.filter((r) => r !== run).map(identifiers);
+      const only = identifiers(run).some((id) => wholeWord(id).test(section) && !rivals.some((ids) => ids.some((other) => other.toLowerCase() === id.toLowerCase())));
+      const dated = claimants.filter(inWindow);
+      if (!only && !(headingAt !== null && dated.length === 1 && dated[0] === run)) continue;
+    } else if (!inWindow(run)) continue;
+    mine.push({ heading: lines[heads[k]].trim(), at: headingAt, line: heads[k] });
   }
-  return null;
+  mine.sort((a, b) => (a.at === null) - (b.at === null) || (b.at ?? 0) - (a.at ?? 0) || a.line - b.line);
+  return mine[0]?.heading ?? null;
 }
 
 /** Turns on a thread two runs share: only those inside one of this run's
@@ -252,14 +298,77 @@ export function runTests(command, cwd, { timeoutMs = 10 * 60_000 } = {}) {
   return { ran: true, ok: r.status === 0, status: r.status, seconds: Math.round((Date.now() - t0) / 1000), tail: `${r.stdout ?? ""}${r.stderr ?? ""}`.trim().split("\n").slice(-8).join("\n") };
 }
 
-/** The merged commit: the closing text's "merged as <sha>", else the record commit's subject, else a "<a>..<b>" range in the closing text. */
-export function mergedShaFrom(closing, recordSubject) {
-  const m1 = closing ? /merged as `?([0-9a-f]{7,40})`?/i.exec(closing) : null;
-  if (m1) return m1[1];
-  const m2 = recordSubject ? /merged as ([0-9a-f]{7,40})/i.exec(recordSubject) : null;
-  if (m2) return m2[1];
-  const m3 = closing ? /`?[0-9a-f]{7,40}\.\.([0-9a-f]{7,40})`?/.exec(closing) : null;
-  return m3 ? m3[1] : null;
+// "merged as <sha>", and "merged [<object>] into|to|onto <branch> as|at <sha>".
+// A branch position on its own ("`main` at `<sha>`") says where a branch is,
+// not what was merged. 7 to 40 hex, bounded by non-word characters.
+const HEX = String.raw`\`?([0-9a-f]{7,40})\`?(?![\w-])`;
+const TOKEN = String.raw`(?:\`[^\`]+\`|[\w./-]+)`;
+const mergedRe = () => new RegExp(String.raw`merged\s+(?:${TOKEN}\s+)?(?:into|to|onto)\s+${TOKEN}\s+(?:as|at)\s+${HEX}|merged\s+as\s+${HEX}`, "gi");
+const rangeRe = () => new RegExp(String.raw`\`?[0-9a-f]{7,40}\.\.${HEX}`, "g");
+const NEGATED = /\b(?:not|never)\b|n['’]t\b/i;
+
+/** Clauses, split outside backticked spans on newlines, `;`, the ` - ` bullets
+ * of a flattened report, and sentence-ending punctuation before whitespace or
+ * the end. Commas never split, and the `.` in `release/1.2` or `a..b` is not a
+ * sentence end. Masking keeps the offsets, so each slice is the original text. */
+function clausesOf(text) {
+  const masked = String(text).replace(/`[^`]*`/g, (m) => "x".repeat(m.length));
+  const re = /\n+|\s*;\s*|\s+-\s+|[.!?](?=\s|$)/g;
+  const out = []; let start = 0;
+  for (let m; (m = re.exec(masked)); ) {
+    out.push(text.slice(start, m.index + (/^[.!?]$/.test(m[0]) ? 1 : 0)));
+    start = m.index + m[0].length;
+  }
+  out.push(text.slice(start));
+  return out.filter((c) => c.trim());
+}
+
+/** The sha this run's own clauses assert: `undefined` when the text asserts
+ * none, `null` when it cannot say whose merge it describes. A clause naming no
+ * run continues the nearest earlier one that does; with none, the text is this
+ * run's own lead thread. A clause naming this run and another names neither. */
+function ownedSha(text, run, others, pattern) {
+  if (!text) return undefined;
+  const known = [run, ...others].filter(Boolean);
+  const found = new Set();
+  let owners = [];
+  for (const clause of clausesOf(text)) {
+    const named = known.filter((r) => namesRun(clause, r));
+    if (named.length) owners = named;
+    const mine = owners.length === 0 || (owners.length === 1 && owners[0] === run);
+    const shared = owners.length > 1 && owners.includes(run);
+    for (const m of clause.matchAll(pattern())) {
+      if (NEGATED.test(clause.slice(Math.max(0, m.index - 40), m.index))) continue;
+      if (shared) return null;
+      if (mine) found.add(m[1] ?? m[2]);
+    }
+  }
+  return found.size === 1 ? [...found][0] : found.size ? null : undefined;
+}
+
+/** The record commit's subject: `docs(team): <task text> merged as <sha>`,
+ * comma-separated when one commit records several runs. The sha is its
+ * segment's LAST `merged as`, so a title carrying the phrase is not evidence,
+ * and the task text must name this run and no other. */
+function recordSha(subject, run, others) {
+  if (!subject) return undefined;
+  const found = new Set();
+  for (const segment of String(subject).replace(/^docs\(team\):\s*/i, "").split(",")) {
+    const m = /^(.*)\bmerged as `?([0-9a-f]{7,40})`?$/i.exec(segment.trim());
+    if (!m || !namesRun(m[1], run) || others.some((r) => namesRun(m[1], r))) continue;
+    found.add(m[2]);
+  }
+  return found.size === 1 ? [...found][0] : found.size ? null : undefined;
+}
+
+/** The commit this run was merged as: its own clause in the closing text, else
+ * the record commit's subject, else a "<a>..<b>" range this run's text owns. */
+export function mergedShaFrom(closing, recordSubject, { run = null, others = [] } = {}) {
+  const asserted = ownedSha(closing, run, others, mergedRe);
+  if (asserted !== undefined) return asserted;
+  const recorded = recordSha(recordSubject, run, others);
+  if (recorded !== undefined) return recorded;
+  return ownedSha(closing, run, others, rangeRe) ?? null;
 }
 
 export function renderMarkdown(r) {

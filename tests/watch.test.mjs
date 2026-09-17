@@ -193,7 +193,9 @@ test("an own frame during the wait restarts the quiet window, and the timeout co
 });
 
 test("an unverified timeout reports no observed quiet and no budget hint", async (t) => {
-  const { f, dir, team, run } = await setup(t);
+  // No keepalive during the second watch: a frame in flight at the deadline is
+  // an invalidation of its own, and this test is about the checkpoint wait.
+  const { f, dir, team, run } = await setup(t, { heartbeatMs: 30_000 });
   // The run's own record changes under the watch: the deadline arrives with nothing verified.
   const r = await timeoutAfterObservation(t, f, dir, ["--quiet-seconds", "30"], [async (at) => {
     await updateState(statePaths(dir), (d) => { d.runs[run.runId].cards = { "req-1": "Nova" }; return d; });
@@ -203,11 +205,22 @@ test("an unverified timeout reports no observed quiet and no budget hint", async
   assert.equal(r.json.state, "timeout"); assert.equal(r.json.complete, false);
   assert.equal(r.json.quietFor, 0); assert.equal(r.json.hint, undefined);
   assert.deepEqual(r.json.reasons, ["observation deadline reached before verification"]);
-  // and an invalidation during the checkpoint wait clears the marker the timeout set
+  // And an invalidation during the checkpoint wait clears the marker the timeout
+  // set. A final wait that wakes a millisecond early instead spends the rest of
+  // the budget on a read it cannot finish, and returns unverified before it ever
+  // reaches the checkpoint; the marker is cleared either way, so take that as
+  // the lost race it is and watch again rather than assert through it.
   const live = loadState(statePaths(dir)).runs[run.runId];
-  const r2 = await watchRun({ client: createClient({ url: f.url }), team, task: live, runs: [live], getRuns: () => [live],
-    maxSeconds: 3, quietMs: 30_000, checkpoint: async () => { live.cards = { "req-2": "Nova" }; return true; } });
-  assert.equal(r2.outcome, "timeout"); assert.equal(r2.snap.complete, false); assert.equal(r2.ev.awaitingQuiet, false);
+  let r2 = null;
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    live.cards = { "req-1": "Nova" };
+    r2 = await watchRun({ client: createClient({ url: f.url }), team, task: live, runs: [live], getRuns: () => [live],
+      maxSeconds: 3, quietMs: 30_000, checkpoint: async () => { live.cards = { "req-2": "Nova" }; return true; } });
+    assert.equal(r2.outcome, "timeout"); assert.equal(r2.snap.complete, false);
+    assert.equal(r2.ev.awaitingQuiet, false, JSON.stringify(r2.ev)); assert.equal(r2.ev.quietFor, 0);
+    if (r2.ev.reasons[0].includes("checkpoint")) break;
+    assert.ok(attempt < 5, `five watches in a row ended before their checkpoint: ${r2.snap.incomplete.join("; ")}`);
+  }
   assert.deepEqual(r2.ev.reasons, ["observation deadline reached before checkpoint verification"]);
 });
 
