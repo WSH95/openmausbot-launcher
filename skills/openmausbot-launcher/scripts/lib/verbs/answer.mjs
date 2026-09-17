@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import { verb, EXIT, Fail, VERBS } from "../cli.mjs";
 import { createClient, refused } from "../http.mjs";
-import { snapshot } from "../snapshot.mjs";
+import { snapshot, BUSY } from "../snapshot.mjs";
 import { openRuns } from "../runs.mjs";
 import { stateCommand, requireSameEnvironment } from "../session.mjs";
 import { requireTeam, runFor, sendIdFor, deliverToLead } from "./run.mjs";
@@ -38,6 +38,15 @@ const KINDS = {
   secret: { label: "a credential request", accepts: ["provide", "resume", "dismiss"], use: "--provide, --resume or --dismiss" },
   connector: { label: "a connection request", accepts: ["connect", "resume", "dismiss"], use: "--connect, --resume or --dismiss" },
 };
+
+/**
+ * The two targets whose section is not on the server's no-reload list, so
+ * saving one rebuilds the whole provider fleet (S: index.ts:12003-12014).
+ * That kills every in-flight turn, fails its delegation watch and leaves an
+ * `error: turn interrupted — provider settings changed` chip behind
+ * (S: :7175-7207). `tts` and `imageGen` are excluded sections and are safe.
+ */
+const RESTARTS_PROVIDERS = new Set(["xaiApiKey", "opencodeGoApiKey"]);
 
 /**
  * Where each credential id is stored. The id is the whole authority surface:
@@ -250,9 +259,25 @@ async function secret(client, cfg, target, mode, flags) {
   // That is a conversation with a provider, not a settings write; it belongs
   // where the person can see what it did.
   if (card.target === "boxToken") throw new Fail(EXIT.PRECONDITION, "boxToken has cloud side effects; provide it in the app", { hint: `saving it makes the server list and verify the cloud computers on that account; open OpenMausBot and paste it there, then answer --provide is not needed — or answer --dismiss --request ${target.messageId} to let the bot continue without it` });
+  // Saving one of the provider keys restarts the fleet and interrupts every
+  // turn that is running anywhere on this server — not only this team's. That
+  // is not a cost to discover afterwards, so it is checked before the value is
+  // even read, and there is no flag to override it.
+  const restarts = RESTARTS_PROVIDERS.has(card.target);
+  const guard = restarts ? `saving the ${label} restarts every provider and interrupts the turns that are running` : null;
+  let busy = [];
+  if (restarts) {
+    const fleet = await client.get("/api/bots?messages=0");
+    busy = (fleet.bots ?? []).filter((b) => b.busy === true || BUSY.has(b.activity)).map((b) => b.name);
+    if (busy.length) {
+      throw new Fail(EXIT.PRECONDITION, `${busy.join(", ")} ${busy.length > 1 ? "are" : "is"} working, and ${guard}`, {
+        hint: `save it when they are idle, or answer --dismiss --request ${target.messageId} to let the bot continue without it`,
+      });
+    }
+  }
   // The preview names the two routes and stops: reading the value here would
   // put it in a dry run's output.
-  if (cfg.dryRun) return { result: { dryRun: true, ...base, action: "provide", would: ["PUT /api/config", `POST ${route("provided")}`] } };
+  if (cfg.dryRun) return { result: { dryRun: true, ...base, action: "provide", ...(restarts ? { guard, busy } : {}), would: ["PUT /api/config", `POST ${route("provided")}`] } };
   const value = readSecretValue(flags);
   // The hint must not be a command the value could be pasted into: whatever
   // an agent composes lands in its own transcript.

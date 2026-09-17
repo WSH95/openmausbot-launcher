@@ -233,7 +233,9 @@ line. Relay the lead's own words; do not paraphrase decisions.
   does not, `omb answer --resume --request <messageId>` finishes it — that
   route carries no value, so the user is never asked twice. `--dismiss` lets
   the bot continue without it. `boxToken` is refused here: provide it in the
-  app.
+  app. The `xAI` and `OpenCode` keys are refused while any bot on the server
+  is working, because saving one restarts every provider and kills the turns
+  that are running; wait for them, or dismiss the card.
 - A connected app: `omb answer --connect --request <messageId>` returns a link
   once, for the user to open (exit 5). When they are done,
   `omb answer --resume --request <messageId>`; one request can ask for several

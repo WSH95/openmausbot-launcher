@@ -46,6 +46,10 @@ const CREDENTIAL_TARGETS = {
   ttsKey: { label: "ElevenLabs API key", description: "Enables text-to-speech voices in calls.", placeholder: "Paste your ElevenLabs API key", helpUrl: "https://elevenlabs.io/app/settings/api-keys", section: "tts", field: "key" },
   openaiImageApiKey: { label: "OpenAI API key", description: "Used only to generate custom bot avatar images.", placeholder: "sk-…", helpUrl: "https://platform.openai.com/api-keys", section: "imageGen", field: "key" },
 };
+// Config sections whose save does NOT rebuild the provider fleet
+// (S: index.ts:12003-12014). Everything else, `xai` and `opencodeGo` among
+// the driver's credential targets, does.
+const CONFIG_NO_RELOAD = new Set(["profile", "language", "tts", "imageGen", "vps", "rooms", "localVm", "features", "browserProfiles"]);
 // S: routine-requests.ts:41-48 — the label each action puts on its card.
 const ROUTINE_ACTION_COPY = {
   create: { title: "Schedule", detail: "Create routine" }, update: { title: "Update", detail: "Update routine" },
@@ -83,7 +87,7 @@ export async function createFake(opts = {}) {
     dropStreams: false, sequence: 0, instances: defaultInstances(),
     // Cards and the settings they touch. `config` holds configured-or-not
     // booleans only: this fake never stores a credential value anywhere.
-    routines: [], routineRuns: [], skills: new Map(), accounts: new Map(), config: {}, wakes: [],
+    routines: [], routineRuns: [], skills: new Map(), accounts: new Map(), config: {}, wakes: [], providerReloads: 0,
     providerBusy: false, phoneSaving: new Set(),
   };
   const sse = new Set();
@@ -741,6 +745,16 @@ export async function createFake(opts = {}) {
     // the value could leak it through /__fake/state or a test's assertion.
     for (const section of saved) state.config[section] = true;
     if (typeof recorder === "boolean") state.config.skillRecorder = recorder;
+    // A section outside the excluded list rebuilds the whole provider fleet
+    // (S: index.ts:12003-12018), which kills every in-flight turn and settles
+    // the bot it belonged to (S: :7188-7207).
+    if (saved.some((section) => !CONFIG_NO_RELOAD.has(section))) {
+      state.providerReloads++;
+      for (const bot of state.bots.filter((b) => BUSY.has(b.activity))) {
+        appendMessage(bot.threadId, { role: "bot", kind: "activity", tool: { name: "error: turn interrupted — provider settings changed", ok: false } });
+        bot.activity = "idle"; broadcast({ kind: "bot", bot: publicBot(bot) });
+      }
+    }
     return json(res, 200, configStatus());
   }
 
@@ -767,7 +781,7 @@ export async function createFake(opts = {}) {
     if (method === "GET" && p === "/__fake/state") {
       // `config` is deliberately absent: what a credential PUT leaves behind
       // is a boolean, and no test should be able to read a value from here.
-      return json(res, 200, { environmentId, bots: state.bots.map((b) => ({ ...publicBot(b), key: b.key })), groups: state.groups.map(publicGroup), receipts: state.receipts, decisions: state.decisions, queue: state.queue ?? [], lastSeq, streamId: STREAM_ID, threads: Object.fromEntries(state.threads), routines: state.routines, wakes: state.wakes, skills: [...state.skills.keys()] });
+      return json(res, 200, { environmentId, bots: state.bots.map((b) => ({ ...publicBot(b), key: b.key })), groups: state.groups.map(publicGroup), receipts: state.receipts, decisions: state.decisions, queue: state.queue ?? [], lastSeq, streamId: STREAM_ID, threads: Object.fromEntries(state.threads), routines: state.routines, wakes: state.wakes, providerReloads: state.providerReloads, skills: [...state.skills.keys()] });
     }
     if (method !== "POST" || p !== "/__fake") return json(res, 404, { error: "no route" });
     const body = await readBody(req) ?? {};

@@ -248,6 +248,16 @@ historical reports append a reanalysis instead of replacing the original.
   that card. `boxToken` is refused outright: saving it makes the server list
   and verify the cloud computers on that account and fail the whole write
   when it cannot (`index.ts:11752-11790`).
+- **Saving a provider key restarts every provider.** A config write whose
+  section is not on the no-reload list (`index.ts:12003-12014`) calls
+  `reloadProviders`, which disposes the whole fleet, fails each in-flight
+  delegation watch and leaves `error: turn interrupted — provider settings
+  changed` on every busy bot's thread (`:7175-7207`). Of the credential
+  targets that is `xaiApiKey` and `opencodeGoApiKey`; `ttsKey` and
+  `openaiImageApiKey` write excluded sections and are safe. `answer --provide`
+  therefore reads the whole fleet first and refuses while any bot is working —
+  any bot on the server, not only this team's — before it reads the value.
+  There is no override: wait for them, or dismiss the card.
 - **`doctor --server` reports only the names it strips.** It reads
   `/proc/<pid>/environ` and names the ones in `STRIPPED_ENV` —
   `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, `OMB_TOKEN`,

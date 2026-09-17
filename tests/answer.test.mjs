@@ -278,6 +278,39 @@ test("credential: --resume retries the card, and says where the value is when th
   assert.equal(r.json.error, "forbidden: this session lacks the admin scope", "confirming a saved credential is the owner's step");
 });
 
+test("credential: a provider key is not saved while any bot is working, because saving it restarts every provider", async (t) => {
+  const { f, dir, team } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const lt = run.json.leadThreadId;
+  const nova = team.bots.find((b) => b.key === "nova");
+  const writes = [];
+  f.server.on("request", (req) => { if (req.method === "PUT" && req.url === "/api/config") writes.push(req.url); });
+  const key = await f.control({ op: "secret", threadId: lt, target: "xaiApiKey" });
+  await f.control({ op: "activity", botId: nova.id, activity: "working" });
+  // No stdin at all: the guard has to refuse before the value is read.
+  let r = await runOmb(["answer", "--provide", "--secret-stdin", "--request", key.message.id, "--project", dir], { env });
+  assert.equal(r.code, 3, r.stdout);
+  assert.match(r.json.error, /Nova is working/);
+  assert.match(r.json.error, /saving the xAI API key restarts every provider and interrupts/);
+  assert.match(r.json.hint, /when they are idle/);
+  assert.match(r.json.hint, new RegExp(`answer --dismiss --request ${key.message.id}`));
+  assert.deepEqual(writes, [], "nothing is written while a turn is running");
+  assert.equal((await f.snapshot()).providerReloads, 0);
+  r = await runOmb(["answer", "--provide", "--secret-stdin", "--request", key.message.id, "--project", dir, "--dry-run"], { env });
+  assert.equal(r.code, 3, "a preview reports the precondition rather than pretending it would work");
+  const tts = await f.control({ op: "secret", threadId: lt, target: "ttsKey" });
+  r = await runOmb(["answer", "--provide", "--secret-stdin", "--request", tts.message.id, "--project", dir], { env, stdin: "eleven-labs-key\n" });
+  assert.equal(r.code, 0, r.stdout, "a voice key is not a provider key: its section is excluded from the reload");
+  assert.equal((await f.snapshot()).providerReloads, 0);
+  assert.equal((await f.snapshot()).bots.find((b) => b.id === nova.id).busy, true, "and the working bot was left alone");
+  await f.control({ op: "activity", botId: nova.id, activity: "idle" });
+  r = await runOmb(["answer", "--provide", "--secret-stdin", "--request", key.message.id, "--project", dir, "--dry-run"], { env });
+  assert.equal(r.code, 0, r.stdout); assert.deepEqual(r.json.busy, []); assert.match(r.json.guard, /restarts every provider/);
+  r = await runOmb(["answer", "--provide", "--secret-stdin", "--request", key.message.id, "--project", dir], { env, stdin: "xai-key\n" });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.provided, true);
+  assert.equal((await f.snapshot()).providerReloads, 1, "an idle fleet takes the reload the save causes");
+});
+
 test("OMB_SECRET never reaches a server this launcher starts", () => {
   assert.equal(STRIPPED_ENV.includes("OMB_SECRET"), true);
 });
