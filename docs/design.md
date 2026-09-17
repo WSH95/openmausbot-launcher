@@ -376,6 +376,10 @@ the card a resume acts on, and a connection's siblings decide whether that
 resume is allowed. `status` and `watch` report `resumable[]` beside
 `pending[]`, and a run remembers those cards' owners exactly as it remembers a
 pending card's, so the resume still knows whose it is after the next watch.
+Known foreign resumables remain visible and selectable with an explicit
+`--request`, but never block another run or enter its evidence or progress
+signature, including when the owner is closed. Ambiguous resumables still
+count for every possible owner.
 
 The wake that should restart the bot is asynchronous and can fail by itself,
 leaving `resumed:false` and an `error` on the card

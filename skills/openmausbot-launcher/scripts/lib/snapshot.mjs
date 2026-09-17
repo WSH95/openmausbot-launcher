@@ -505,8 +505,9 @@ export async function snapshot(client, state, { dataDir = null, runtimeTrusted =
       if (!run) return p;
       const owners = pendingOwners.get(cardKeyOf(p));
       const mine = owners.length === 1 && !owners.uncertain && owners[0].runId === run.runId;
+      const foreign = owners.length > 0 && !owners.uncertain && owners.every((o) => o.runId !== run.runId);
       if (mine && !run.cards?.[cardKeyOf(p)]) claims.push(cardKeyOf(p));
-      return { ...p, shared: !mine, ...(mine ? { run: run.runId } : {}) };
+      return { ...p, shared: !mine, ...(foreign ? { foreign: true } : {}), ...(mine ? { run: run.runId } : {}) };
     });
     const runThreads = run
       ? [...new Set([...Object.values(run.threads ?? {}), leadThreadId].filter(Boolean))].map((threadId) => ({ threadId, botId: threadOwners.get(threadId) ?? null }))
@@ -563,6 +564,7 @@ export async function snapshot(client, state, { dataDir = null, runtimeTrusted =
 export function stuckResumable(snap) {
   const pendingKeys = new Set((snap.pending ?? []).filter((p) => p.kind === "connector").map((p) => p.connector?.resumeKey));
   return (snap.resumable ?? []).filter((p) => {
+    if (p.foreign) return false;
     if (p.connector?.error || p.secret?.error) return true;
     if (p.kind === "connector") return !pendingKeys.has(p.connector?.resumeKey);
     return true;
@@ -590,7 +592,7 @@ export function evidenceOf(snap) {
   // carried over a run that is not finished.
   return canonical({ version: 3, complete: snap.complete, leadThreadId: snap.leadThreadId, lead: snap.lead, leadText: snap.leadText, lastUser: snap.lastUser, markerSeen: snap.markerSeen, openDelegations: snap.openDelegations ?? null,
     leadOrder: (snap.leadTail ?? []).filter((m) => m.id === snap.leadText?.id || m.id === snap.lastUser?.id || snap.outcomes.some((o) => o.id === m.id)).map((m) => m.id),
-    outcomes: ordered(mergeOutcomes(snap.outcomes)), pending: ordered(snap.pending), resumable: ordered(snap.resumable), bots: ordered(snap.bots), teamMap: { queued: ordered(snap.teamMap.queued), running: ordered(snap.teamMap.running) }, dispatchFailed: snap.dispatchFailed });
+    outcomes: ordered(mergeOutcomes(snap.outcomes)), pending: ordered(snap.pending), resumable: ordered((snap.resumable ?? []).filter((p) => !p.foreign)), bots: ordered(snap.bots), teamMap: { queued: ordered(snap.teamMap.queued), running: ordered(snap.teamMap.running) }, dispatchFailed: snap.dispatchFailed });
 }
 
 export function carriedVerdict(snap, task) {

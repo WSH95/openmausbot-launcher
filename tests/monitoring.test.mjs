@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import * as monitoring from '../skills/openmausbot-launcher/scripts/lib/snapshot.mjs';
-import { watchRun } from '../skills/openmausbot-launcher/scripts/lib/watch.mjs';
+import { watchRun, signatureOf } from '../skills/openmausbot-launcher/scripts/lib/watch.mjs';
 
 const team = { lead: { id: 'lead', name: 'Lead' }, bots: [{ id: 'lead', name: 'Lead' }, { id: 'worker', name: 'Worker' }], section: 's' };
 const task = { runId: 'r', tag: 'oml:1234', sentAt: 1000, leadThreadId: 'lt', threads: { lead: 'lt', worker: 'wt' } };
@@ -92,6 +92,33 @@ test('a settled card whose wake failed is attention, and a connection whose sibl
   assert.match(monitoring.brief(ev, snap, task, 100_000), /CONNECT · Worker needs a \(connected\) → omb answer --resume --request a/);
   snap = await monitoring.snapshot(scripted({ threads: { lt: [user, done], wt: [live('a', 'rk', { resumed: true })] } }), { team, task });
   assert.equal(settled(snap).state, 'done', 'a resumed connection leaves nothing behind');
+});
+
+test('foreign resumable cards remain selectable but do not block or change another run evidence', async () => {
+  const card = { id: 'foreign-secret', at: 1600, role: 'bot', kind: 'secret', secret: { target: 'ttsKey', label: 'ElevenLabs API key', provided: true, resumed: false, error: 'wake failed' } };
+  const location = { threadId: 'wt', botId: 'worker' };
+  for (const closed of [false, true]) {
+    const other = { ...task, runId: 'other', leadThreadId: 'lt2', threads: { lead: 'lt2', worker: 'wt' }, cards: { 'foreign-secret': location } };
+    const state = { team, task, runs: closed ? [task] : [task, other], history: closed ? [other] : [] };
+    const base = await monitoring.snapshot(scripted({ threads: { lt: [user, done], lt2: [], wt: [] } }), state);
+    const snap = await monitoring.snapshot(scripted({ threads: { lt: [user, done], lt2: [], wt: [card] } }), state);
+    assert.equal(snap.resumable[0].shared, true, 'explicit --request can still select the remembered card');
+    assert.deepEqual(monitoring.stuckResumable(snap), [], closed ? 'closed owner' : 'other open owner');
+    assert.equal(settled(snap).state, 'done');
+    assert.deepEqual(monitoring.evidenceOf(snap), monitoring.evidenceOf(base));
+    assert.deepEqual(signatureOf(snap, settled(snap)), signatureOf(base, settled(base)));
+    assert.equal(monitoring.carriedVerdict(snap, { ...task, lastEval: { state: 'done', evidence: monitoring.evidenceOf(base) } }), 'done');
+  }
+});
+
+test('ambiguous resumable cards still block each possible run', async () => {
+  const other = { ...task, runId: 'other', leadThreadId: 'lt2', threads: { lead: 'lt2', worker: 'wt' } };
+  const card = { id: 'unknown-secret', at: 1600, role: 'bot', kind: 'secret', secret: { target: 'ttsKey', provided: true, resumed: false } };
+  const snap = await monitoring.snapshot(scripted({ threads: { lt: [user, done], lt2: [], wt: [card] } }), { team, task, runs: [task, other] });
+  assert.equal(snap.resumable[0].shared, true);
+  assert.equal(monitoring.stuckResumable(snap).length, 1);
+  assert.equal(settled(snap).state, 'needs-user');
+  assert.equal(monitoring.evidenceOf(snap).resumable.length, 1);
 });
 
 test('the connection brief names the step that is actually next for that status', async () => {
