@@ -245,11 +245,14 @@ room), `state --set`, macOS lifecycle. `pair` was deferred in v1 and landed on
    without touching the server. Both take `--run <ref>` and refuse to guess
    when several runs are open. There is no `--force`.
 
-Known gap from the first real parallel run (bead `oml-fg8`, 2026-09-17): after
-`report --run <a>` closed the first of two open runs, every `watch --run <b>`
-returned `timeout` with `idle for 0 s, not yet settled` although every bot was
-idle and that run had settled as `attention` minutes earlier, so the operator
-had to close it with `task --abandon --run <b>` and report it from history.
+What the first real parallel run met (bead `oml-fg8`, 2026-09-17) is this rule
+rather than a defect: `report --run <a>` closing the first of two open runs
+unmasks the bots it held, which changes `<b>`'s evidence once and correctly
+refuses its stored verdict; the watches that followed then asked for 8 to 20
+seconds against the 30 s window, so each returned the one evaluation its own
+window had made. A watch that ends inside the window now reports the idle time
+it observed and the budget the window needs, and `report` names the watch that
+settles the run. Settlement itself is unchanged.
 
 The brief's last paragraph, from `dev-team.md`'s template: "When the task
 is finished, end your closing report with a line containing only
@@ -434,6 +437,12 @@ quiet && the lead's last own text is later than every outcome, the dispatch, and
 lead no-signal, or no change for --stall-minutes                              -> stalled (6)
 ```
 
+Only the idle `running` branch is waiting for the window alone (`awaitingQuiet`),
+and only there does a watch that reaches its deadline rewrite its output: it
+reports the idle time observed since the window last started, uncapped, and
+says the window was not confirmed. The ladder is never re-run at a deadline, so
+an overrun is not a verdict.
+
 "Done means the lead closed the run, not that it passed": the skill text
 tells the agent to read the report, then `reconcile` and `report`. A false
 `done` requires the lead to emit this run's marker prematurely.
@@ -494,7 +503,10 @@ Notifications are wake-ups only (a bot's notifications can be off,
    evidence.
 5. Return on a terminal state, on `--until change` when the state, the
    lead's last own message id, the outcome list, or the pending set changed,
-   or at the deadline with `timeout` (exit 4).
+   or at the deadline with `timeout` (exit 4), which for a verified run still
+   waiting for quiet carries the observed idle time and a hint naming the
+   budget the window needs. Those two fields are output: they are outside the
+   signature, so `--quiet-if-unchanged` and `--until change` do not see them.
 6. A verified non-dry return attempts a checkpoint with at most a one-second
    lock wait, while the stream and receipt watcher remain subscribed. A
    freshness guard runs under the lock before writing, after the checkpoint
@@ -503,7 +515,8 @@ Notifications are wake-ups only (a bot's notifications can be off,
    the timer fires before the outer clock considers the deadline spent.
    If invalidated, watch rehydrates within the observation budget, or returns
    unknown without writing when the budget is spent. A timeout can checkpoint
-   its last complete running view only while that view remains current.
+   its last complete running view only while that view remains current; its
+   idle-time diagnostics are not part of that view and nothing new is persisted.
    It merges `runs[runId].lastEval {state, cursor,
    lastLeadMessageId, lastChangeAt, outcomes, cardOwners, evidence, lastReported}` over
    the existing record, keeping the newer `lastChangeAt` when a `send`

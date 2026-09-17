@@ -631,7 +631,10 @@ export function evaluate(snap, task, { now = Date.now(), quiet = { since: null }
     const working = busy.length ? `working: ${busy.map((b) => b.name).join(", ")}`
       : snap.teamMap.queued.length || snap.teamMap.running.length ? `delegations queued ${snap.teamMap.queued.length}, running ${snap.teamMap.running.length}`
       : `${openDel} delegation(s) open: ${Object.entries(snap.openDelegations?.byName ?? {}).map(([n, c]) => (c > 1 ? `${n} x${c}` : n)).join(", ")}`;
-    return { state: "running", reasons: inflight ? [working] : [`idle for ${Math.round(quietFor / 1000)} s, not yet settled`], ...base };
+    // `awaitingQuiet` marks the one branch a longer observation alone can
+    // settle: nothing is in flight and only the quiet window is still missing.
+    return inflight ? { state: "running", reasons: [working], ...base }
+      : { state: "running", reasons: [`idle for ${Math.round(quietFor / 1000)} s, not yet settled`], awaitingQuiet: true, ...base };
   }
   if (snap.dispatchFailed) return { state: "failed", reasons: ["the lead's turn failed to dispatch (error activity, no reply)"], ...base };
   const out = snap.outcomes.filter((o) => !leadAfter(snap, o)).at(-1) ?? null;

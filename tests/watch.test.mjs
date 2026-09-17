@@ -32,20 +32,24 @@ function responses(f, matches, count = 1) {
 // only after watch has verified a snapshot and entered its idle poll wait.
 // Request deadlines and the stream keep their real timers; 137 ms identifies
 // the requested poll interval, which a busy run cannot shorten for quiet.
-async function timeoutAfterObservation(t, f, dir, flags = []) {
-  let now = 0; let observed = false;
+// One `polls` entry runs per idle wait (the last one repeats): it moves the
+// virtual clock, and may act on the fake or the state file before it does.
+async function timeoutAfterObservation(t, f, dir, flags = [], polls = [(at) => at(2000)]) {
+  let now = 0; let observed = false; let poll = 0;
   const clock = t.mock.method(performance, "now", () => now);
   const setTimer = globalThis.setTimeout;
   const timer = t.mock.method(globalThis, "setTimeout", (fn, ms, ...args) => {
     if (ms !== 137) return setTimer(fn, ms, ...args);
     observed = true;
-    return setTimer(() => { now = 2000; fn(...args); }, 0);
+    const step = polls[Math.min(poll++, polls.length - 1)];
+    return setTimer(async () => { await step((at) => { now = at; }); fn(...args); }, 0);
   });
   try {
     const r = await runCli(["watch", "--project", dir, "--url", f.url, "--data-dir", f.dataDir,
       "--max-seconds", "2", "--poll", "0.137", ...flags]);
     assert.equal(observed, true, "the deadline follows a verified observation");
-    return { code: r.code, stdout: r.output, json: r.output ? JSON.parse(r.output) : null };
+    let json = null; try { json = JSON.parse(r.output); } catch {} // --brief prints a line, not JSON
+    return { code: r.code, stdout: r.output, json };
   } finally { timer.mock.restore(); clock.mock.restore(); }
 }
 
@@ -152,6 +156,70 @@ test("deadline, --until change, --quiet-if-unchanged, and polling when the strea
   await f.control({ op: "card", threadId: lt, requestId: "ap", kind: "approval", text: "Contact Quill?" });
   r = await p2;
   assert.equal(r.code, 5, r.stdout); assert.equal(r.json.pollingOnly, true, "three failed streams fall back to polling"); assert.equal(r.json.state, "needs-user");
+});
+
+test("a budget that ends while the quiet window is still running reports the idle time it observed", async (t) => {
+  const { f, dir } = await setup(t);
+  const r = await timeoutAfterObservation(t, f, dir, ["--quiet-seconds", "30"]);
+  assert.equal(r.code, 4, r.stdout);
+  assert.equal(r.json.state, "timeout"); assert.equal(r.json.inflight, false);
+  assert.equal(r.json.quietFor, 2000, "the idleness observed, not the 0 s of the read that opened the window");
+  assert.deepEqual(r.json.reasons, ["idle for 2 s when the watch budget ended; the 30 s quiet window was not confirmed"]);
+  assert.equal(r.json.hint, "--max-seconds 2 cannot cover the 30 s quiet window; use 35 or more");
+});
+
+test("a deadline that overran the quiet window is still a timeout: only a confirming read settles a run", async (t) => {
+  const { f, dir, lt } = await setup(t);
+  // Quiet enough for long enough to read as `attention`, had the ladder been re-run.
+  await f.control({ op: "leadSay", threadId: lt, text: "Planning now." });
+  const r = await timeoutAfterObservation(t, f, dir, ["--quiet-seconds", "30"], [(at) => at(60_000)]);
+  assert.equal(r.code, 4, r.stdout);
+  assert.equal(r.json.state, "timeout");
+  assert.equal(r.json.quietFor, 60_000, "the elapsed idle time is reported uncapped");
+  assert.deepEqual(r.json.reasons, ["idle for 60 s when the watch budget ended; the 30 s quiet window was not confirmed"]);
+  assert.equal(r.json.hint, "--max-seconds 2 cannot cover the 30 s quiet window; use 35 or more", "the hint answers the budget that was asked for, not the time the deadline overran");
+});
+
+test("an own frame during the wait restarts the quiet window, and the timeout counts idle time from the restart", async (t) => {
+  const { f, dir, lt } = await setup(t);
+  const r = await timeoutAfterObservation(t, f, dir, ["--quiet-seconds", "30"], [
+    async (at) => { at(1000); await f.control({ op: "leadSay", threadId: lt, text: "Planning now." }); },
+    (at) => at(2000),
+  ]);
+  assert.equal(r.code, 4, r.stdout);
+  assert.equal(r.json.state, "timeout"); assert.equal(r.json.elapsedSec, 2);
+  assert.equal(r.json.quietFor, 1000, "the lead's own message restarted the window");
+  assert.deepEqual(r.json.reasons, ["idle for 1 s when the watch budget ended; the 30 s quiet window was not confirmed"]);
+});
+
+test("an unverified timeout reports no observed quiet and no budget hint", async (t) => {
+  const { f, dir, team, run } = await setup(t);
+  // The run's own record changes under the watch: the deadline arrives with nothing verified.
+  const r = await timeoutAfterObservation(t, f, dir, ["--quiet-seconds", "30"], [async (at) => {
+    await updateState(statePaths(dir), (d) => { d.runs[run.runId].cards = { "req-1": "Nova" }; return d; });
+    at(2000);
+  }]);
+  assert.equal(r.code, 4, r.stdout);
+  assert.equal(r.json.state, "timeout"); assert.equal(r.json.complete, false);
+  assert.equal(r.json.quietFor, 0); assert.equal(r.json.hint, undefined);
+  assert.deepEqual(r.json.reasons, ["observation deadline reached before verification"]);
+  // and an invalidation during the checkpoint wait clears the marker the timeout set
+  const live = loadState(statePaths(dir)).runs[run.runId];
+  const r2 = await watchRun({ client: createClient({ url: f.url }), team, task: live, runs: [live], getRuns: () => [live],
+    maxSeconds: 3, quietMs: 30_000, checkpoint: async () => { live.cards = { "req-2": "Nova" }; return true; } });
+  assert.equal(r2.outcome, "timeout"); assert.equal(r2.snap.complete, false); assert.equal(r2.ev.awaitingQuiet, false);
+  assert.deepEqual(r2.ev.reasons, ["observation deadline reached before checkpoint verification"]);
+});
+
+test("watchBudgetHint names the budget a quiet window needs, and asks for one more call when the budget was nominally enough", async (t) => {
+  const { watchBudgetHint } = await import("../skills/openmausbot-launcher/scripts/lib/watch.mjs");
+  assert.equal(watchBudgetHint({ maxSeconds: 8, quietSeconds: 30, idleSeconds: 8 }), "--max-seconds 8 cannot cover the 30 s quiet window; use 35 or more");
+  assert.equal(watchBudgetHint({ maxSeconds: 30, quietSeconds: 30, idleSeconds: 29 }), "--max-seconds 30 cannot cover the 30 s quiet window; use 35 or more", "an equal budget leaves nothing for hydration");
+  assert.equal(watchBudgetHint({ maxSeconds: 35, quietSeconds: 30, idleSeconds: 29 }), "the 30 s quiet window was not confirmed in this watch (29 s idle observed); call watch again, with a larger --max-seconds if this repeats", "quiet + 5 is headroom, not a guarantee");
+  assert.equal(watchBudgetHint({ maxSeconds: 35, quietSeconds: 30, idleSeconds: 20 }), "the 30 s quiet window was not confirmed in this watch (20 s idle observed); call watch again, with a larger --max-seconds if this repeats", "a budget setup consumed still gets guidance");
+  const { f, dir } = await setup(t);
+  const brief = await timeoutAfterObservation(t, f, dir, ["--quiet-seconds", "30", "--brief"]);
+  assert.match(brief.stdout, /watch timed out after 2s, call again · --max-seconds 2 cannot cover the 30 s quiet window; use 35 or more$/);
 });
 
 test("a bearer token works on the stream; --nudge sends status? once on a suspected unacknowledged delegation", async (t) => {

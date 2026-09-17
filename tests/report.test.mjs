@@ -455,6 +455,74 @@ for (const first of ["t10", "t11"]) test(`two open runs are reported and closed 
   assert.deepEqual(Object.keys(loadState(statePaths(dir)).runs), []);
 });
 
+test("report tells an unsettled live run what would settle it, and says nothing once it is terminal, carried, closed or historical", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const env = { OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir };
+  const { dir } = makeRepo();
+  assert.equal((await runOmb(["import", PKG, "--project", dir, "--url", f.url], { env })).code, 0);
+  assert.equal((await runOmb(["bind", "--project", dir, "--default", "claude/claude-sonnet-5"], { env })).code, 0);
+  const run = (await runOmb(["task", "--todo", "T10", "--project", dir], { env })).json;
+  const hint = "the run has not settled; run watch --run t10 with --max-seconds 35 or more (30 s default quiet window) until it settles, then report --run t10 again; report --close records the current result without establishing settlement";
+  let r = await runOmb(["report", "--project", dir, "--no-tests"], { env });
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.equal(r.json.state, "running"); assert.equal(r.json.closed, false); assert.equal(r.json.hint, hint);
+  assert.ok((await runOmb(["report", "--project", dir, "--no-tests", "--md"], { env })).stdout.includes(hint), "the rendered evidence section carries it too");
+  assert.match((await runOmb(["report", "--project", dir, "--no-tests", "--brief"], { env })).stdout, /run left open · the run has not settled; run watch --run t10/);
+  // a preview and an explicit retention leave the run just as unsettled
+  assert.equal((await runOmb(["report", "--project", dir, "--no-tests", "--dry-run"], { env })).json.hint, hint);
+  assert.equal((await runOmb(["report", "--project", dir, "--no-tests", "--no-close"], { env })).json.hint, hint);
+  // --close is the operator saying "record it as it is"; it is not asked to settle
+  assert.equal((await runOmb(["report", "--project", dir, "--no-tests", "--dry-run", "--close"], { env })).json.hint, undefined);
+  await f.control({ op: "leadSay", threadId: run.leadThreadId, text: `Closing report: nothing merged.\n\nDONE ${run.tag}` });
+  assert.equal((await runOmb(["watch", "--project", dir, "--max-seconds", "10", "--quiet-seconds", "1", "--poll", "1"], { env })).json.state, "done");
+  r = await runOmb(["report", "--project", dir, "--no-tests", "--no-close"], { env });
+  assert.equal(r.json.state, "done"); assert.equal(r.json.carried, true); assert.equal(r.json.hint, undefined, "a carried verdict is settled evidence");
+  assert.equal((await runOmb(["report", "--project", dir, "--no-tests"], { env })).json.closed, true);
+  assert.equal((await runOmb(["report", "--run", "last", "--project", dir, "--no-tests"], { env })).json.hint, undefined, "a historical report describes the past");
+});
+
+// The 2026-09-17 sequence (bead oml-fg8): a run that had settled four times
+// stopped settling once its sibling closed, and the short watches that followed
+// printed "idle for 0 s, not yet settled" after 20 s of observed idleness.
+test("after a sibling closes, a short watch says what budget the run needs and an adequate one settles it", async (t) => {
+  const { f, dir, env, a, b } = await twoRuns(t);
+  await f.control({ op: "delegationDone", threadId: b.leadThreadId, name: "Vex", variant: "empty" });
+  // A still holds Nova, whose thread both runs record: closing A gives her back to B and changes B's evidence.
+  await f.control({ op: "delegated", threadId: a.leadThreadId, name: "Nova", reason: "review T10" });
+  await f.control({ op: "leadSay", threadId: b.leadThreadId, text: "T11 is merged; the record commit needs your approval." });
+  assert.equal((await runOmb(["watch", "--run", "t11", "--project", dir, "--max-seconds", "10", "--quiet-seconds", "1", "--poll", "1"], { env })).json.state, "attention");
+  assert.equal((await runOmb(["report", "--run", "t10", "--project", dir, "--no-tests", "--close"], { env })).json.closed, true);
+  let r = await runOmb(["report", "--run", "t11", "--project", dir, "--no-tests"], { env });
+  assert.equal(r.json.state, "running", r.stdout); assert.equal(r.json.carried, false); assert.equal(r.json.closed, false);
+  assert.match(r.json.hint, /^the run has not settled; run watch --run t11 with --max-seconds 35 or more/);
+  r = await runOmb(["watch", "--run", "t11", "--project", dir, "--max-seconds", "4", "--poll", "1"], { env });
+  assert.equal(r.code, 4, r.stdout); assert.equal(r.json.state, "timeout");
+  assert.ok(r.json.quietFor > 0, `the idleness it observed, not 0: ${r.json.quietFor}`);
+  assert.match(r.json.reasons[0], /^idle for \d+ s when the watch budget ended; the 30 s quiet window was not confirmed$/);
+  assert.equal(r.json.hint, "--max-seconds 4 cannot cover the 30 s quiet window; use 35 or more");
+  r = await runOmb(["watch", "--run", "t11", "--project", dir, "--max-seconds", "10", "--quiet-seconds", "1", "--poll", "1"], { env });
+  assert.equal(r.json.state, "attention", r.stdout);
+  r = await runOmb(["report", "--run", "t11", "--project", dir, "--no-tests"], { env });
+  assert.equal(r.json.state, "attention"); assert.equal(r.json.closed, true); assert.equal(r.json.hint, undefined);
+});
+
+test("a sibling closing during a watch, and the traffic that follows, delay the watched run without preventing it from settling", async (t) => {
+  const { f, dir, env, a, b, nova } = await twoRuns(t);
+  await f.control({ op: "delegationDone", threadId: b.leadThreadId, name: "Vex", variant: "empty" });
+  await f.control({ op: "delegated", threadId: a.leadThreadId, name: "Nova", reason: "review T10" });
+  await f.control({ op: "leadSay", threadId: b.leadThreadId, text: "T11 is merged; the record commit needs your approval." });
+  const watching = runOmb(["watch", "--run", "t11", "--project", dir, "--max-seconds", "20", "--quiet-seconds", "3", "--poll", "1"], { env });
+  assert.equal((await runOmb(["report", "--run", "t10", "--project", dir, "--no-tests", "--close"], { env })).json.closed, true);
+  let r = await watching;
+  assert.equal(r.json.state, "attention", `a sibling closing during the watch only restarts the window: ${r.stdout}`);
+  // Nova is B's own bot now, so her frames do reset B's window — until they stop.
+  let ticks = 0;
+  const noise = setInterval(() => { if (++ticks > 6) return clearInterval(noise); void f.control({ op: "activity", botId: nova.id, activity: ticks % 2 ? "working" : "idle" }).catch(() => {}); }, 200);
+  t.after(() => clearInterval(noise));
+  r = await runOmb(["watch", "--run", "t11", "--project", dir, "--max-seconds", "20", "--quiet-seconds", "1", "--poll", "1"], { env });
+  assert.equal(r.json.state, "attention", r.stdout);
+});
+
 test("an abandoned run can still be reported from the history", async (t) => {
   const f = await startFake(); t.after(() => f.close());
   const env = { OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir };

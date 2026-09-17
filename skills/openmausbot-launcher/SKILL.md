@@ -144,7 +144,10 @@ watch's, not their own. A run settles on its own evidence: the other run's
 bots working, or its threads moving, neither delay it nor settle it.
 If `checkpointed:false`, the returned observation was not saved; call
 `watch` again. Observation uses `--max-seconds`, followed by at most one
-second waiting for a checkpoint lock. Quiet starts afresh each invocation.
+second waiting for a checkpoint lock. Quiet starts afresh each invocation, so
+a budget that ends inside the window returns `state: "timeout"` with the idle
+time it observed and a `hint` naming the budget to use; `report` gives a run it
+leaves open the same advice, and `--close` only records a run as it is.
 
 `outcome: "unverified"` means repeated relevant changes prevented a confirmed
 view: `state: "running"`, exit 4, `complete: false`, `checkpointed: false`.

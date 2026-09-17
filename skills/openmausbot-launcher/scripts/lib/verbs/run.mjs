@@ -436,7 +436,7 @@ verb("interrupt", {
 });
 
 // ── watch ──
-import { watchRun, mergeCheckpoint, mergeCards } from "../watch.mjs";
+import { watchRun, mergeCheckpoint, mergeCards, watchBudgetHint } from "../watch.mjs";
 import { brief as briefLine, EXIT_FOR, TERMINAL as TERMINAL_STATES } from "../snapshot.mjs";
 
 verb("watch", {
@@ -489,16 +489,20 @@ verb("watch", {
     };
     const getRuns = () => openRuns(getState());
     const getHistory = () => getState()?.history ?? [];
-    const r = await watchRun({ client, team, task, runs: openRuns(cfg.state), getRuns, history: cfg.state?.history, getHistory, dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null, maxSeconds, deadline, until, pollMs: num(flags.poll, 30) * 1000, stallMs: num(flags["stall-minutes"], 40) * 60_000, quietMs: num(flags["quiet-seconds"], 30) * 1000, dropMs: num(flags["drop-seconds"], 120) * 1000, nudge, checkpoint, log });
+    const quietSeconds = num(flags["quiet-seconds"], 30);
+    const r = await watchRun({ client, team, task, runs: openRuns(cfg.state), getRuns, history: cfg.state?.history, getHistory, dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null, maxSeconds, deadline, until, pollMs: num(flags.poll, 30) * 1000, stallMs: num(flags["stall-minutes"], 40) * 60_000, quietMs: quietSeconds * 1000, dropMs: num(flags["drop-seconds"], 120) * 1000, nudge, checkpoint, log });
     const checkpointed = r.checkpointed;
     const state = r.timedOut && !TERMINAL_STATES.has(r.ev.state) ? "timeout" : r.ev.state;
+    // Only a verified timeout that was waiting for the window can be answered
+    // with a budget: a busy run, a pending request or an unverified read cannot.
+    const budgetHint = state === "timeout" && r.snap.complete && r.ev.awaitingQuiet === true ? watchBudgetHint({ maxSeconds, quietSeconds, idleSeconds: Math.round(r.ev.quietFor / 1000) }) : null;
     const code = state === "timeout" ? EXIT.TIMEOUT : r.outcome === "change" || r.outcome === "question" ? (TERMINAL_STATES.has(r.ev.state) ? EXIT_FOR[r.ev.state] : EXIT.OK) : EXIT_FOR[r.ev.state] ?? EXIT.OK;
     const line = briefLine(r.ev, r.snap, task);
     const unchanged = flags["quiet-if-unchanged"] && !r.changedSinceReport;
     return {
       code, ok: code === EXIT.OK,
-      result: { state, checkpointed, dryRun: cfg.dryRun, outcome: r.outcome, reasons: r.ev.reasons, hint: r.ev.hint, changes: r.changes, lead: r.snap.leadText, lastUser: r.snap.lastUser, pending: r.snap.pending, outcomes: r.snap.outcomes.length, busy: r.ev.busy, inflight: r.ev.inflight, quietFor: r.ev.quietFor, resumable: r.snap.resumable ?? [], cursor: r.cursor, elapsedSec: r.elapsedSec, pollingOnly: r.pollingOnly, receiptsWatched: r.receiptsWatched, nudged: r.nudged, complete: r.snap.complete, incomplete: r.snap.incomplete, brief: line, ...(unchanged ? { silent: true } : {}) },
-      brief: unchanged ? "" : state === "timeout" ? `${line} · watch timed out after ${r.elapsedSec}s, call again` : line,
+      result: { state, checkpointed, dryRun: cfg.dryRun, outcome: r.outcome, reasons: r.ev.reasons, hint: r.ev.hint ?? budgetHint ?? undefined, changes: r.changes, lead: r.snap.leadText, lastUser: r.snap.lastUser, pending: r.snap.pending, outcomes: r.snap.outcomes.length, busy: r.ev.busy, inflight: r.ev.inflight, quietFor: r.ev.quietFor, resumable: r.snap.resumable ?? [], cursor: r.cursor, elapsedSec: r.elapsedSec, pollingOnly: r.pollingOnly, receiptsWatched: r.receiptsWatched, nudged: r.nudged, complete: r.snap.complete, incomplete: r.snap.incomplete, brief: line, ...(unchanged ? { silent: true } : {}) },
+      brief: unchanged ? "" : state === "timeout" ? `${line} · watch timed out after ${r.elapsedSec}s, call again${budgetHint ? ` · ${budgetHint}` : ""}` : line,
     };
   },
 });

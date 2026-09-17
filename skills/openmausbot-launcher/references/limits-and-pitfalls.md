@@ -220,14 +220,17 @@ historical reports append a reanalysis instead of replacing the original.
   before believing the state; the recovery is one `send --run <slug>` telling
   the lead the reviewer is free. A lead should queue or wait instead of
   declaring done — that is pack behaviour, not something the driver can fix.
-- **A run can stop settling once its sibling closes** (bead `oml-fg8`, open).
-  After `report --run <a>` moved the first run into history, every
-  `watch --run <b>` returned `timeout` with `idle for 0 s, not yet settled`
-  (`quietFor 0`, `changes []`, `inflight false`, `busy []`, `complete true`)
-  although every bot was idle and the lead's last turn was eight minutes old —
-  and the same run had settled as `attention` four times before that. Until it
-  is fixed: `task --abandon --run <b>`, then `report --run <runId>`, which
-  reads the same evidence from history.
+- **A sibling closing restarts the other run's quiet window** (bead `oml-fg8`,
+  closed). After `report --run <a>` moved the first run into history, the bots
+  it held became `<b>`'s again; that changes `<b>`'s evidence once, so its
+  stored `attention` is refused and it has to settle again. On 2026-09-17 the
+  four watches that followed asked for 8, 8, 12 and 20 seconds against the
+  30 s quiet window, so each returned the one evaluation its own window had
+  made (`idle for 0 s, not yet settled`). Give the next watch a budget that
+  covers the window — never below `--max-seconds 35` — and read what it says:
+  a watch that ends inside the window names the idle time it observed and the
+  budget it needs, and `report` names the watch that settles the run.
+  `report --close` records a run as it is; it does not settle it.
 - **A busy lead belongs to every open run** unless the runtime log names the
   thread its turn is on, and a pending request nobody can place is `shared`
   and needs `--request`. The driver would rather keep both runs waiting than

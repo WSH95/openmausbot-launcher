@@ -271,6 +271,7 @@ export function renderMarkdown(r) {
   for (const t of r.threads) lines.push(`| ${t.bot}${t.shared ? ` (+${t.shared} shared)` : ""} | ${t.turns} | ${Math.round(t.seconds)} | ${t.totals.input} | ${t.totals.cachedInput} | ${t.totals.output} |`);
   lines.push("", `Outcomes: ${r.outcomes.length}${r.outcomes.length ? ` (${r.outcomes.map((o) => `${o.kind} ${o.name ?? ""}`.trim()).join(", ")})` : ""}. Commits since dispatch: ${r.commits.length}${r.commits.length ? ` (${r.commits.map((c) => `${c.sha.slice(0, 7)} ${c.subject}`).join("; ")})` : ""}.`, "");
   lines.push(`Record step: task log ${yes(r.record.taskLogChanged)}, record commit ${r.record.commit ? r.record.commit.slice(0, 7) : "none"}, ${r.record.bead.detail}. Tests: ${r.tests.ran ? (r.tests.ok ? `passed in ${r.tests.seconds} s` : `FAILED (exit ${r.tests.status})`) : r.tests.detail}. Root: ${r.reconcile.clean ? "clean" : r.reconcile.problems.join("; ")}.`, "");
+  if (r.hint) lines.push(r.hint, "");
   if (r.check042) { lines.push("0.4.2 checks:", ""); for (const c of r.check042) lines.push(`- ${c.id}: ${yes(c.ok)} — ${c.detail}`); lines.push(""); }
   lines.push(`Closing report from ${r.lead}: "${(r.closing ?? "").replace(/\s+/g, " ").slice(0, 400)}"`, "");
   return lines.join("\n");

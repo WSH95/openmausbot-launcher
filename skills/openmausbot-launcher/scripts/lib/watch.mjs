@@ -119,6 +119,18 @@ export function mergeCards(prior, cards, complete) {
   return complete ? { ...cards } : { ...(prior ?? {}), ...cards };
 }
 
+/**
+ * What to tell the operator when the budget ended with the quiet window still
+ * running. `quiet + 5` is recommended headroom, not a guarantee: identity
+ * verification and hydration precede the window, and an own frame restarts it,
+ * so a nominally sufficient budget can still end with nothing confirmed.
+ */
+export function watchBudgetHint({ maxSeconds, quietSeconds, idleSeconds }) {
+  return maxSeconds < quietSeconds + 5
+    ? `--max-seconds ${maxSeconds} cannot cover the ${quietSeconds} s quiet window; use ${quietSeconds + 5} or more`
+    : `the ${quietSeconds} s quiet window was not confirmed in this watch (${idleSeconds} s idle observed); call watch again, with a larger --max-seconds if this repeats`;
+}
+
 export class StaleObservation extends Error {
   constructor(message = "watch observation was invalidated") { super(message); }
 }
@@ -260,8 +272,9 @@ export async function watchRun({ client, team, task, runs = [], getRuns = null, 
   });
   const unverified = (outcome, reason) => {
     snap = { ...snap, complete: false, incomplete: [...(snap?.incomplete ?? []), reason] };
-    // Keep the last observed busy list for the operator, but no settled claim.
-    ev = { ...(ev ?? evaluate(snap, task)), state: "running", unknown: true, quiet: false, quietFor: 0, reasons: [reason] };
+    // Keep the last observed busy list for the operator, but no settled claim:
+    // an invalidated observation knows nothing about the quiet window either.
+    ev = { ...(ev ?? evaluate(snap, task)), state: "running", unknown: true, quiet: false, quietFor: 0, awaitingQuiet: false, reasons: [reason] };
     sig = signatureOf(snap, ev);
     return resultOf(outcome);
   };
@@ -413,6 +426,14 @@ export async function watchRun({ client, team, task, runs = [], getRuns = null, 
     }
     if (!snap) snap = await snapshot(client, { team, task, runs: allRuns, history }, { dataDir, deadline, signal: controller.signal });
     if (!current() || !ev || TERMINAL.has(ev.state)) return unverified("timeout", "observation deadline reached before verification");
+    // The budget ended the watch, not the run. Report the idleness actually
+    // observed since the window last started, uncapped, and say that nothing
+    // confirmed it: a deadline never re-runs the ladder, so an overrun is not a
+    // verdict. `quietFor` and `reasons` are outside `signatureOf`.
+    if (ev.awaitingQuiet && quietSince !== null) {
+      const idleMs = Math.max(0, Math.round(performance.now() - quietSince));
+      ev = { ...ev, quietFor: idleMs, reasons: [`idle for ${Math.round(idleMs / 1000)} s when the watch budget ended; the ${Math.round(quietMs / 1000)} s quiet window was not confirmed`] };
+    }
     sig = signatureOf(snap, ev);
     try {
       const result = await finish("timeout");

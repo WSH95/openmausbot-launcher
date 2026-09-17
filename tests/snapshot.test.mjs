@@ -100,6 +100,17 @@ test("evaluate: the state table", () => {
   assert.equal(ev.state, "running"); assert.match(ev.reasons[0], /not answered the latest message|has not spoken since the dispatch/);
 });
 
+test("only a run idling toward its quiet window is marked awaitingQuiet", () => {
+  const now = T0 + 120_000;
+  const leadSaid = (text, at) => ({ leadText: { id: "m9", at, text } });
+  const echo = { id: "e1", at: T0 + 100_000, kind: "echo", name: "Nova 2", ok: true };
+  assert.equal(evaluate(snap(), task, { now, quiet: { since: T0 + 110_000 } }).awaitingQuiet, true, "idle, and only the window is still missing");
+  assert.equal(evaluate(snap({ bots: [{ id: LEAD, name: "Sudo", busy: true, activity: "working" }] }), task, { now, quiet: { since: null } }).awaitingQuiet, undefined, "a busy run waits for work, not for quiet");
+  assert.equal(evaluate(snap({ outcomes: [echo], ...leadSaid("Delegating…", T0 + 10_000) }), task, { now: T0 + 160_000, quiet: { since: T0 + 110_000 } }).awaitingQuiet, undefined, "the lead's wake is missing, not the window");
+  assert.equal(evaluate(snap({ ...leadSaid("Which approach?", T0 + 50_000), lastUser: { id: "u2", at: T0 + 60_000, text: "use the table" } }), task, { now, quiet: { since: T0 + 60_000 }, lastChangeAt: T0 + 60_000 }).awaitingQuiet, undefined, "the lead's answer is missing, not the window");
+  assert.equal(evaluate(snap({ complete: false, incomplete: ["bots: boom"] }), task, { now, ...quietSince(60) }).awaitingQuiet, undefined, "an incomplete snapshot says nothing about quiet");
+});
+
 test("snapshot against the fake: team bots, discovered specialists, tails, outcomes, pending, marker, receipts", async (t) => {
   const f = await startFake(); t.after(() => f.close());
   const env = { OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir };

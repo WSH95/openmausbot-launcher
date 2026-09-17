@@ -4,7 +4,7 @@ import path from "node:path";
 import { verb, EXIT, Fail } from "../cli.mjs";
 import { resolveConfig } from "../config.mjs";
 import { createClient } from "../http.mjs";
-import { snapshot, evaluate, carriedVerdict, delegationWindows, TERMINAL as TERMINAL_STATES } from "../snapshot.mjs";
+import { snapshot, evaluate, carriedVerdict, delegationWindows, DEFAULTS, TERMINAL as TERMINAL_STATES } from "../snapshot.mjs";
 import { updateState } from "../state.mjs";
 import { openRuns, selectRun, runLabel } from "../runs.mjs";
 import { requireTeam, requireDataDir, requireSameEnvironment, runContext } from "../session.mjs";
@@ -123,9 +123,17 @@ verb("report", {
     const failedChecks = [...new Set(evidence.filter((c) => c.ok === false).map((c) => c.id))];
     const result = ev.state === "failed" || tests.ok === false ? "failed" : evidence.every((c) => c.ok === true) ? "passed" : "incomplete";
     const shouldClose = !fromHistory && !flags["no-close"] && (TERMINAL_STATES.has(ev.state) || flags.close);
+    // One live snapshot cannot see a quiet window, so an idle run reads as
+    // running here however long it has been idle. Say what does settle it —
+    // `--close` is the operator recording the run as it is, and asks nothing.
+    const quietSeconds = Math.round(DEFAULTS.quietMs / 1000);
+    const ref = task.slug ?? task.runId;
+    const settlement = !fromHistory && snap.complete && !ev.carried && ev.state === "running" && ev.awaitingQuiet === true && !flags.close
+      ? `the run has not settled; run watch --run ${ref} with --max-seconds ${quietSeconds + 5} or more (${quietSeconds} s default quiet window) until it settles, then report --run ${ref} again; report --close records the current result without establishing settlement`
+      : null;
     const report = {
       date: new Date().toISOString().slice(0, 10), runId: task.runId, tag: task.tag, title: task.title, slug: task.slug, branch: task.branch ?? null, implementer: task.implementer ?? null, openRuns: open.filter((r) => r.runId !== task.runId).map((r) => r.slug ?? r.runId), project: cfg.projectDir, version: env?.version ?? context.server?.version ?? null,
-      lead: team?.lead.name ?? "unknown", leadModel: team?.lead.model ?? null, sentAt: task.sentAt ? new Date(task.sentAt).toISOString() : null, sentSha: task.sentSha, state: ev.state, carried: ev.carried === true, result,
+      lead: team?.lead.name ?? "unknown", leadModel: team?.lead.model ?? null, sentAt: task.sentAt ? new Date(task.sentAt).toISOString() : null, sentSha: task.sentSha, state: ev.state, carried: ev.carried === true, result, hint: settlement ?? undefined,
       historical: fromHistory, contextSource: context.source, unknown, failedChecks,
       threads, outcomes: snap.outcomes, commits, record, tests, reconcile: { clean: reconcile.clean, problems: reconcile.problems, defaultBranch: reconcile.defaultBranch }, mergedSha, ancestor, check042: checks, closing, decisions: null,
       nativeTools: [...new Set(nativeCalls(native).calls.map((c) => c.name))], durationSec: fromHistory ? task.report?.durationSec ?? null : task.sentAt ? Math.round((Date.now() - task.sentAt) / 1000) : null, closed: false,
@@ -155,6 +163,6 @@ verb("report", {
       report.closed = true; report.reReported = true;
     }
     const md = renderMarkdown(report);
-    return { code: result === "failed" ? EXIT.STALLED : EXIT.OK, ok: result !== "failed", result: { ...report, markdown: flags.md ? md : undefined }, brief: flags.md ? md : `report · ${task.title} · ${fromHistory ? "historical " : ""}${ev.state} · ${result}${report.closed ? " · run closed" : " · run left open"}${tests.ran ? ` · tests ${tests.ok ? "passed" : "FAILED"}` : ""}` };
+    return { code: result === "failed" ? EXIT.STALLED : EXIT.OK, ok: result !== "failed", result: { ...report, markdown: flags.md ? md : undefined }, brief: flags.md ? md : `report · ${task.title} · ${fromHistory ? "historical " : ""}${ev.state} · ${result}${report.closed ? " · run closed" : " · run left open"}${tests.ran ? ` · tests ${tests.ok ? "passed" : "FAILED"}` : ""}${settlement ? ` · ${settlement}` : ""}` };
   },
 });

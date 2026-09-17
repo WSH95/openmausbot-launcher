@@ -1774,6 +1774,16 @@ test and close their bead.
    wording assumed otherwise. The run's tail was read from its `runs[]` entry
    instead.
 
+**Follow-up, 2026-09-17 — a later reading of incident 6, not a new run.** No
+bot turns were spent; the behaviour was reproduced against the fake server,
+which is not evidence. Incident 6 was not a settlement defect: closing T14
+unmasked the bots it held, which changed T15's evidence once and correctly
+refused its stored `attention`, and the watches that followed asked for 8, 8,
+12 and 20 seconds against the 30 s quiet window, so each returned the one
+evaluation its own window had made. A watch that ends inside the window now
+reports the idle time it observed and the budget the window needs, and `report`
+names the watch that settles a run it leaves open (bead `oml-fg8`).
+
 ### Host watch proofs during the live run
 
 Both hosts were given one command each, while T14 was open and Quill's cards were
