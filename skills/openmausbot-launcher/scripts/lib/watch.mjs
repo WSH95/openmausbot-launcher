@@ -180,7 +180,9 @@ export async function watchRun({ client, team, task, runs = [], getRuns = null, 
   const controller = new AbortController();
   let streamDeadline = deadline;
   const expired = () => outOfBudget(deadline, controller.signal);
-  const deadlineTimer = setTimeout(wake, Math.max(0, deadline - performance.now()));
+  let deadlineFired = false;
+  const reachDeadline = () => { deadlineFired = true; wake(); };
+  const deadlineTimer = setTimeout(reachDeadline, Math.max(0, deadline - performance.now()));
   const invalidate = (kind) => {
     invalidations++;
     if (kind !== "other") relevant++;
@@ -413,16 +415,31 @@ export async function watchRun({ client, team, task, runs = [], getRuns = null, 
         }
       }
       redraws = 0;
-      const quietRemaining = quietSince === null || ev.quiet ? Infinity : Math.max(0, quietSince + quietMs - performance.now());
-      const waitMs = Math.min(pollMs, quietRemaining, Math.max(0, deadline - performance.now()));
+      // One clock read decides this wait, so the term that bounded it can be
+      // named afterwards from the operands themselves. The deadline wins exact
+      // ties, and a run already quiet has no quiet term at all.
+      const scheduledAt = performance.now();
+      const quietRemaining = quietSince === null || ev.quiet ? Infinity : Math.max(0, quietSince + quietMs - scheduledAt);
+      const untilDeadline = Math.max(0, deadline - scheduledAt);
+      const waitMs = Math.min(pollMs, quietRemaining, untilDeadline);
+      const deadlineBound = untilDeadline <= pollMs && untilDeadline <= quietRemaining;
       // A foreign wake received during the read is already scheduled. Do not
       // lose it by installing the waiter only after it has called wake().
       if (appliedInvalidations !== invalidations && snap.complete) continue;
+      let byTimer = false;
       await new Promise((resolve) => {
         let timer;
-        const done = () => { clearTimeout(timer); if (waiter === done) waiter = null; resolve(); };
-        timer = setTimeout(done, waitMs); waiter = done;
+        const wokeUp = (fromTimer) => { clearTimeout(timer); if (waiter === wokeUp) waiter = null; byTimer = fromTimer === true; resolve(); };
+        timer = setTimeout(wokeUp, waitMs, true); waiter = wokeUp;
       });
+      // Reaching the deadline in this wait is an observation boundary. Either
+      // timer can fire while `outOfBudget` still counts a whole millisecond as
+      // budget, and the read that millisecond starts cannot come back in time:
+      // it would replace a verified view with one that never verifies. Leave
+      // for the timeout path only when nothing arrived meanwhile — own,
+      // ownership, other and receipt events all count — and the local inputs
+      // are still the ones that view was read against.
+      if ((deadlineFired || (byTimer && deadlineBound)) && appliedInvalidations === invalidations && sameInputs()) break;
     }
     if (!snap) snap = await snapshot(client, { team, task, runs: allRuns, history }, { dataDir, deadline, signal: controller.signal });
     if (!current() || !ev || TERMINAL.has(ev.state)) return unverified("timeout", "observation deadline reached before verification");

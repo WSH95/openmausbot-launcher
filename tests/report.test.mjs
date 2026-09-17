@@ -680,15 +680,8 @@ test("after a sibling closes, a short watch says what budget the run needs and a
   let r = await runOmb(["report", "--run", "t11", "--project", dir, "--no-tests"], { env });
   assert.equal(r.json.state, "running", r.stdout); assert.equal(r.json.carried, false); assert.equal(r.json.closed, false);
   assert.match(r.json.hint, /^the run has not settled; run watch --run t11 with --max-seconds 35 or more/);
-  // A watch whose final wait wakes a millisecond early spends what is left of
-  // its budget on a read it cannot finish and returns an unverified timeout,
-  // which observed no quiet at all. Watch again rather than assert through it.
-  for (let attempt = 1; attempt <= 5; attempt++) {
-    r = await runOmb(["watch", "--run", "t11", "--project", dir, "--max-seconds", "4", "--poll", "1"], { env });
-    if (r.json.complete) break;
-    assert.ok(attempt < 5, `five short watches in a row verified nothing: ${r.stdout}`);
-  }
-  assert.equal(r.code, 4, r.stdout); assert.equal(r.json.state, "timeout");
+  r = await runOmb(["watch", "--run", "t11", "--project", dir, "--max-seconds", "4", "--poll", "1"], { env });
+  assert.equal(r.code, 4, r.stdout); assert.equal(r.json.state, "timeout"); assert.equal(r.json.complete, true);
   assert.ok(r.json.quietFor > 0, `the idleness it observed, not 0: ${r.json.quietFor}`);
   assert.match(r.json.reasons[0], /^idle for \d+ s when the watch budget ended; the 30 s quiet window was not confirmed$/);
   assert.equal(r.json.hint, "--max-seconds 4 cannot cover the 30 s quiet window; use 35 or more");

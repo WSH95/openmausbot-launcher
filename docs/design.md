@@ -511,6 +511,26 @@ Notifications are wake-ups only (a bot's notifications can be off,
    waiting for quiet carries the observed idle time, and a hint naming the
    budget the window needs only where that window alone would settle the run. Those two fields are output: they are outside the
    signature, so `--quiet-if-unchanged` and `--until change` do not see them.
+
+   Reaching the deadline in the idle wait is an observation boundary (bead
+   `oml-jc1`), in polling-only mode as well. Either the wait's own timer or the
+   absolute deadline timer can fire while `outOfBudget` still counts a whole
+   remaining millisecond as budget, and the read that millisecond starts
+   replaces the verified view with one that cannot come back in time. The loop
+   therefore leaves for the timeout path without another read when all of:
+   the wait ended by the deadline — its own timer fired and the deadline term
+   won the scheduling `Math.min` from one captured clock read, ties to the
+   deadline, or the absolute timer fired whatever bounded the wait; no
+   invalidation of any kind arrived meanwhile (own, ownership, other and
+   receipt events all count); and the local inputs are unchanged. Otherwise the
+   loop reads again exactly as before. Such a timeout therefore reports
+   `checkpointed: true` and its idle diagnostics instead of an unverified line,
+   and `--quiet-if-unchanged` can be silent where it used to print; a last read
+   that would have found a change or a terminal state is skipped, and the next
+   watch sees it. `finish()`'s guards, the live subscriptions during the
+   checkpoint wait and the final freshness checks are unchanged, so the
+   boundary never promotes elapsed quiet to a verdict, authorizes a nudge, or
+   preserves a pre-nudge observation.
 6. A verified non-dry return attempts a checkpoint with at most a one-second
    lock wait, while the stream and receipt watcher remain subscribed. A
    freshness guard runs under the lock before writing, after the checkpoint
