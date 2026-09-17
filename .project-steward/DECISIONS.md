@@ -264,7 +264,11 @@ a config write, so a preview cannot print one. With no value the verb exits
 consequence to accept: `PUT /api/config` persists the credential in the
 server's own `config.json` (`config.ts:570-633`), so providing one from here
 changes a machine-wide setting, not only that card — which is why the save
-and the card are reported separately when the second step fails.
+and the card are reported separately when the second step fails. That failure
+is recovered with `answer --resume`, never by asking for the credential
+again: neither card route carries a value, `provided` only checks that the
+credential is configured, and resuming an already-resumed card returns at
+once (`index.ts:12197-12206`, `:6838-6842`).
 
 `boxToken` is refused with exit 3 and pointed at the app. Saving it makes
 the server list and verify the cloud computers on that account and fail the

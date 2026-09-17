@@ -374,11 +374,11 @@ export async function snapshot(client, state, { dataDir = null, runtimeTrusted =
   }
   const stamps = runs.map((r) => r.sentAt).filter((v) => typeof v === "number");
   const sentAt = stamps.length ? Math.min(...stamps) : null;
-  // A connection whose account is live no longer needs the user, so it is not
-  // pending — but until its bot has been resumed it is still the one thing
-  // `answer --resume` acts on, and its siblings decide whether that resume is
-  // allowed (index.ts:6687-6697). Keep it beside the pending set, out of the
-  // evaluation, so a request id can still reach it.
+  // A connection whose account is live, or a credential already saved, no
+  // longer needs the user, so neither is pending — but until the bot has been
+  // told, each is the one thing `answer --resume` acts on (index.ts:6687-6697,
+  // 6838-6853). Keep them beside the pending set, out of the evaluation, so a
+  // request id can still reach them.
   const pendingAll = []; const resumableAll = []; const tails = new Map(); const seenCards = new Set(); let failedTails = 0;
   await Promise.all([...threadOwners].map(async ([threadId, botId]) => {
     const tail = await get(`thread ${threadId}`, async () => {
@@ -397,7 +397,8 @@ export async function snapshot(client, state, { dataDir = null, runtimeTrusted =
     for (const m of tail) {
       if (m.card || m.connector || m.secret) seenCards.add(cardKeyOf(pendingMessage(m, { threadId, botId, botName })));
       if (messageNeedsInput(m)) pendingAll.push(pendingMessage(m, { threadId, botId, botName }));
-      else if (m.connector && m.connector.status === "connected" && !m.connector.resumed && !m.connector.dismissed) resumableAll.push(pendingMessage(m, { threadId, botId, botName }));
+      else if ((m.connector && m.connector.status === "connected" && !m.connector.resumed && !m.connector.dismissed)
+        || (m.secret && m.secret.provided && !m.secret.resumed && !m.secret.dismissed)) resumableAll.push(pendingMessage(m, { threadId, botId, botName }));
     }
   }));
   for (const run of ownershipRuns) for (const [key, card] of Object.entries(run.cards ?? {})) {
@@ -641,8 +642,10 @@ export function brief(ev, snap, task, now = Date.now()) {
       // bot (index.ts:12255-12276) — not another trip to the provider.
       if (p?.kind === "connector") return `${slug} · CONNECT · ${p.botName} needs ${p.connector?.label ?? p.connector?.slug}${p.connector?.alias ? ` (${p.connector.alias})` : ""} (${p.connector?.status}) → omb answer ${["authorizing", "connected"].includes(p.connector?.status) ? "--resume" : "--connect"} --request ${id}`;
       // The value is named, never shown: it reaches the driver through the
-      // environment or stdin, so the line says where to put it.
-      if (p?.kind === "secret") return `${slug} · CREDENTIAL · ${p.botName} needs the ${p.secret?.label ?? p.secret?.target} → OMB_SECRET=… omb answer --provide --request ${id} | --dismiss`;
+      // environment or stdin, so the line says where to put it. A card that
+      // carries an error was settled and only its wake failed, so that one can
+      // be retried with no value at all (index.ts:6767-6773).
+      if (p?.kind === "secret") return `${slug} · CREDENTIAL · ${p.botName} needs the ${p.secret?.label ?? p.secret?.target} → OMB_SECRET=… omb answer --provide --request ${id}${p.secret?.error ? " | --resume" : ""} | --dismiss`;
       if (p?.kind === "waiting") return `${slug} · NEEDS YOU · ${p.botName} is waiting on you → read its chat`;
       return `${slug} · NEEDS YOU · ${p?.botName ?? lead} has a ${p?.kind ?? "request"} the driver cannot answer → open the app`;
     }

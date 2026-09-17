@@ -884,6 +884,17 @@ export async function createFake(opts = {}) {
           secret: { target, label: spec.label, description: reason ? `${spec.description} ${reason}` : spec.description, placeholder: spec.placeholder, helpUrl: spec.helpUrl, requestKey: newId() },
         }) };
       }
+      // The wake after a saved credential can fail on its own; the card then
+      // keeps the error, provided but unresumed. S: index.ts:6767-6773.
+      case "secretResumeFailed": {
+        for (const list of state.threads.values()) {
+          const message = list.find((m) => m.id === op.messageId && m.kind === "secret");
+          if (!message) continue;
+          message.secret = { ...message.secret, provided: op.outcome !== "dismissed", dismissed: op.outcome === "dismissed", resumed: false, error: String(op.error ?? "the turn could not be started").slice(0, 180) };
+          return { secret: message.secret };
+        }
+        throw Object.assign(new Error("no such credential request"), { status: 404 });
+      }
       case "providerBusy": state.providerBusy = op.busy !== false; return; // S: index.ts:11679
       case "phoneSaving": { // S: index.ts:12191-12195
         if (op.saving === false) state.phoneSaving.delete(op.messageId); else state.phoneSaving.add(op.messageId);

@@ -85,16 +85,22 @@ test('the connection brief names the step that is actually next for that status'
   assert.equal(line('c3'), 'run · CONNECT · Worker needs Slack (connected) → omb answer --resume --request c3');
 });
 
-test('a connected connection card stays selectable for its resume even though it needs no input', async () => {
+test('a settled card whose bot has not been told stays selectable even though it needs no input', async () => {
+  const secret = (id, over) => ({ id, at: 1600, role: 'bot', kind: 'secret', secret: { target: 'ttsKey', label: 'ElevenLabs API key', description: 'd', placeholder: 'p', helpUrl: 'h', requestKey: 'k', ...over } });
   const cards = [
     { id: 'c1', at: 1500, role: 'bot', kind: 'connector', connector: { slug: 'slack', label: 'Slack', description: 'Connect Slack', status: 'connected', resumeKey: 'rk' } },
     { id: 'c2', at: 1501, role: 'bot', kind: 'connector', connector: { slug: 'github', label: 'GitHub', description: 'Connect GitHub', status: 'required', resumeKey: 'rk' } },
     { id: 'c3', at: 1502, role: 'bot', kind: 'connector', connector: { slug: 'notion', label: 'Notion', description: 'Connect Notion', status: 'connected', resumed: true, resumeKey: 'other' } },
+    secret('s1', { provided: true, resumed: false, error: 'the bot was busy' }),
+    secret('s2', { provided: true, resumed: true }),
+    secret('s3', { dismissed: true, resumed: false }),
   ];
   const snap = await monitoring.snapshot(scripted({ threads: { lt: [user, done], wt: cards } }), { team, task });
-  assert.deepEqual(snap.pending.map((p) => p.handle), ['c2'], 'only an unfinished connection needs the user');
-  assert.deepEqual(snap.resumable.map((p) => p.handle), ['c1'], 'a connected card that has not resumed its bot is still actionable');
+  assert.deepEqual(snap.pending.map((p) => p.handle), ['c2'], 'only an unfinished request needs the user');
+  assert.deepEqual(snap.resumable.map((p) => p.handle), ['c1', 's1'], 'a settled card whose bot was never woken is still actionable');
   assert.equal(snap.resumable[0].connector.resumeKey, 'rk');
+  const line = monitoring.brief(monitoring.evaluate({ ...snap, pending: [snap.resumable[1]] }, task, { now: 100_000, quiet: { since: 0 }, quietMs: 1 }), snap, task, 100_000);
+  assert.equal(line, 'run · CREDENTIAL · Worker needs the ElevenLabs API key → OMB_SECRET=… omb answer --provide --request s1 | --resume | --dismiss', 'a card whose wake failed can be retried without the value');
 });
 
 test('lead hydration reaches run boundary beyond the old ten page cap', async () => {

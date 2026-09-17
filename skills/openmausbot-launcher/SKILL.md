@@ -220,8 +220,11 @@ line. Relay the lead's own words; do not paraphrase decisions.
   `OMB_SECRET='…' omb answer --provide --request <messageId>`, or pipe it with
   `--secret-stdin`. Never put it in the command line, in chat, or in your own
   notes; the driver sends it to the server's settings and tells the card, and
-  the value appears in no output. `--dismiss` lets the bot continue without
-  it. `boxToken` is refused here: provide it in the app.
+  the value appears in no output. If the save lands but the card does not,
+  `omb answer --resume --request <messageId>` finishes it — that route carries
+  no value, so you never ask the user for the credential twice. `--dismiss`
+  lets the bot continue without it. `boxToken` is refused here: provide it in
+  the app.
 - A connected app: `omb answer --connect --request <messageId>` returns a link
   once, for the user to open (exit 5). When they are done,
   `omb answer --resume --request <messageId>`; one request can ask for several

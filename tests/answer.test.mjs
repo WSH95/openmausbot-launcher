@@ -175,7 +175,7 @@ test("a connection and a credential card are named by the message they arrived o
   assert.equal(r.code, 2, r.stdout); assert.match(r.json.error, /is a connection request: use --connect, --resume or --dismiss/);
   const secret = await f.control({ op: "secret", threadId: novaThread, target: "ttsKey" });
   r = await runOmb(["answer", "--allow", "--request", secret.message.id, "--project", dir], { env });
-  assert.equal(r.code, 2, r.stdout); assert.match(r.json.error, /is a credential request: use --provide or --dismiss/);
+  assert.equal(r.code, 2, r.stdout); assert.match(r.json.error, /is a credential request: use --provide, --resume or --dismiss/);
 });
 
 test("credential: the value reaches the server through the environment or stdin and appears nowhere else", async (t) => {
@@ -226,16 +226,54 @@ test("credential: a Box token is refused, a dismissal wakes the bot, and a save 
   r = await runOmb(["answer", "--dismiss", "--request", box.message.id, "--project", dir], { env });
   assert.equal(r.code, 0, r.stdout); assert.equal(r.json.dismissed, true); assert.equal(r.json.resumed, true); assert.equal(r.json.woken, true);
   assert.equal((await f.snapshot()).wakes.filter((w) => w.kind === "secret").length, 1, "declining is an answer too: the bot continues without it");
+  const VALUE = "opencode-0f2a-never-log-me";
   const card = await f.control({ op: "secret", threadId: lt, target: "opencodeGoApiKey" });
   await f.control({ op: "phoneSaving", messageId: card.message.id, saving: true });
-  r = await runOmb(["answer", "--provide", "--request", card.message.id, "--project", dir], { env: { ...env, OMB_SECRET: "opencode-key" } });
+  r = await runOmb(["answer", "--provide", "--request", card.message.id, "--project", dir], { env: { ...env, OMB_SECRET: VALUE } });
   assert.equal(r.code, 3, r.stdout);
   assert.match(r.json.error, /OpenCode API key was saved, the card was not resumed: this credential is currently being saved from a phone/);
-  assert.match(r.json.hint, /the value is stored on the server now/);
+  assert.match(r.json.hint, new RegExp(`the value is stored on the server now; omb answer --resume --request ${card.message.id} resumes the card without the value`));
   assert.equal((await (await fetch(`${f.url}/api/config`)).json()).opencodeGo.configured, true, "the save happened; only the card is behind");
+  for (const text of [r.stdout, r.stderr, JSON.stringify(await f.snapshot()), fs.readFileSync(path.join(dir, ".omb", "state.json"), "utf8"), JSON.stringify(await thread(f, lt))]) {
+    assert.equal(text.includes(VALUE), false, "a half-finished provide leaks the value no more than a finished one");
+  }
   await f.control({ op: "phoneSaving", messageId: card.message.id, saving: false });
-  r = await runOmb(["answer", "--provide", "--request", card.message.id, "--project", dir], { env: { ...env, OMB_SECRET: "opencode-key" } });
-  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.resumed, true);
+  r = await runOmb(["answer", "--resume", "--request", card.message.id, "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout);
+  assert.equal(r.json.provided, true); assert.equal(r.json.resumed, true); assert.equal(r.json.woken, true);
+  assert.equal((await f.snapshot()).wakes.filter((w) => w.kind === "secret").length, 2, "the credential was never asked for a second time");
+});
+
+test("credential: --resume retries the card, and says where the value is when the server never got one", async (t) => {
+  const { f, dir } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const lt = run.json.leadThreadId;
+  const posts = [];
+  f.server.on("request", (req) => { if (req.method === "POST" && req.url.includes("/secret-cards/")) posts.push(req.url.split("/").pop()); });
+  const unsaved = await f.control({ op: "secret", threadId: lt, target: "ttsKey" });
+  let r = await runOmb(["answer", "--resume", "--request", unsaved.message.id, "--project", dir], { env });
+  assert.equal(r.code, 3, r.stdout); assert.equal(r.json.status, 409);
+  assert.equal(r.json.error, "ElevenLabs API key was not saved yet");
+  assert.match(r.json.hint, new RegExp(`OMB_SECRET=… omb answer --provide --request ${unsaved.message.id}`));
+  assert.deepEqual(posts, ["provided"], "an unresumed card is retried through provided, which needs no value");
+  r = await runOmb(["answer", "--provide", "--request", unsaved.message.id, "--project", dir], { env: { ...env, OMB_SECRET: "eleven-labs-key" } });
+  assert.equal(r.code, 0, r.stdout);
+  // The wake itself can fail after the card was already marked provided
+  // (S: server/index.ts:6767-6773); the card then holds the error, unresumed.
+  await f.control({ op: "secretResumeFailed", messageId: unsaved.message.id, error: "the bot was busy" });
+  r = await runOmb(["status", "--project", dir], { env });
+  assert.equal(r.json.pending.length, 0, "a provided credential needs nothing more from the user");
+  r = await runOmb(["answer", "--resume", "--request", unsaved.message.id, "--project", dir, "--dry-run"], { env });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.dryRun, true); assert.equal(r.json.action, "resume");
+  r = await runOmb(["answer", "--resume", "--request", unsaved.message.id, "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.resumed, true); assert.equal(r.json.provided, true);
+  assert.deepEqual(posts.slice(-1), ["resume"], "a card that is already provided retries only the wake");
+  assert.equal((await f.snapshot()).wakes.filter((w) => w.kind === "secret").length, 2);
+  await f.control({ op: "token", token: "omb_sess_client", scopes: ["client"] });
+  const another = await f.control({ op: "secret", threadId: lt, target: "openaiImageApiKey" });
+  r = await runOmb(["answer", "--resume", "--request", another.message.id, "--project", dir], { env: { ...env, OMB_TOKEN: "omb_sess_client" } });
+  assert.equal(r.code, 5, r.stdout);
+  assert.equal(r.json.error, "forbidden: this session lacks the admin scope", "confirming a saved credential is the owner's step");
 });
 
 test("OMB_SECRET never reaches a server this launcher starts", () => {

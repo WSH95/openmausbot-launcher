@@ -35,7 +35,7 @@ const KINDS = {
   // rejects the staged write (index.ts:6470-6504), so `--message` would throw
   // the skill away while reading like a comment.
   skill: { label: "a learned-skill card", accepts: ["allow", "deny"], use: "--allow --reviewed <sha256> or --deny; a message would reject the skill" },
-  secret: { label: "a credential request", accepts: ["provide", "dismiss"], use: "--provide or --dismiss" },
+  secret: { label: "a credential request", accepts: ["provide", "resume", "dismiss"], use: "--provide, --resume or --dismiss" },
   connector: { label: "a connection request", accepts: ["connect", "resume", "dismiss"], use: "--connect, --resume or --dismiss" },
 };
 
@@ -221,6 +221,28 @@ async function secret(client, cfg, target, mode, flags) {
     // (index.ts:6781).
     return { result: { ...base, dismissed: res.dismissed === true, resumed: res.resumed === true, woken: true }, brief: `answer · ${target.botName} · declined the ${label}` };
   }
+  if (mode === "resume") {
+    // Neither route carries a value. `provided` only checks that the
+    // credential is configured and then resumes, and resuming a card that is
+    // already resumed is a no-op (`index.ts:12197-12206`, `:6838-6842`), so a
+    // card that was saved but never woken is retried without asking the user
+    // for the secret a second time. Once its own flag is set, only the wake is
+    // left, and that is what `/resume` retries (`:12208-12222`).
+    const settled = card.provided === true || card.dismissed === true;
+    const action = settled ? "resume" : "provided";
+    if (cfg.dryRun) return { result: { dryRun: true, ...base, action, would: [`POST ${route(action)}`] } };
+    let res;
+    try { res = await client.post(route(action), { threadId: target.threadId }); }
+    catch (e) {
+      throw refused(e, /was not saved yet/.test(e.body?.error ?? "")
+        ? `the server has no value for this credential: OMB_SECRET=… omb answer --provide --request ${target.messageId}`
+        : `the card was not resumed; answer --dismiss --request ${target.messageId} lets the bot continue without it`);
+    }
+    return {
+      result: { ...base, provided: res.provided === true || card.provided === true, resumed: res.resumed === true, woken: true },
+      brief: `answer · ${target.botName} · ${label} resumed`,
+    };
+  }
   const patch = CREDENTIAL_PATCH[card.target];
   if (!patch) throw new Fail(EXIT.NEEDS_USER, `the driver does not know where to store ${card.target}`, { hint: "provide it in OpenMausBot's app" });
   // Saving a Box token makes the server inventory the cloud computers that
@@ -241,7 +263,7 @@ async function secret(client, cfg, target, mode, flags) {
   } catch (e) {
     throw new Fail(EXIT.PRECONDITION, `the ${label} was saved, the card was not resumed: ${e.body?.error ?? e.message}`, {
       status: e.status,
-      hint: `the value is stored on the server now; run the same --provide again once that clears, or answer --dismiss --request ${target.messageId} to let the bot continue without it`,
+      hint: `the value is stored on the server now; omb answer --resume --request ${target.messageId} resumes the card without the value, or answer --dismiss --request ${target.messageId} lets the bot continue without it`,
     });
   }
 }
