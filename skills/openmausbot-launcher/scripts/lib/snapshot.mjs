@@ -397,8 +397,11 @@ export async function snapshot(client, state, { dataDir = null, runtimeTrusted =
     for (const m of tail) {
       if (m.card || m.connector || m.secret) seenCards.add(cardKeyOf(pendingMessage(m, { threadId, botId, botName })));
       if (messageNeedsInput(m)) pendingAll.push(pendingMessage(m, { threadId, botId, botName }));
+      // A declined credential is settled as much as a provided one, and the
+      // server resumes either (index.ts:12208-12222), so a decline whose wake
+      // failed is actionable too.
       else if ((m.connector && m.connector.status === "connected" && !m.connector.resumed && !m.connector.dismissed)
-        || (m.secret && m.secret.provided && !m.secret.resumed && !m.secret.dismissed)) resumableAll.push(pendingMessage(m, { threadId, botId, botName }));
+        || (m.secret && (m.secret.provided || m.secret.dismissed) && !m.secret.resumed)) resumableAll.push(pendingMessage(m, { threadId, botId, botName }));
     }
   }));
   for (const run of ownershipRuns) for (const [key, card] of Object.entries(run.cards ?? {})) {

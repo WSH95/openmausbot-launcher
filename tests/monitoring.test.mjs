@@ -93,11 +93,11 @@ test('a settled card whose bot has not been told stays selectable even though it
     { id: 'c3', at: 1502, role: 'bot', kind: 'connector', connector: { slug: 'notion', label: 'Notion', description: 'Connect Notion', status: 'connected', resumed: true, resumeKey: 'other' } },
     secret('s1', { provided: true, resumed: false, error: 'the bot was busy' }),
     secret('s2', { provided: true, resumed: true }),
-    secret('s3', { dismissed: true, resumed: false }),
+    secret('s3', { dismissed: true, resumed: false, error: 'the bot was busy' }),
   ];
   const snap = await monitoring.snapshot(scripted({ threads: { lt: [user, done], wt: cards } }), { team, task });
   assert.deepEqual(snap.pending.map((p) => p.handle), ['c2'], 'only an unfinished request needs the user');
-  assert.deepEqual(snap.resumable.map((p) => p.handle), ['c1', 's1'], 'a settled card whose bot was never woken is still actionable');
+  assert.deepEqual(snap.resumable.map((p) => p.handle), ['c1', 's1', 's3'], 'a settled card whose bot was never woken is still actionable, declined as much as provided');
   assert.equal(snap.resumable[0].connector.resumeKey, 'rk');
   const line = monitoring.brief(monitoring.evaluate({ ...snap, pending: [snap.resumable[1]] }, task, { now: 100_000, quiet: { since: 0 }, quietMs: 1 }), snap, task, 100_000);
   assert.equal(line, 'run · CREDENTIAL · Worker needs the ElevenLabs API key → omb answer --provide --secret-stdin --request s1 < <file the user wrote> | --resume | --dismiss', 'the command names a file, never a value; a card whose wake failed can also be retried without one');

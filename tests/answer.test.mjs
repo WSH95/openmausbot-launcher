@@ -271,6 +271,16 @@ test("credential: --resume retries the card, and says where the value is when th
   assert.equal(r.code, 0, r.stdout); assert.equal(r.json.resumed, true); assert.equal(r.json.provided, true);
   assert.deepEqual(posts.slice(-1), ["resume"], "a card that is already provided retries only the wake");
   assert.equal((await f.snapshot()).wakes.filter((w) => w.kind === "secret").length, 2);
+  // A decline is settled too, and its wake can fail the same way; the server
+  // resumes a dismissed card as readily as a provided one (`:12208-12222`).
+  const declined = await f.control({ op: "secret", threadId: lt, target: "opencodeGoApiKey" });
+  r = await runOmb(["answer", "--dismiss", "--request", declined.message.id, "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout);
+  await f.control({ op: "secretResumeFailed", messageId: declined.message.id, outcome: "dismissed", error: "the bot was busy" });
+  r = await runOmb(["status", "--project", dir], { env });
+  assert.equal(r.json.pending.length, 0);
+  r = await runOmb(["answer", "--resume", "--request", declined.message.id, "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.resumed, true); assert.equal(r.json.provided, false);
   await f.control({ op: "token", token: "omb_sess_client", scopes: ["client"] });
   const another = await f.control({ op: "secret", threadId: lt, target: "openaiImageApiKey" });
   r = await runOmb(["answer", "--resume", "--request", another.message.id, "--project", dir], { env: { ...env, OMB_TOKEN: "omb_sess_client" } });
