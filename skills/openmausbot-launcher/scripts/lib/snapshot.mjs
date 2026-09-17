@@ -636,7 +636,10 @@ export function brief(ev, snap, task, now = Date.now()) {
       // never the preview: the preview is read to the user from `pending[]`.
       if (p?.kind === "card" && p.cardKind === "skill") return `${slug} · SKILL · ${p.botName}: ${summarize(p.title, 80)} sha256 ${String(p.skillRequest?.sha256 ?? "").slice(0, 8)}… → omb answer --allow --reviewed ${p.skillRequest?.sha256} --request ${id} | --deny`;
       if (p?.kind === "card" && p.cardKind === "routine") return `${slug} · ROUTINE · ${p.botName}: ${summarize(p.title, 100)} → omb answer --confirm --request ${id} | --cancel`;
-      if (p?.kind === "connector") return `${slug} · CONNECT · ${p.botName} needs ${p.connector?.label ?? p.connector?.slug}${p.connector?.alias ? ` (${p.connector.alias})` : ""} (${p.connector?.status}) → omb answer --connect --request ${id}`;
+      // Once the link has been handed over the card reads `authorizing`, and
+      // what is missing is the status read that refreshes it and resumes the
+      // bot (index.ts:12255-12276) — not another trip to the provider.
+      if (p?.kind === "connector") return `${slug} · CONNECT · ${p.botName} needs ${p.connector?.label ?? p.connector?.slug}${p.connector?.alias ? ` (${p.connector.alias})` : ""} (${p.connector?.status}) → omb answer ${["authorizing", "connected"].includes(p.connector?.status) ? "--resume" : "--connect"} --request ${id}`;
       // The value is named, never shown: it reaches the driver through the
       // environment or stdin, so the line says where to put it.
       if (p?.kind === "secret") return `${slug} · CREDENTIAL · ${p.botName} needs the ${p.secret?.label ?? p.secret?.target} → OMB_SECRET=… omb answer --provide --request ${id} | --dismiss`;

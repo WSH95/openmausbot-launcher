@@ -73,6 +73,18 @@ test('every pending kind carries a handle and a brief that names its own answer 
   for (const i of [0, 3]) assert.equal(/# release-notes|xai-|Grok/.test(line(i)), false, 'a brief never carries a skill preview or anything that looks like a value');
 });
 
+test('the connection brief names the step that is actually next for that status', async () => {
+  const at = (i, status) => ({ id: `c${i}`, at: 1500 + i, role: 'bot', kind: 'connector', connector: { slug: 'slack', label: 'Slack', description: 'Connect Slack', status, resumeKey: `rk${i}` } });
+  const statuses = ['required', 'authorizing', 'failed', 'connected'];
+  const snap = await monitoring.snapshot(scripted({ threads: { lt: [user, done], wt: statuses.map((s, i) => at(i, s)) } }), { team, task });
+  const entries = [...snap.pending, ...snap.resumable];
+  const line = (handle) => monitoring.brief(monitoring.evaluate({ ...snap, pending: [entries.find((p) => p.handle === handle)] }, task, { now: 100_000, quiet: { since: 0 }, quietMs: 1 }), snap, task, 100_000);
+  assert.equal(line('c0'), 'run · CONNECT · Worker needs Slack (required) → omb answer --connect --request c0');
+  assert.equal(line('c1'), 'run · CONNECT · Worker needs Slack (authorizing) → omb answer --resume --request c1', 'the link was already handed over; the status read is the next step');
+  assert.equal(line('c2'), 'run · CONNECT · Worker needs Slack (failed) → omb answer --connect --request c2');
+  assert.equal(line('c3'), 'run · CONNECT · Worker needs Slack (connected) → omb answer --resume --request c3');
+});
+
 test('a connected connection card stays selectable for its resume even though it needs no input', async () => {
   const cards = [
     { id: 'c1', at: 1500, role: 'bot', kind: 'connector', connector: { slug: 'slack', label: 'Slack', description: 'Connect Slack', status: 'connected', resumeKey: 'rk' } },
