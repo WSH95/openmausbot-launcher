@@ -3,6 +3,13 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-17 — Codex loopback profile integrated into main
+The user chose local integration. `main` fast-forwarded from `c156e59` to
+`20ac090`, including feature commit `06c28e6`. The merged tree passed all
+404 tests under `omb-loopback-dev` in 104.512 s. The clean feature worktree
+was removed, its fully merged branch was deleted with `git branch -d`, and
+nothing was pushed. Bead `oml-9mc` remains closed.
+
 ### 2026-09-17 — portable Codex loopback profile (code and host probe, no bot turns)
 The installed skill now includes an opt-in Codex permission profile that
 extends `:workspace` and allows only `127.0.0.1` and `localhost`; it never

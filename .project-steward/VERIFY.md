@@ -23,6 +23,11 @@ and HTTP contract run passed 14/14; the final documentation and skill
 contract run passed 9/9. `git diff --check` was clean and `SKILL.md` was 349
 lines, below its 500-line limit.
 
+After the local fast-forward, the same full command ran again on
+`main` at `20ac090`: **404 passed, 0 failed, 0 skipped** in 104.512 s. The
+feature worktree and its fully merged branch were removed only after this
+green post-merge run.
+
 The consumer template also loaded from a clean temporary `CODEX_HOME` in
 Codex CLI 0.154.0. A sandboxed Node probe imported the real HTTP client,
 listened on and called an ephemeral `127.0.0.1` port, and confirmed that an
