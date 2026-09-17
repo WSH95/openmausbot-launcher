@@ -10,8 +10,24 @@ import { openRuns } from "../runs.mjs";
 import { gitAvailable, gitTopLevel, gitPath } from "../git.mjs";
 import * as srv from "../server.mjs";
 import { scanOrphans } from "../proc.mjs";
+import { membership, foreignFolders, cap } from "../others.mjs";
 
 const num = (v, d) => (v === undefined ? d : Number(v));
+
+// What `up` says about a server it shares. This reports configuration, not
+// activity: an empty list does not prove the server is unshared (a bot can have
+// no folder at all, and two projects can share ids), and a failed read is
+// unknown rather than empty. None of it is persisted.
+const SHARED_ATTACHED = "the server also carries bots configured for other folders: a free port pair with --data-dir <dir>, or --fresh, gives this project a server of its own";
+const SHARED_OWNED = "the server also carries bots configured for other folders: a server of its own means resolving this ownership first, normally after the other work finishes and down succeeds";
+
+async function sharedServer(client, cfg, environmentId) {
+  let fleet;
+  try { fleet = await client.get("/api/bots?messages=0"); } catch { return { otherConfiguredFoldersKnown: false }; }
+  const { ours } = membership(cfg.state, environmentId);
+  const folders = foreignFolders(fleet, { projectDir: cfg.projectDir, ours });
+  return { otherConfiguredFoldersKnown: true, otherConfiguredFolders: cap(folders), otherConfiguredFolderCount: folders.length };
+}
 
 /** `[session] auto_handoff_mode` from a Project Steward config.toml, if the file exists. */
 export function stewardHookMode(projectDir) {
@@ -113,7 +129,11 @@ verb("up", {
       const v = await srv.verifyOwned(recorded, client);
       if (v.ok) {
         if (flags.fresh) throw new Fail(EXIT.PRECONDITION, "a server this launcher owns is running", { hint: "run down first, then up --fresh" });
-        return { result: { status: "owned", changed: false, ...recorded }, brief: `up · owned · ${url} · pid ${recorded.healthPid} · unchanged` };
+        // A server can acquire other users after its first startup, so the
+        // unchanged answer reports them too.
+        const shared = await sharedServer(client, cfg, recorded.environmentId);
+        const withOthers = shared.otherConfiguredFolderCount > 0;
+        return { result: { status: "owned", changed: false, ...recorded, ...shared, ...(withOthers ? { hint: SHARED_OWNED } : {}) }, brief: `up · owned · ${url} · pid ${recorded.healthPid} · unchanged${withOthers ? " · shared" : ""}` };
       }
     }
     const h = await srv.health(client);
@@ -121,9 +141,12 @@ verb("up", {
       if (flags.fresh) throw new Fail(EXIT.PRECONDITION, `port ${port} is in use by a server this launcher does not own`, { hint: "choose another --port or drop --fresh to attach" });
       const identity = await serverIdentity({ ...cfg, url }, client);
       const server = { url, owned: false, healthPid: identity.healthPid, healthStart: identity.healthStart, environmentId: identity.environmentId, dataDir: cfg.dataDirReadable ? cfg.dataDir : null, version: identity.version ?? null, attachedAt: new Date().toISOString() };
-      if (cfg.dryRun) return { result: { dryRun: true, status: "attached", changed: false, ...server }, brief: `up · dry run · would attach ${url}` };
+      const shared = await sharedServer(client, cfg, identity.environmentId);
+      const withOthers = shared.otherConfiguredFolderCount > 0;
+      const seen = { ...shared, ...(withOthers ? { hint: SHARED_ATTACHED } : {}) };
+      if (cfg.dryRun) return { result: { dryRun: true, status: "attached", changed: false, ...server, ...seen }, brief: `up · dry run · would attach ${url}${withOthers ? " · shared" : ""}` };
       await save( (doc) => { doc.server = server; return doc; });
-      return { result: { status: "attached", changed: true, ...server }, brief: `up · attached · ${url} · pid ${h.pid}` };
+      return { result: { status: "attached", changed: true, ...server, ...seen }, brief: `up · attached · ${url} · pid ${h.pid}${withOthers ? " · shared" : ""}` };
     }
     if (!srv.hasProc()) throw new Fail(EXIT.PRECONDITION, "starting a server needs Linux (/proc identities)", { hint: "start openmausbot serve yourself, then run up to attach" });
     const bin = resolveBinary(cfg.env);
@@ -132,7 +155,7 @@ verb("up", {
     // The server takes two consecutive ports (server/index.ts:319-320, cli.ts:438); refuse before any spawn or directory.
     if (!cfg.dryRun && !(await srv.portFree(port + 1))) throw new Fail(EXIT.PRECONDITION, `port ${port + 1} is in use; OpenMausBot binds ${port}+1 for its webhook receiver (server/index.ts:320, cli.ts:438)`, { hint: "choose a port whose neighbour is free" });
     if (flags.fresh && !cfg.dryRun) dataDir = srv.freshDataDir(baseDataDir);
-    const log = srv.serveLogPath(dataDir);
+    const log = srv.serveLogPath(dataDir, { dryRun: cfg.dryRun });
     const timeoutMs = num(flags.timeout, 60) * 1000;
     if (cfg.dryRun) {
       const args = [...bin.command, "serve", "--port", String(port), "--data-dir", dataDir, "--no-pair", ...(flags.label ? ["--label", flags.label] : [])];
@@ -142,6 +165,15 @@ verb("up", {
     const healthy = await srv.waitHealthy(client, timeoutMs, sp.isDead);
     if (!healthy) {
       const tail = srv.logTail(log);
+      // Only this attempt's log is read, so a refusal belongs to this startup
+      // and not to whoever wrote into the directory before it.
+      const lease = srv.leaseRefusal(log);
+      if (lease) {
+        throw new Fail(EXIT.PRECONDITION, `data directory ${dataDir} is in use by ${lease.by}`, {
+          hint: `attach to that server with up --port <its port>, or give this project its own --data-dir or --fresh`,
+          log: tail,
+        });
+      }
       const sandboxLine = srv.logMatch(log, srv.SANDBOX_RE);
       throw new Fail(EXIT.ERROR, sp.isDead() ? "the server exited during startup" : `no health answer from ${url} within ${timeoutMs / 1000} s`, {
         hint: sandboxLine ? `the shell's sandbox blocks listening sockets (${log}: ${sandboxLine}): run up with escalation outside the sandbox, or start the server elsewhere and run up to attach` : `see ${log}`,

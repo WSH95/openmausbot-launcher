@@ -83,13 +83,13 @@ than none: the hook fires in a degenerate state (dev pack `HANDOFF.md`,
   processes whose cwd is under `<project>/.worktrees/` and gone.
 - Codex's `workspace-write` sandbox denies listening sockets, so `omb up`
   there dies in about 236 ms with `listen EPERM: operation not permitted
-  127.0.0.1:<port>` in `serve.log` — twice, the webhook receiver on `port + 1`
+  127.0.0.1:<port>` in that startup's log file — twice, the webhook receiver on `port + 1`
   first and the API port second, followed by a 14-line Node stack ending in
   `code: 'EPERM'`, `syscall: 'listen'`, `port: <port>` (this repository's
   `docs/evidence.md`, 2026-09-08; review fixture
-  `codex-ww-data-20260908T110446-DLKtHf/serve.log`, 25 lines). `up` scans the
-  whole log for that signature and names the first matching line in its hint;
-  the 12-line `log` field is display only. This is the default sandbox mode's
+  `codex-ww-data-20260908T110446-DLKtHf/serve.log`, 25 lines). `up` scans that
+  spawn's own log for the signature and names the first matching line in its
+  hint; the 12-line `log` field is display only. This is the default sandbox mode's
   behaviour, not a requirement to grant full access: the skill ships an
   opt-in `assets/codex/omb-loopback.config.toml` profile that extends
   `:workspace` and permits only `127.0.0.1` and `localhost`. The same default
@@ -144,6 +144,35 @@ receiver (`index.ts:319-320`, `cli.ts:438`). `up --port N` refuses (exit 3)
 when `N + 1` is taken, and a live verb pointed at a receiver port reports
 `<url> is an OpenMausBot webhook receiver; its API is on port N-1` instead of
 a bare 404. Space servers two ports apart: 8893 and 8895, never 8893 and 8894.
+
+### One server per project, and what a shared one costs
+
+Nothing in the defaults separates two projects: without a flag, a saved state
+or an environment override they all use `127.0.0.1:8799` and `~/.openmausbot`,
+so the second `up` attaches to the first project's server. Give each project an
+explicit `--port` (two apart) and `--data-dir`, or `--fresh`.
+
+A data directory is not shareable at all, and upstream says so first: the
+server takes an exclusive lease before it loads any state (`index.ts:335-339`)
+and refuses a second one with `OpenMausBot is already using this data directory
+(process <pid>)` or `… owned by a process on another machine`
+(`electron/data-dir-lease.mjs:323-331`). `up` translates that refusal of its
+own startup into exit 3 with the two ways out — attach to that server, or take
+a directory of this project's own — and never touches the lease file itself.
+Each spawn writes its own `serve.<stamp>.<random>.log`, so a refused startup's
+diagnosis can never be read as the death of another one, and whatever follows
+the lease's name in a message is printed as `<redacted>`, because upstream's
+recovery errors can name a file whose name carries a token
+(`data-dir-lease.mjs:159`).
+
+A shared *server* is allowed and partly guarded. `up` reports
+`otherConfiguredFolders`, the folders the server's other bots are configured
+for; `bind` and `facts` refuse a team configured for another project's folder
+unless `bind --take-over` says to move it. All of this is configuration, not
+activity: a bot with no configured folder, a task already pinned to a folder,
+and two projects that adopted the same ids are invisible to it. Two writable
+launcher states for one team are not made safe by any of it — a shared team
+needs one authoritative state.
 
 ### State lock upgrades and recovery
 

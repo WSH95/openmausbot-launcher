@@ -99,7 +99,7 @@ test("up starts a detached server that outlives the driver, proves ownership, an
   const missingRecordedEnvironment = await verifyOwned({ ...state.server, environmentId: null }, { get: async (url) => url === "/api/health" ? { app: "openmausbot", pid: up.json.healthPid } : { environmentId: up.json.environmentId } });
   assert.equal(missingRecordedEnvironment.ok, false, "missing recorded environment identity cannot authorize a signal");
   await assert.rejects(proveOwnership({ supervisorPid: up.json.supervisorPid, dataDir, url: up.json.url, client: { get: async (url) => url === "/api/health" ? { app: "openmausbot", pid: up.json.healthPid } : null } }), /environment.*verif|identity/i);
-  assert.ok(fs.existsSync(path.join(dataDir, "serve.log")));
+  assert.deepEqual(serveLogs(dataDir), [path.basename(up.json.log)], "the spawn's own log file, recorded as server.log");
   const again = await runOmb(["up", "--project", dir], { env });
   assert.equal(again.code, 0); assert.equal(again.json.status, "owned"); assert.equal(again.json.changed, false); assert.equal(again.json.healthPid, up.json.healthPid);
   const fresh = await runOmb(["up", "--project", dir, "--fresh"], { env });
@@ -170,7 +170,7 @@ test("down refuses stale or reused identities", { skip: !linux && "needs /proc" 
  * server these tests are about. Hold both until the last moment, and when the
  * race is lost anyway, take another pair instead of asserting through it.
  */
-async function upWithPortTaken(t, { dir, dataDir }) {
+async function upWithPortTaken(t, { dir, dataDir, env = {} }) {
   // A reservation can lose the same race it exists to win: another test process
   // may take the port between the measurement and the listen, and an unhandled
   // 'error' there would be an uncaught exception rather than another attempt.
@@ -194,7 +194,7 @@ async function upWithPortTaken(t, { dir, dataDir }) {
     }
     t.after(() => { blocker.closeAllConnections(); blocker.close(); });
     await new Promise((r) => neighbour.close(r));
-    const r = await runOmb(["up", "--project", dir, "--port", String(port), "--data-dir", dataDir, "--timeout", "30"], { env: { OMB_BIN: FAKE, OMB_TOKEN: "" }, timeoutMs: 60_000 });
+    const r = await runOmb(["up", "--project", dir, "--port", String(port), "--data-dir", dataDir, "--timeout", "30"], { env: { OMB_BIN: FAKE, OMB_TOKEN: "", ...env }, timeoutMs: 60_000 });
     if (/is in use; OpenMausBot binds/.test(r.json?.error ?? "")) {
       assert.ok(attempt < 5, `the neighbour of ${port} was taken on every attempt: ${r.stdout}`);
       blocker.closeAllConnections(); blocker.close();
@@ -204,27 +204,164 @@ async function upWithPortTaken(t, { dir, dataDir }) {
   }
 }
 
+/** Kill whatever a test started, registered before its first assertion. */
+function reaper(t) {
+  const pids = [];
+  t.after(() => { for (const pid of pids) { try { process.kill(pid, "SIGKILL"); } catch {} } });
+  return pids;
+}
+/** Wait for a process to be gone, on the fact and not on an estimate. */
+async function gone(pid, budgetMs = 15_000) {
+  const stop = Date.now() + budgetMs;
+  while (Date.now() < stop) { if (!procInfo(pid)?.alive) return; await sleep(20); }
+  throw new Error(`pid ${pid} is still alive after ${budgetMs} ms`);
+}
+const leaseOwner = (dataDir) => JSON.parse(fs.readFileSync(path.join(dataDir, "openmausbot-server.lease"), "utf8"));
+const serveLogs = (dataDir) => fs.readdirSync(dataDir).filter((f) => /^serve\..*\.log$/.test(f));
+
+test("up names the folders the other bots on a shared server are configured for, and persists none of them", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const { dir } = makeRepo();
+  const env = { OMB_BIN: FAKE, OMB_TOKEN: "", OMB_DATA_DIR: f.dataDir };
+  const elsewhere = tmpDir("oml-elsewhere-");
+  assert.equal((await runOmb(["import", "--adopt", "Nobody", "--project", dir, "--url", f.url], { env })).code, 3, "no team yet");
+  await f.control({ op: "bot", name: "Sudo", section: "Dev team", cwd: elsewhere });
+  await f.control({ op: "bot", name: "Nova", section: "Dev team", cwd: elsewhere });
+  let up = await runOmb(["up", "--project", dir, "--port", String(f.port)], { env });
+  assert.equal(up.code, 0, up.stdout);
+  assert.equal(up.json.otherConfiguredFoldersKnown, true);
+  assert.deepEqual(up.json.otherConfiguredFolders, [elsewhere], "with no team recorded, every bot is foreign");
+  assert.equal(up.json.otherConfiguredFolderCount, 1, "distinct folders");
+  assert.match(up.json.hint, /bots configured for other folders/);
+  assert.equal(JSON.stringify(loadState(statePaths(dir))).includes(elsewhere), false, "no foreign folder reaches the state");
+  const brief = await runOmb(["up", "--project", dir, "--port", String(f.port), "--brief"], { env });
+  assert.match(brief.stdout.trim(), /· shared$/);
+  assert.equal(brief.stdout.includes(elsewhere), false, "the brief never prints a path");
+  assert.equal((await runOmb(["import", "--adopt", "Dev team", "--lead", "Sudo", "--project", dir, "--url", f.url], { env })).code, 0);
+  up = await runOmb(["up", "--project", dir, "--port", String(f.port)], { env });
+  assert.deepEqual(up.json.otherConfiguredFolders, [], "this team's own folders are not other folders");
+  assert.equal(up.json.otherConfiguredFoldersKnown, true);
+  assert.equal(up.json.hint, undefined);
+  await f.control({ op: "newEnvironment" });
+  up = await runOmb(["up", "--project", dir, "--port", String(f.port)], { env });
+  assert.deepEqual(up.json.otherConfiguredFolders, [elsewhere], "a team recorded for another environment hides no bot");
+  await f.control({ op: "failRoute", route: "^/api/bots", count: 1 });
+  up = await runOmb(["up", "--project", dir, "--port", String(f.port)], { env });
+  assert.equal(up.code, 0, up.stdout);
+  assert.equal(up.json.otherConfiguredFoldersKnown, false, "a failed fleet read is unknown, not an unshared server");
+  assert.equal(up.json.otherConfiguredFolders, undefined);
+});
+
+test("up refuses a data directory another OpenMausBot holds and leaves that server alone", { skip: !linux && "needs /proc" }, async (t) => {
+  const a = makeRepo(); const b = makeRepo();
+  const pids = reaper(t);
+  const env = { OMB_BIN: FAKE, OMB_TOKEN: "" };
+  const dataDir = path.join(tmpDir("oml-lease-"), "data");
+  const first = await runOmb(["up", "--project", a.dir, "--port", String(await freePortPair()), "--data-dir", dataDir], { env });
+  assert.equal(first.code, 0, first.stdout + first.stderr);
+  pids.push(first.json.supervisorPid, first.json.healthPid);
+  assert.equal(leaseOwner(dataDir).pid, first.json.healthPid, "the server child holds the lease, not its supervisor");
+  const elsewhere = tmpDir("oml-elsewhere-");
+  await fetch(`${first.json.url}/__fake`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ op: "bot", name: "Stranger", section: "Other", cwd: elsewhere }) });
+  const owned = await runOmb(["up", "--project", a.dir], { env });
+  assert.equal(owned.code, 0, owned.stdout);
+  assert.equal(owned.json.changed, false);
+  assert.deepEqual(owned.json.otherConfiguredFolders, [elsewhere]);
+  assert.match(owned.json.hint, /resolving this ownership first/);
+  const second = await runOmb(["up", "--project", b.dir, "--port", String(await freePortPair()), "--data-dir", dataDir], { env });
+  assert.equal(second.code, 3, second.stdout + second.stderr);
+  assert.equal(second.json.error, `data directory ${dataDir} is in use by another OpenMausBot (process ${first.json.healthPid})`);
+  assert.match(second.json.hint, /attach to that server with up --port/);
+  assert.match(second.json.hint, /--data-dir/);
+  assert.equal(loadState(statePaths(b.dir)), null, "nothing of the refused server is recorded");
+  assert.equal(await healthOk(first.json.url), true, "the first server is untouched");
+  assert.equal(leaseOwner(dataDir).pid, first.json.healthPid, "a refused contender never touches the owner's lease");
+  assert.equal(serveLogs(dataDir).length, 2, "each spawn has its own log file");
+  assert.equal(procInfo(second.json.supervisorPid ?? -1), null);
+  assert.equal((await runOmb(["down", "--project", a.dir], { env })).code, 0);
+  assert.equal(fs.existsSync(path.join(dataDir, "openmausbot-server.lease")), false, "a clean exit releases it");
+});
+
+test("a killed server's lease is recovered; a killed supervisor leaves its child holding the directory", { skip: !linux && "needs /proc" }, async (t) => {
+  const a = makeRepo(); const b = makeRepo();
+  const pids = reaper(t);
+  const env = { OMB_BIN: FAKE, OMB_TOKEN: "" };
+  const dataDir = path.join(tmpDir("oml-stale-"), "data");
+  const port = await freePortPair();
+  const first = await runOmb(["up", "--project", a.dir, "--port", String(port), "--data-dir", dataDir], { env });
+  assert.equal(first.code, 0, first.stdout + first.stderr);
+  pids.push(first.json.supervisorPid, first.json.healthPid);
+  process.kill(first.json.healthPid, "SIGKILL"); process.kill(first.json.supervisorPid, "SIGKILL");
+  await gone(first.json.healthPid); await gone(first.json.supervisorPid);
+  assert.equal(fs.existsSync(path.join(dataDir, "openmausbot-server.lease")), true, "SIGKILL leaves the record behind");
+  const restarted = await runOmb(["up", "--project", a.dir, "--port", String(port), "--data-dir", dataDir], { env });
+  assert.equal(restarted.code, 0, restarted.stdout + restarted.stderr);
+  pids.push(restarted.json.supervisorPid, restarted.json.healthPid);
+  assert.equal(leaseOwner(dataDir).pid, restarted.json.healthPid, "a dead owner's lease is recovered");
+  process.kill(restarted.json.supervisorPid, "SIGKILL");
+  await gone(restarted.json.supervisorPid);
+  assert.equal(procInfo(restarted.json.healthPid).alive, true, "killing only the supervisor leaves the child alive");
+  const contender = await runOmb(["up", "--project", b.dir, "--port", String(await freePortPair()), "--data-dir", dataDir], { env });
+  assert.equal(contender.code, 3, contender.stdout + contender.stderr);
+  assert.equal(contender.json.error, `data directory ${dataDir} is in use by another OpenMausBot (process ${restarted.json.healthPid})`);
+});
+
+test("a lease refusal in the directory's history never explains another startup's death", { skip: !linux && "needs /proc" }, async (t) => {
+  const a = makeRepo(); const b = makeRepo();
+  const pids = reaper(t);
+  const env = { OMB_BIN: FAKE, OMB_TOKEN: "" };
+  const dataDir = path.join(tmpDir("oml-history-"), "data");
+  const first = await runOmb(["up", "--project", a.dir, "--port", String(await freePortPair()), "--data-dir", dataDir], { env });
+  assert.equal(first.code, 0, first.stdout + first.stderr);
+  pids.push(first.json.supervisorPid, first.json.healthPid);
+  const refused = await runOmb(["up", "--project", b.dir, "--port", String(await freePortPair()), "--data-dir", dataDir], { env });
+  assert.equal(refused.code, 3, refused.stdout);
+  assert.equal((await runOmb(["down", "--project", a.dir], { env })).code, 0);
+  const dead = await upWithPortTaken(t, { dir: b.dir, dataDir });
+  assert.equal(dead.code, 1, dead.stdout);
+  assert.match(dead.json.error, /exited during startup/);
+  assert.match(dead.json.log, /EADDRINUSE/);
+  assert.doesNotMatch(dead.json.log, /data directory/, "it reads only its own attempt's log");
+  assert.match(dead.json.hint, /see .*serve\..*\.log/);
+});
+
+test("a lease record from another machine is refused, and its path is printed without what follows the lease name", { skip: !linux && "needs /proc" }, async (t) => {
+  const { dir } = makeRepo();
+  const dataDir = path.join(tmpDir("oml-foreign-"), "data");
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(path.join(dataDir, "openmausbot-server.lease"), `${JSON.stringify({ version: 1, pid: process.pid, host: "another-machine", token: "00000000-0000-4000-8000-000000000000", createdAt: Date.now() })}\n`);
+  const r = await runOmb(["up", "--project", dir, "--port", String(await freePortPair()), "--data-dir", dataDir], { env: { OMB_BIN: FAKE, OMB_TOKEN: "" } });
+  assert.equal(r.code, 3, r.stdout + r.stderr);
+  assert.equal(r.json.error, `data directory ${dataDir} is in use by a process on another machine`);
+  assert.ok(r.json.log.includes("openmausbot-server.lease<redacted>"), r.json.log);
+  assert.doesNotMatch(r.json.log, /openmausbot-server\.lease["'.\w-]/, "nothing that follows the lease name is printed");
+  assert.equal(loadState(statePaths(dir)), null);
+});
+
 test("up reports a server that dies at startup with the log tail and a sandbox hint", { skip: !linux && "needs /proc" }, async (t) => {
   const { dir } = makeRepo();
   const r = await upWithPortTaken(t, { dir, dataDir: path.join(tmpDir("oml-dead-"), "data") });
   assert.equal(r.code, 1, r.stdout);
   assert.match(r.json.error, /exited during startup/);
   assert.match(r.json.log, /EADDRINUSE/);
-  assert.match(r.json.hint, /see .*serve\.log/);
+  assert.match(r.json.hint, /see .*serve\.[\w.]+\.log/, "the hint names this attempt's own log file");
   assert.equal(loadState(statePaths(dir)), null, "nothing is recorded for a server that never answered");
 });
 
-test("up names the sandbox cause from anywhere in serve.log, not only its 12-line tail", { skip: !linux && "needs /proc" }, async (t) => {
+test("up names the sandbox cause from anywhere in the attempt's own log, not only its 12-line tail", { skip: !linux && "needs /proc" }, async (t) => {
   const { dir } = makeRepo();
   const dataDir = path.join(tmpDir("oml-sandbox-"), "data");
-  fs.mkdirSync(dataDir, { recursive: true });
-  fs.writeFileSync(path.join(dataDir, "serve.log"), CODEX_WW_LOG); // spawnServer appends (server.mjs:54), so the fake's EADDRINUSE stack lands below it
-  const r = await upWithPortTaken(t, { dir, dataDir });
+  // The captured log is replayed by the spawned server itself: the signature has
+  // to sit in this attempt's file, because no other file is read any more.
+  const prelude = path.join(tmpDir("oml-prelude-"), "codex-ww.log");
+  fs.writeFileSync(prelude, CODEX_WW_LOG);
+  const r = await upWithPortTaken(t, { dir, dataDir, env: { OMB_FAKE_LOG_PRELUDE: prelude } });
   assert.equal(r.code, 1, r.stdout);
   assert.equal(r.json.log.split("\n").length, 12, "the display tail stays twelve lines");
   assert.doesNotMatch(r.json.log, /EPERM/, "the signature sits above the tail");
   assert.match(r.json.hint, /sandbox blocks listening sockets/);
-  assert.match(r.json.hint, /serve\.log: openmausbot webhook receiver unavailable: listen EPERM: operation not permitted 127\.0\.0\.1:8906\)/, "the first matching line is named");
+  assert.match(r.json.hint, /serve\.[\w.]+\.log: openmausbot webhook receiver unavailable: listen EPERM: operation not permitted 127\.0\.0\.1:8906\)/, "the first matching line is named");
+  assert.equal(serveLogs(dataDir).length, 1);
 });
 
 test("up refuses a port whose neighbour is taken before spawning, and names a webhook receiver's API port", { skip: !linux && "needs /proc" }, async (t) => {
@@ -236,7 +373,7 @@ test("up refuses a port whose neighbour is taken before spawning, and names a we
   assert.equal(r.code, 3, r.stdout);
   assert.equal(r.json.error, `port ${port + 1} is in use; OpenMausBot binds ${port}+1 for its webhook receiver (server/index.ts:320, cli.ts:438)`);
   assert.equal(r.json.hint, "choose a port whose neighbour is free");
-  assert.equal(fs.existsSync(dataDir), false, "refused before the spawn: no data dir, no serve.log");
+  assert.equal(fs.existsSync(dataDir), false, "refused before the spawn: no data dir, no log file");
   assert.equal(loadState(statePaths(dir)), null);
   await new Promise((r) => blocker.close(r));
   const f = await startFake({ port, webhookPort: port + 1 }); t.after(() => f.close());

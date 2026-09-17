@@ -11,10 +11,11 @@
 //     its own pid, as the real CLI does — S: server/cli.ts:455, index.ts:11363)
 import http from "node:http";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { randomBytes, createHash } from "node:crypto";
+import { randomBytes, createHash, randomUUID } from "node:crypto";
 
 // ── pairing (S: server/sessions.ts) ──
 const PAIRING_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"; // S: sessions.ts:19 (no 0/O/1/I)
@@ -305,6 +306,9 @@ export async function createFake(opts = {}) {
     const p = url.pathname;
     if (state.delay.count > 0) { state.delay.count--; await new Promise((r) => setTimeout(r, state.delay.ms)); }
     if (state.dropNext > 0 && !p.startsWith("/__fake")) { state.dropNext--; res.dropped = true; }
+    // A named route that fails for the next N calls, for a reader whose failure
+    // must be told apart from an empty answer.
+    if (state.failRoute?.count > 0 && state.failRoute.re.test(p)) { state.failRoute.count--; return json(res, state.failRoute.status, { error: "the fake was told to fail this route" }); }
     const auth = authorize(req, method, p);
     // Reachability probe, public: the phone races it across a server's
     // addresses before it has a session. A stranger learns only the app name;
@@ -1015,6 +1019,7 @@ export async function createFake(opts = {}) {
       case "clearDelegations": state.pendingDelegations = []; state.running = []; return;
       case "delay": state.delay = { count: op.count ?? 1, ms: op.ms ?? 1000 }; return;
       case "dropNext": state.dropNext = op.count ?? 1; return;
+      case "failRoute": state.failRoute = { re: new RegExp(op.route), status: op.status ?? 503, count: op.count ?? 1 }; return;
       case "steer": state.steer = op.enabled !== false; state.lateSteerConflict = op.lateConflict === true; return;
       case "autoWork": state.autoWork = op.enabled !== false; return;
       case "dropStreams": state.dropStreams = op.enabled !== false; if (state.dropStreams) for (const c of [...sse]) { try { c.res.end(); } catch {} } return;
@@ -1080,6 +1085,44 @@ function defaultInstances() {
   ];
 }
 
+// ── the data-directory lease, as a second server sees it (S: electron/data-dir-lease.mjs) ──
+// Only the visible contract: one live server per data directory, the two
+// refusal texts, recovery of a dead owner, and release by the owner alone. The
+// election protocol that retires a dead owner, the private desktop delegation
+// and its token-bearing file names are upstream's and are not imitated here.
+const LEASE_NAME = "openmausbot-server.lease"; // S: data-dir-lease.mjs:6
+/** Alive for the lease's purpose: EPERM is a process this account cannot signal. S: data-dir-lease.mjs:82-92. */
+function leaseOwnerAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; }
+}
+/**
+ * Claim the directory before any state is loaded (S: server/index.ts:335-339).
+ * The record names this process — the server child that answers /api/health,
+ * never its supervisor — with its host and a token (S: :294-300). An owner on
+ * another host and a live owner on this one are both refused; only a dead
+ * owner's record is retired (S: :168-180, :321-335). The token is synthetic and
+ * exists so that a release matches its own acquisition (S: :346-352); it is
+ * never printed and never leaves this file.
+ */
+function acquireLease(dataDir) {
+  fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+  const file = path.join(dataDir, LEASE_NAME);
+  const owner = { version: 1, pid: process.pid, host: os.hostname(), token: randomUUID(), createdAt: Date.now() };
+  for (;;) {
+    try { fs.writeFileSync(file, `${JSON.stringify(owner)}\n`, { flag: "wx", mode: 0o600 }); return release; }
+    catch (e) { if (e.code !== "EEXIST") throw e; }
+    let current;
+    try { current = JSON.parse(fs.readFileSync(file, "utf8")); }
+    catch (e) { if (e.code === "ENOENT") continue; throw new Error("The OpenMausBot data-directory lease is invalid; refusing to start to protect its state."); } // S: :69
+    if (current.host !== owner.host) throw new Error(`This OpenMausBot data directory is already owned by a process on another machine. Lease record: ${JSON.stringify(file)}.`); // S: :323-326
+    if (leaseOwnerAlive(current.pid)) throw new Error(`OpenMausBot is already using this data directory (process ${current.pid}). Close the other instance first.`); // S: :328-331
+    try { fs.unlinkSync(file); } catch (e) { if (e.code !== "ENOENT") throw e; } // S: :168-180
+  }
+  function release() { // S: :346-359 — a lease another process owns is never released
+    try { if (JSON.parse(fs.readFileSync(file, "utf8")).token === owner.token) fs.unlinkSync(file); } catch {}
+  }
+}
+
 // ── CLI: `serve` as a supervisor with a server child, like server/cli.ts ──
 function parseCli(argv) {
   const o = { command: argv[0], port: Number(process.env.OMB_PORT || 8799), dataDir: process.env.OMB_DATA_DIR ?? path.join(process.env.HOME ?? "/tmp", ".openmausbot"), pair: true };
@@ -1096,6 +1139,14 @@ function parseCli(argv) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const o = parseCli(process.argv.slice(2));
   if (o.command === "child") {
+    // A captured startup log replayed above this run's own output, so a test can
+    // reach a hint that scans for a signature far above the display tail.
+    if (process.env.OMB_FAKE_LOG_PRELUDE) process.stdout.write(fs.readFileSync(process.env.OMB_FAKE_LOG_PRELUDE, "utf8"));
+    let release;
+    // The uncaught DataDirLeaseError (S: data-dir-lease.mjs:16-22) reaches the
+    // inherited stderr and the supervisor forwards the non-zero exit (S: cli.ts:480).
+    try { release = acquireLease(o.dataDir); } catch (e) { console.error(e.message); process.exit(1); }
+    process.on("exit", release); // registered only after a successful acquisition: S: index.ts:339-352
     const f = await createFake({ port: o.port, dataDir: o.dataDir, webhookPort: Number(process.env.OMB_WEBHOOK_PORT || o.port + 1) }); // S: index.ts:320
     const stop = () => { f.close().then(() => process.exit(0)); };
     process.on("SIGTERM", stop); process.on("SIGINT", stop);

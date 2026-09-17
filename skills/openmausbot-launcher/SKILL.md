@@ -64,9 +64,16 @@ omb facts --project <dir> --test "npm test" --setup none --merge auto --task-log
 `up` starts the server detached, strips the provider API keys so bots use
 subscriptions, proves the listener is its own child, and records it;
 `down` stops only what `up` started. If the port already answers, `up`
-attaches without owning. A server takes two consecutive ports (the API and
+attaches without owning, and reports in `otherConfiguredFolders` the folders
+the server's other bots are configured for (`shared` in the brief) — that is
+configuration, not activity, and an empty list does not prove the server is
+yours alone. A server takes two consecutive ports (the API and
 its webhook receiver), so `up` refuses a port whose neighbour is busy; space
-servers two apart. A `doctor` failure named `stop-hook` means the
+servers two apart. Each spawn writes its own
+`<data dir>/serve.<stamp>.<random>.log`, which `up` reports as `log` and names
+in its hints. Exit 3 `data directory … is in use` means another OpenMausBot
+holds that directory: attach to it with `up --port <its port>`, or give this
+project its own `--data-dir` or `--fresh`. A `doctor` failure named `stop-hook` means the
 project's Project Steward Stop hook would replace a Claude bot's report:
 set `auto_handoff_mode = "off"` in its `config.toml` and exclude
 `.project-steward/runtime/` before any task. `bind` sets the working

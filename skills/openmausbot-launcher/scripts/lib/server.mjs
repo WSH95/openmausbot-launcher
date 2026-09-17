@@ -7,6 +7,7 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { EXIT, Fail } from "./cli.mjs";
 import { HttpError } from "./http.mjs";
 
@@ -196,17 +197,64 @@ export function freshDataDir(base, { dryRun = false } = {}) {
   return fs.mkdtempSync(prefix);
 }
 
-export function serveLogPath(dataDir) { return path.join(dataDir, "serve.log"); }
+/**
+ * One log file per spawn. A server refused the data directory writes into it
+ * with the same appending stdio as the server that holds the directory
+ * (cli.ts:455), and an offset into a shared file cannot say which startup wrote
+ * a line, so every startup gets a name of its own. The state records it as
+ * `server.log`, as before.
+ */
+export function serveLogPath(dataDir, { dryRun = false } = {}) {
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").slice(0, 15);
+  return path.join(dataDir, `serve.${stamp}.${dryRun ? "<unique>" : randomBytes(4).toString("hex")}.log`);
+}
+
+/** Upstream's stale-lease recovery can name a file whose name carries an
+ * ownership token (`electron/data-dir-lease.mjs:123-126,159`), so whatever
+ * follows the lease's own name never reaches the operator. */
+export const redactLease = (text) => text.replace(/openmausbot-server\.lease\S+/g, "openmausbot-server.lease<redacted>");
+
+/** The end of one startup's log: enough for the display tail, a startup
+ * signature and a lease refusal, and bounded against a server that logged its
+ * way to a gigabyte before it died. */
+const LOG_WINDOW = 256 * 1024;
+function readLog(file) {
+  let fd;
+  try { fd = fs.openSync(file, "r"); } catch { return ""; }
+  try {
+    const { size } = fs.fstatSync(fd);
+    const buf = Buffer.alloc(Math.min(size, LOG_WINDOW));
+    if (buf.length) fs.readSync(fd, buf, 0, buf.length, Math.max(0, size - LOG_WINDOW));
+    return buf.toString("utf8");
+  } catch { return ""; } finally { fs.closeSync(fd); }
+}
 
 /** The last lines of the server log, for error hints. */
 export function logTail(file, lines = 12) {
-  try { const all = fs.readFileSync(file, "utf8").trimEnd().split("\n"); return all.slice(-lines).join("\n"); } catch { return ""; }
+  const all = redactLease(readLog(file)).trimEnd().split("\n");
+  return all.slice(-lines).join("\n");
+}
+
+// The data directory is leased before any state is loaded (`server/index.ts:335-339`);
+// a second server on it is refused by name (`electron/data-dir-lease.mjs:323-331`),
+// the supervisor forwards that failure (`server/cli.ts:480`) and the text reaches
+// the inherited stderr. The launcher never acquires, reads, repairs or deletes
+// that lease: exclusion and stale recovery stay upstream's.
+const LEASE_LIVE = /OpenMausBot is already using this data directory \(process (\d+)\)/;
+const LEASE_FOREIGN = /This OpenMausBot data directory is already owned by a process on another machine/;
+
+/** Who holds the data directory, according to this startup's own log, or null. */
+export function leaseRefusal(file) {
+  const text = readLog(file);
+  const live = LEASE_LIVE.exec(text);
+  if (live) return { by: `another OpenMausBot (process ${live[1]})` };
+  return LEASE_FOREIGN.test(text) ? { by: "a process on another machine" } : null;
 }
 
 /** The signature of a sandbox that denies listening sockets: the `listen EPERM` line, or Node's `code: 'EPERM'` property lines below the stack. */
 export const SANDBOX_RE = /listen (EPERM|EACCES)|operation not permitted|code: '(EPERM|EACCES)'/i;
 
-/** The first line of the whole log matching `re`, or null: the signature can sit far above the display tail (a real sandboxed serve.log is 25 lines with the match on line 3). */
+/** The first line of this startup's log matching `re`, or null: the signature can sit far above the display tail (a real sandboxed startup log is 25 lines with the match on line 3). */
 export function logMatch(file, re) {
-  try { return fs.readFileSync(file, "utf8").split("\n").find((l) => re.test(l))?.trim() ?? null; } catch { return null; }
+  return redactLease(readLog(file)).split("\n").find((l) => re.test(l))?.trim() ?? null;
 }
