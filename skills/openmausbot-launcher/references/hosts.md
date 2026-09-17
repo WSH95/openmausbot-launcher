@@ -32,7 +32,8 @@ to one second waiting for its checkpoint lock. If `checkpointed:false`, the
 returned cursor was not saved; call again to reload state. Each call observes its own 30 s
 quiet window before it can declare a run settled, so never go below
 `--max-seconds 35`. A watch whose budget ends inside that window says so, with
-the idle time it observed and the budget the window needs.
+the idle time it observed, and names the budget the window needs when waiting
+is all the run is short of.
 
 | Host | Shell limit | Recommended `watch` |
 |---|---|---|

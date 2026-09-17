@@ -493,9 +493,10 @@ verb("watch", {
     const r = await watchRun({ client, team, task, runs: openRuns(cfg.state), getRuns, history: cfg.state?.history, getHistory, dataDir: cfg.mode === "local" && cfg.dataDirReadable ? cfg.dataDir : null, maxSeconds, deadline, until, pollMs: num(flags.poll, 30) * 1000, stallMs: num(flags["stall-minutes"], 40) * 60_000, quietMs: quietSeconds * 1000, dropMs: num(flags["drop-seconds"], 120) * 1000, nudge, checkpoint, log });
     const checkpointed = r.checkpointed;
     const state = r.timedOut && !TERMINAL_STATES.has(r.ev.state) ? "timeout" : r.ev.state;
-    // Only a verified timeout that was waiting for the window can be answered
-    // with a budget: a busy run, a pending request or an unverified read cannot.
-    const budgetHint = state === "timeout" && r.snap.complete && r.ev.awaitingQuiet === true ? watchBudgetHint({ maxSeconds, quietSeconds, idleSeconds: Math.round(r.ev.quietFor / 1000) }) : null;
+    // Only a verified timeout that the quiet window alone would have settled
+    // can be answered with a budget: a busy run, a run whose lead still owes a
+    // wake or an answer, and an unverified read are not waiting for time.
+    const budgetHint = state === "timeout" && r.snap.complete && r.ev.quietSettles === true ? watchBudgetHint({ maxSeconds, quietSeconds, idleSeconds: Math.round(r.ev.quietFor / 1000) }) : null;
     const code = state === "timeout" ? EXIT.TIMEOUT : r.outcome === "change" || r.outcome === "question" ? (TERMINAL_STATES.has(r.ev.state) ? EXIT_FOR[r.ev.state] : EXIT.OK) : EXIT_FOR[r.ev.state] ?? EXIT.OK;
     const line = briefLine(r.ev, r.snap, task);
     const unchanged = flags["quiet-if-unchanged"] && !r.changedSinceReport;

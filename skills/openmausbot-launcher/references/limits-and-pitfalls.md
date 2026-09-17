@@ -228,8 +228,9 @@ historical reports append a reanalysis instead of replacing the original.
   30 s quiet window, so each returned the one evaluation its own window had
   made (`idle for 0 s, not yet settled`). Give the next watch a budget that
   covers the window — never below `--max-seconds 35` — and read what it says:
-  a watch that ends inside the window names the idle time it observed and the
-  budget it needs, and `report` names the watch that settles the run.
+  a watch that ends inside the window names the idle time it observed, and the
+  budget it needs where waiting is all that is missing; `report` names the same
+  watch while it leaves such a run open.
   `report --close` records a run as it is; it does not settle it.
 - **A busy lead belongs to every open run** unless the runtime log names the
   thread its turn is on, and a pending request nobody can place is `shared`

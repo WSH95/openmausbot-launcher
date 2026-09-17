@@ -159,7 +159,8 @@ test("deadline, --until change, --quiet-if-unchanged, and polling when the strea
 });
 
 test("a budget that ends while the quiet window is still running reports the idle time it observed", async (t) => {
-  const { f, dir } = await setup(t);
+  const { f, dir, lt } = await setup(t);
+  await f.control({ op: "leadSay", threadId: lt, text: "Planning now." }); // quiet alone would settle this run
   const r = await timeoutAfterObservation(t, f, dir, ["--quiet-seconds", "30"]);
   assert.equal(r.code, 4, r.stdout);
   assert.equal(r.json.state, "timeout"); assert.equal(r.json.inflight, false);
@@ -178,6 +179,18 @@ test("a deadline that overran the quiet window is still a timeout: only a confir
   assert.equal(r.json.quietFor, 60_000, "the elapsed idle time is reported uncapped");
   assert.deepEqual(r.json.reasons, ["idle for 60 s when the watch budget ended; the 30 s quiet window was not confirmed"]);
   assert.equal(r.json.hint, "--max-seconds 2 cannot cover the 30 s quiet window; use 35 or more", "the hint answers the budget that was asked for, not the time the deadline overran");
+});
+
+test("a timeout whose run needs more than quiet reports the idle time but promises no budget", async (t) => {
+  const { f, dir, lt } = await setup(t);
+  const nova = loadState(statePaths(dir)).team.bots.find((b) => b.key === "nova");
+  // The lead has not woken to Nova's reply: a longer watch cannot settle this.
+  await f.control({ op: "echo", threadId: lt, fromBotId: nova.id, name: "Nova", text: "implemented" });
+  const r = await timeoutAfterObservation(t, f, dir, ["--quiet-seconds", "30"]);
+  assert.equal(r.code, 4, r.stdout);
+  assert.equal(r.json.state, "timeout"); assert.equal(r.json.outcomes, 1);
+  assert.deepEqual(r.json.reasons, ["idle for 2 s when the watch budget ended; the 30 s quiet window was not confirmed"], "the idle time is still the truth");
+  assert.equal(r.json.hint, undefined, "but the quiet window is not what this run is waiting for");
 });
 
 test("an own frame during the wait restarts the quiet window, and the timeout counts idle time from the restart", async (t) => {
@@ -230,7 +243,8 @@ test("watchBudgetHint names the budget a quiet window needs, and asks for one mo
   assert.equal(watchBudgetHint({ maxSeconds: 30, quietSeconds: 30, idleSeconds: 29 }), "--max-seconds 30 cannot cover the 30 s quiet window; use 35 or more", "an equal budget leaves nothing for hydration");
   assert.equal(watchBudgetHint({ maxSeconds: 35, quietSeconds: 30, idleSeconds: 29 }), "the 30 s quiet window was not confirmed in this watch (29 s idle observed); call watch again, with a larger --max-seconds if this repeats", "quiet + 5 is headroom, not a guarantee");
   assert.equal(watchBudgetHint({ maxSeconds: 35, quietSeconds: 30, idleSeconds: 20 }), "the 30 s quiet window was not confirmed in this watch (20 s idle observed); call watch again, with a larger --max-seconds if this repeats", "a budget setup consumed still gets guidance");
-  const { f, dir } = await setup(t);
+  const { f, dir, lt } = await setup(t);
+  await f.control({ op: "leadSay", threadId: lt, text: "Planning now." });
   const brief = await timeoutAfterObservation(t, f, dir, ["--quiet-seconds", "30", "--brief"]);
   assert.match(brief.stdout, /watch timed out after 2s, call again · --max-seconds 2 cannot cover the 30 s quiet window; use 35 or more$/);
 });

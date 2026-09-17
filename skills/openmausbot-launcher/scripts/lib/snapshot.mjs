@@ -631,10 +631,15 @@ export function evaluate(snap, task, { now = Date.now(), quiet = { since: null }
     const working = busy.length ? `working: ${busy.map((b) => b.name).join(", ")}`
       : snap.teamMap.queued.length || snap.teamMap.running.length ? `delegations queued ${snap.teamMap.queued.length}, running ${snap.teamMap.running.length}`
       : `${openDel} delegation(s) open: ${Object.entries(snap.openDelegations?.byName ?? {}).map(([n, c]) => (c > 1 ? `${n} x${c}` : n)).join(", ")}`;
-    // `awaitingQuiet` marks the one branch a longer observation alone can
-    // settle: nothing is in flight and only the quiet window is still missing.
-    return inflight ? { state: "running", reasons: [working], ...base }
-      : { state: "running", reasons: [`idle for ${Math.round(quietFor / 1000)} s, not yet settled`], awaitingQuiet: true, ...base };
+    if (inflight) return { state: "running", reasons: [working], ...base };
+    // `awaitingQuiet` marks the one branch where nothing is in flight and only
+    // the quiet window is still missing, so a timeout can report the idleness
+    // it observed. Whether waiting longer would end the run is a second
+    // question: this same snapshot with the window closed may still be running
+    // because an outcome awaits the lead's wake or the lead has not answered —
+    // and only `quietSettles` may be turned into advice about the budget.
+    const settled = evaluate(snap, task, { now, quiet: { since: 0 }, quietMs: 0, lastChangeAt, dropMs, stallMs });
+    return { state: "running", reasons: [`idle for ${Math.round(quietFor / 1000)} s, not yet settled`], awaitingQuiet: true, quietSettles: TERMINAL.has(settled.state), ...base };
   }
   if (snap.dispatchFailed) return { state: "failed", reasons: ["the lead's turn failed to dispatch (error activity, no reply)"], ...base };
   const out = snap.outcomes.filter((o) => !leadAfter(snap, o)).at(-1) ?? null;

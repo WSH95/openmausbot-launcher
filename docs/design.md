@@ -441,7 +441,11 @@ Only the idle `running` branch is waiting for the window alone (`awaitingQuiet`)
 and only there does a watch that reaches its deadline rewrite its output: it
 reports the idle time observed since the window last started, uncapped, and
 says the window was not confirmed. The ladder is never re-run at a deadline, so
-an overrun is not a verdict.
+an overrun is not a verdict. The same branch also carries `quietSettles`: what
+this snapshot would be with the window closed (the ladder run once at
+`quietMs: 0`, as `carriedVerdict` asks it). Only a terminal answer there may be
+turned into advice about the budget — an outcome awaiting the lead's wake, or a
+lead that has not answered, needs new activity, not a longer watch.
 
 "Done means the lead closed the run, not that it passed": the skill text
 tells the agent to read the report, then `reconcile` and `report`. A false
@@ -504,8 +508,8 @@ Notifications are wake-ups only (a bot's notifications can be off,
 5. Return on a terminal state, on `--until change` when the state, the
    lead's last own message id, the outcome list, or the pending set changed,
    or at the deadline with `timeout` (exit 4), which for a verified run still
-   waiting for quiet carries the observed idle time and a hint naming the
-   budget the window needs. Those two fields are output: they are outside the
+   waiting for quiet carries the observed idle time, and a hint naming the
+   budget the window needs only where that window alone would settle the run. Those two fields are output: they are outside the
    signature, so `--quiet-if-unchanged` and `--until change` do not see them.
 6. A verified non-dry return attempts a checkpoint with at most a one-second
    lock wait, while the stream and receipt watcher remain subscribed. A

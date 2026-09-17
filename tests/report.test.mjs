@@ -567,6 +567,11 @@ test("report tells an unsettled live run what would settle it, and says nothing 
   const hint = "the run has not settled; run watch --run t10 with --max-seconds 35 or more (30 s default quiet window) until it settles, then report --run t10 again; report --close records the current result without establishing settlement";
   let r = await runOmb(["report", "--project", dir, "--no-tests"], { env });
   assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.equal(r.json.state, "running");
+  assert.equal(r.json.hint, undefined, "a run whose lead has not spoken is waiting for the lead, not for a longer watch");
+  await f.control({ op: "leadSay", threadId: run.leadThreadId, text: "T10 is merged; the record commit needs your approval." });
+  r = await runOmb(["report", "--project", dir, "--no-tests"], { env });
+  assert.equal(r.code, 0, r.stdout + r.stderr);
   assert.equal(r.json.state, "running"); assert.equal(r.json.closed, false); assert.equal(r.json.hint, hint);
   assert.ok((await runOmb(["report", "--project", dir, "--no-tests", "--md"], { env })).stdout.includes(hint), "the rendered evidence section carries it too");
   assert.match((await runOmb(["report", "--project", dir, "--no-tests", "--brief"], { env })).stdout, /run left open · the run has not settled; run watch --run t10/);

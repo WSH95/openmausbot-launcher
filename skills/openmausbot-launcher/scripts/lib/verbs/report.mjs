@@ -123,11 +123,13 @@ verb("report", {
     const result = ev.state === "failed" || tests.ok === false ? "failed" : evidence.every((c) => c.ok === true) ? "passed" : "incomplete";
     const shouldClose = !fromHistory && !flags["no-close"] && (TERMINAL_STATES.has(ev.state) || flags.close);
     // One live snapshot cannot see a quiet window, so an idle run reads as
-    // running here however long it has been idle. Say what does settle it —
-    // `--close` is the operator recording the run as it is, and asks nothing.
+    // running here however long it has been idle. Say what does settle it, but
+    // only where the window alone would (`quietSettles`): a run whose lead owes
+    // a wake or an answer needs the lead, not a longer watch. `--close` is the
+    // operator recording the run as it is, and asks nothing.
     const quietSeconds = Math.round(DEFAULTS.quietMs / 1000);
     const ref = task.slug ?? task.runId;
-    const settlement = !fromHistory && snap.complete && !ev.carried && ev.state === "running" && ev.awaitingQuiet === true && !flags.close
+    const settlement = !fromHistory && snap.complete && !ev.carried && ev.state === "running" && ev.quietSettles === true && !flags.close
       ? `the run has not settled; run watch --run ${ref} with --max-seconds ${quietSeconds + 5} or more (${quietSeconds} s default quiet window) until it settles, then report --run ${ref} again; report --close records the current result without establishing settlement`
       : null;
     const report = {

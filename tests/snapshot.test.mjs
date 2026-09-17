@@ -100,15 +100,21 @@ test("evaluate: the state table", () => {
   assert.equal(ev.state, "running"); assert.match(ev.reasons[0], /not answered the latest message|has not spoken since the dispatch/);
 });
 
-test("only a run idling toward its quiet window is marked awaitingQuiet", () => {
+test("awaitingQuiet marks a run idling toward its window; quietSettles says whether the window alone would settle it", () => {
   const now = T0 + 120_000;
-  const leadSaid = (text, at) => ({ leadText: { id: "m9", at, text } });
+  const leadSaid = (text, at, extra = {}) => ({ leadText: { id: "m9", at, text }, ...extra });
   const echo = { id: "e1", at: T0 + 100_000, kind: "echo", name: "Nova 2", ok: true };
-  assert.equal(evaluate(snap(), task, { now, quiet: { since: T0 + 110_000 } }).awaitingQuiet, true, "idle, and only the window is still missing");
-  assert.equal(evaluate(snap({ bots: [{ id: LEAD, name: "Sudo", busy: true, activity: "working" }] }), task, { now, quiet: { since: null } }).awaitingQuiet, undefined, "a busy run waits for work, not for quiet");
-  assert.equal(evaluate(snap({ outcomes: [echo], ...leadSaid("Delegating…", T0 + 10_000) }), task, { now: T0 + 160_000, quiet: { since: T0 + 110_000 } }).awaitingQuiet, undefined, "the lead's wake is missing, not the window");
-  assert.equal(evaluate(snap({ ...leadSaid("Which approach?", T0 + 50_000), lastUser: { id: "u2", at: T0 + 60_000, text: "use the table" } }), task, { now, quiet: { since: T0 + 60_000 }, lastChangeAt: T0 + 60_000 }).awaitingQuiet, undefined, "the lead's answer is missing, not the window");
-  assert.equal(evaluate(snap({ complete: false, incomplete: ["bots: boom"] }), task, { now, ...quietSince(60) }).awaitingQuiet, undefined, "an incomplete snapshot says nothing about quiet");
+  const pre = { now, quiet: { since: T0 + 110_000 } }; // 10 s of the 30 s window
+  const marks = (over, opts = {}) => { const ev = evaluate(snap(over), task, { ...pre, ...opts }); return [ev.awaitingQuiet, ev.quietSettles]; };
+  assert.deepEqual(marks(leadSaid("BLOCKED: the premise fails", T0 + 90_000)), [true, true], "the lead answered: the window alone gives attention");
+  assert.deepEqual(marks(leadSaid("DONE oml:abcd1234", T0 + 90_000, { markerSeen: { id: "m9", at: T0 + 90_000 } })), [true, true], "and here, done");
+  assert.deepEqual(marks({ outcomes: [echo], ...leadSaid("Delegating…", T0 + 10_000) }), [true, false], "a teammate's outcome awaits the lead's wake, not a longer watch");
+  assert.deepEqual(marks({ outcomes: [{ ...echo, at: T0 - 200_000 }], ...leadSaid("Delegating…", T0 - 300_000) }), [true, true], "an outcome older than the drop window does settle: stalled");
+  assert.deepEqual(marks({ ...leadSaid("Which approach?", T0 + 50_000), lastUser: { id: "u2", at: T0 + 60_000, text: "use the table" } }, { lastChangeAt: T0 + 60_000 }), [true, false], "the lead has not answered the latest message");
+  assert.deepEqual(marks({}), [true, false], "nor spoken since the dispatch");
+  assert.deepEqual(marks({ bots: [{ id: LEAD, name: "Sudo", busy: true, activity: "working" }] }, { quiet: { since: null } }), [undefined, undefined], "a busy run waits for work, not for quiet");
+  assert.deepEqual(marks({ outcomes: [echo], ...leadSaid("Delegating…", T0 + 10_000) }, { now: T0 + 160_000 }), [undefined, undefined], "after the window the wake is what is missing");
+  assert.deepEqual(marks({ complete: false, incomplete: ["bots: boom"] }), [undefined, undefined], "an incomplete snapshot says nothing about quiet");
 });
 
 test("snapshot against the fake: team bots, discovered specialists, tails, outcomes, pending, marker, receipts", async (t) => {

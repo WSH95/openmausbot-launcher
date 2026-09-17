@@ -274,7 +274,7 @@ export async function watchRun({ client, team, task, runs = [], getRuns = null, 
     snap = { ...snap, complete: false, incomplete: [...(snap?.incomplete ?? []), reason] };
     // Keep the last observed busy list for the operator, but no settled claim:
     // an invalidated observation knows nothing about the quiet window either.
-    ev = { ...(ev ?? evaluate(snap, task)), state: "running", unknown: true, quiet: false, quietFor: 0, awaitingQuiet: false, reasons: [reason] };
+    ev = { ...(ev ?? evaluate(snap, task)), state: "running", unknown: true, quiet: false, quietFor: 0, awaitingQuiet: false, quietSettles: false, reasons: [reason] };
     sig = signatureOf(snap, ev);
     return resultOf(outcome);
   };
