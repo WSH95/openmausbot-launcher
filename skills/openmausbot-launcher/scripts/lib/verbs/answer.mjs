@@ -94,7 +94,7 @@ verb("answer", {
     if (modes.length > 1) throw new Fail(EXIT.USAGE, `pass one of ${MODE_FLAGS}`);
     const task = runFor(cfg, flags);
     if (!modes.length) {
-      if (!bare) throw new Fail(EXIT.USAGE, 'usage: answer <mode> [--request ID]  |  answer "<text>"', { hint: `modes: ${MODE_FLAGS}; a learned skill also needs --reviewed <sha256>, a credential OMB_SECRET or --secret-stdin` });
+      if (!bare) throw new Fail(EXIT.USAGE, 'usage: answer <mode> [--request ID]  |  answer "<text>"', { hint: `modes: ${MODE_FLAGS}; a learned skill also needs --reviewed <sha256>, a credential --secret-stdin (or an OMB_SECRET the user exported themselves)` });
       const out = await VERBS.get("send").handler({ flags: { ...flags }, positionals: [bare], verb: "send" });
       return { result: { viaSend: true, ...out.result }, brief: out.brief };
     }
@@ -235,7 +235,7 @@ async function secret(client, cfg, target, mode, flags) {
     try { res = await client.post(route(action), { threadId: target.threadId }); }
     catch (e) {
       throw refused(e, /was not saved yet/.test(e.body?.error ?? "")
-        ? `the server has no value for this credential: OMB_SECRET=… omb answer --provide --request ${target.messageId}`
+        ? `the server has no value for this credential: ask the user for it and run answer --provide --secret-stdin --request ${target.messageId} < the file they wrote`
         : `the card was not resumed; answer --dismiss --request ${target.messageId} lets the bot continue without it`);
     }
     return {
@@ -254,7 +254,9 @@ async function secret(client, cfg, target, mode, flags) {
   // put it in a dry run's output.
   if (cfg.dryRun) return { result: { dryRun: true, ...base, action: "provide", would: ["PUT /api/config", `POST ${route("provided")}`] } };
   const value = readSecretValue(flags);
-  if (value === null) throw new Fail(EXIT.NEEDS_USER, `ask the user for the ${label}`, { hint: `pass it via OMB_SECRET or --secret-stdin, never in chat or argv${card.helpUrl ? `; it comes from ${card.helpUrl}` : ""}` });
+  // The hint must not be a command the value could be pasted into: whatever
+  // an agent composes lands in its own transcript.
+  if (value === null) throw new Fail(EXIT.NEEDS_USER, `ask the user for the ${label}`, { hint: `have them write it to a file only they can read (umask 077) and run: omb answer --provide --secret-stdin --request ${target.messageId} < that-file — or have them export OMB_SECRET in their own shell with 'read -rs OMB_SECRET && export OMB_SECRET' and run it there. Never put the value in a command, in chat or in your notes${card.helpUrl ? `; it comes from ${card.helpUrl}` : ""}` });
   try { await client.put("/api/config", patch(value)); }
   catch (e) { throw refused(e, `the ${label} was not saved and the card is untouched`); }
   try {

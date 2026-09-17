@@ -217,8 +217,13 @@ historical reports append a reanalysis instead of replacing the original.
 - **Tokens never in argv.** They come from `OMB_TOKEN` or the 0600 file at
   `~/.config/openmausbot-launcher/tokens.json`, so nothing lands in a process
   list or a transcript. A credential answered with `answer --provide` is the
-  same: `OMB_SECRET` or `--secret-stdin`, and there is no flag that takes a
-  value.
+  same, and stricter: there is no flag that takes a value, and **the operator
+  must never compose a command that contains one** — an agent's own tool call
+  is transcribed. Either the user writes the value to a file only they can
+  read and the command redirects from that path
+  (`--secret-stdin --request <id> < that-file`), or the user exports
+  `OMB_SECRET` in their own shell with `read -rs OMB_SECRET` and runs the
+  command there.
 - **`answer` on a learned-skill card denies it unless it allows it.** Every
   behaviour other than `allow` rejects the staged write
   (`index.ts:6470-6504`), so `--message` on one of those cards would throw

@@ -185,13 +185,15 @@ test("credential: the value reaches the server through the environment or stdin 
   const VALUE = "xai-0d8e-never-log-me";
   const card = await f.control({ op: "secret", threadId: lt, target: "xaiApiKey", reason: "so Grok can run." });
   let r = await runOmb(["status", "--project", dir, "--brief"], { env });
-  assert.equal(r.stdout, `t10 · CREDENTIAL · Sudo needs the xAI API key → OMB_SECRET=… omb answer --provide --request ${card.message.id} | --dismiss\n`);
+  assert.equal(r.stdout, `t10 · CREDENTIAL · Sudo needs the xAI API key → omb answer --provide --secret-stdin --request ${card.message.id} < <file the user wrote> | --dismiss\n`);
   r = await runOmb(["answer", "--provide", "--secret", VALUE, "--project", dir], { env });
   assert.equal(r.code, 2, "there is no flag that would put a credential in argv"); assert.match(r.json.error, /Unknown option '--secret'/);
   r = await runOmb(["answer", "--provide", "--project", dir], { env });
   assert.equal(r.code, 5, r.stdout);
   assert.match(r.json.error, /ask the user for the xAI API key/);
-  assert.match(r.json.hint, /OMB_SECRET or --secret-stdin, never in chat or argv/);
+  assert.match(r.json.hint, /omb answer --provide --secret-stdin --request \S+ < that-file/, "the hint names a path, never a place to paste the value");
+  assert.match(r.json.hint, /Never put the value in a command, in chat or in your notes/);
+  assert.equal(/OMB_SECRET\s*=/.test(r.stdout), false, "no output invites an agent to substitute the value into a command");
   assert.equal((await (await fetch(`${f.url}/api/config`)).json()).xai.configured, false, "nothing was saved without a value");
   r = await runOmb(["answer", "--provide", "--project", dir, "--dry-run"], { env: { ...env, OMB_SECRET: VALUE } });
   assert.equal(r.code, 0, r.stdout); assert.equal(r.json.dryRun, true); assert.equal(r.stdout.includes(VALUE), false, "a preview shows the routes, never the value");
@@ -254,7 +256,7 @@ test("credential: --resume retries the card, and says where the value is when th
   let r = await runOmb(["answer", "--resume", "--request", unsaved.message.id, "--project", dir], { env });
   assert.equal(r.code, 3, r.stdout); assert.equal(r.json.status, 409);
   assert.equal(r.json.error, "ElevenLabs API key was not saved yet");
-  assert.match(r.json.hint, new RegExp(`OMB_SECRET=… omb answer --provide --request ${unsaved.message.id}`));
+  assert.match(r.json.hint, new RegExp(`answer --provide --secret-stdin --request ${unsaved.message.id} < the file they wrote`));
   assert.deepEqual(posts, ["provided"], "an unresumed card is retried through provided, which needs no value");
   r = await runOmb(["answer", "--provide", "--request", unsaved.message.id, "--project", dir], { env: { ...env, OMB_SECRET: "eleven-labs-key" } });
   assert.equal(r.code, 0, r.stdout);

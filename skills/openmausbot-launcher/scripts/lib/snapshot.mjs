@@ -641,11 +641,11 @@ export function brief(ev, snap, task, now = Date.now()) {
       // what is missing is the status read that refreshes it and resumes the
       // bot (index.ts:12255-12276) — not another trip to the provider.
       if (p?.kind === "connector") return `${slug} · CONNECT · ${p.botName} needs ${p.connector?.label ?? p.connector?.slug}${p.connector?.alias ? ` (${p.connector.alias})` : ""} (${p.connector?.status}) → omb answer ${["authorizing", "connected"].includes(p.connector?.status) ? "--resume" : "--connect"} --request ${id}`;
-      // The value is named, never shown: it reaches the driver through the
-      // environment or stdin, so the line says where to put it. A card that
-      // carries an error was settled and only its wake failed, so that one can
-      // be retried with no value at all (index.ts:6767-6773).
-      if (p?.kind === "secret") return `${slug} · CREDENTIAL · ${p.botName} needs the ${p.secret?.label ?? p.secret?.target} → OMB_SECRET=… omb answer --provide --request ${id}${p.secret?.error ? " | --resume" : ""} | --dismiss`;
+      // The command names a file, never a value: a line that showed where to
+      // paste the credential would be copied out with the credential in it.
+      // A card that carries an error was settled and only its wake failed, so
+      // that one can be retried with no value at all (index.ts:6767-6773).
+      if (p?.kind === "secret") return `${slug} · CREDENTIAL · ${p.botName} needs the ${p.secret?.label ?? p.secret?.target} → omb answer --provide --secret-stdin --request ${id} < <file the user wrote>${p.secret?.error ? " | --resume" : ""} | --dismiss`;
       if (p?.kind === "waiting") return `${slug} · NEEDS YOU · ${p.botName} is waiting on you → read its chat`;
       return `${slug} · NEEDS YOU · ${p?.botName ?? lead} has a ${p?.kind ?? "request"} the driver cannot answer → open the app`;
     }

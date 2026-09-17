@@ -257,7 +257,14 @@ is not: the value is the user's secret, and the launcher is a command line.
 So there is no flag that takes it. `answer --provide` reads `OMB_SECRET`, or
 stdin with `--secret-stdin`, exactly one of the two; it strips one trailing
 newline, deletes `OMB_SECRET` from its own environment the moment it reads
-it, and `OMB_SECRET` joins the names `up` strips from a server it starts. A
+it, and `OMB_SECRET` joins the names `up` strips from a server it starts.
+Keeping it out of argv is not enough, because the operator is usually an
+agent whose own tool calls are transcribed: no instruction the launcher
+prints may be a command the value could be substituted into. The two
+supported paths both keep it out of what the agent composes — the user writes
+the value to a file only they can read and the agent redirects from that path,
+or the user exports `OMB_SECRET` in their own shell (`read -rs`) and runs the
+command there. A
 dry run never reads the value at all and the HTTP client redacts the body of
 a config write, so a preview cannot print one. With no value the verb exits
 5 and asks for the credential by its label rather than guessing. The

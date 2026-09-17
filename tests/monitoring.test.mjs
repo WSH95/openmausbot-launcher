@@ -69,7 +69,7 @@ test('every pending kind carries a handle and a brief that names its own answer 
   assert.equal(line(0), `run · SKILL · Worker: Enable skill "release-notes"? sha256 aaaaaaaa… → omb answer --allow --reviewed ${sha} --request sk | --deny`);
   assert.equal(line(1), 'run · ROUTINE · Worker: Schedule “Nightly”? → omb answer --confirm --request rt | --cancel');
   assert.equal(line(2), 'run · CONNECT · Worker needs Slack (required) → omb answer --connect --request c3');
-  assert.equal(line(3), 'run · CREDENTIAL · Worker needs the xAI API key → OMB_SECRET=… omb answer --provide --request c4 | --dismiss');
+  assert.equal(line(3), 'run · CREDENTIAL · Worker needs the xAI API key → omb answer --provide --secret-stdin --request c4 < <file the user wrote> | --dismiss');
   for (const i of [0, 3]) assert.equal(/# release-notes|xai-|Grok/.test(line(i)), false, 'a brief never carries a skill preview or anything that looks like a value');
 });
 
@@ -100,7 +100,7 @@ test('a settled card whose bot has not been told stays selectable even though it
   assert.deepEqual(snap.resumable.map((p) => p.handle), ['c1', 's1'], 'a settled card whose bot was never woken is still actionable');
   assert.equal(snap.resumable[0].connector.resumeKey, 'rk');
   const line = monitoring.brief(monitoring.evaluate({ ...snap, pending: [snap.resumable[1]] }, task, { now: 100_000, quiet: { since: 0 }, quietMs: 1 }), snap, task, 100_000);
-  assert.equal(line, 'run · CREDENTIAL · Worker needs the ElevenLabs API key → OMB_SECRET=… omb answer --provide --request s1 | --resume | --dismiss', 'a card whose wake failed can be retried without the value');
+  assert.equal(line, 'run · CREDENTIAL · Worker needs the ElevenLabs API key → omb answer --provide --secret-stdin --request s1 < <file the user wrote> | --resume | --dismiss', 'the command names a file, never a value; a card whose wake failed can also be retried without one');
 });
 
 test('lead hydration reaches run boundary beyond the old ten page cap', async () => {

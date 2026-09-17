@@ -37,6 +37,19 @@ test("every docs/upstream reference points at the dev pack, which owns that dire
   }
 });
 
+test("no shipped instruction asks the agent to compose a command that carries a credential", () => {
+  const files = ["skills/openmausbot-launcher/SKILL.md", ...fs.readdirSync(path.join(SKILL_DIR, "references")).map((f) => `skills/openmausbot-launcher/references/${f}`)];
+  for (const file of files) {
+    const text = read(file);
+    // `OMB_SECRET=` in an instruction is an invitation to substitute the value
+    // into the tool call, where the transcript keeps it forever.
+    assert.equal(/OMB_SECRET\s*=/.test(text), false, `${file} shows an assignment to OMB_SECRET`);
+  }
+  const skill = read("skills/openmausbot-launcher/SKILL.md");
+  assert.match(skill, /--secret-stdin/, "the skill names the path that keeps the value out of the command");
+  assert.match(skill, /read -rs OMB_SECRET/, "the skill names the shell form the user types themselves");
+});
+
 test("the operator skill explains an unverified watch result and how to retry it", () => {
   const skill = read("skills/openmausbot-launcher/SKILL.md");
   assert.match(skill, /outcome:\s*["`]?unverified/);

@@ -216,15 +216,24 @@ line. Relay the lead's own words; do not paraphrase decisions.
   the whole skill — then `omb answer --allow --reviewed <sha256> --request
   <id>`, with the `sha256` from the same card. Anything else denies it, so
   there is no way to comment: `--message` is refused.
-- A credential: ask the user for it, then
-  `OMB_SECRET='…' omb answer --provide --request <messageId>`, or pipe it with
-  `--secret-stdin`. Never put it in the command line, in chat, or in your own
-  notes; the driver sends it to the server's settings and tells the card, and
-  the value appears in no output. If the save lands but the card does not,
-  `omb answer --resume --request <messageId>` finishes it — that route carries
-  no value, so you never ask the user for the credential twice. `--dismiss`
-  lets the bot continue without it. `boxToken` is refused here: provide it in
-  the app.
+- A credential: **never handle the value yourself.** Do not ask the user to
+  paste it to you, do not put it in a command you run, and do not repeat it
+  back — anything you compose is kept in this session's transcript. Give the
+  user one of these two, and run nothing until they say it is done:
+  - they write the value into a file only they can read
+    (`umask 077; cat > ~/.omb-secret` then Ctrl-D), and you run
+    `omb answer --provide --secret-stdin --request <messageId> < ~/.omb-secret`
+    — the command names the path, never the value — then they delete the file;
+  - or they run the command in their own shell after
+    `read -rs OMB_SECRET && export OMB_SECRET`, which reads it without echoing
+    it; the value then reaches only that shell.
+
+  The driver puts it into the server's settings and tells the card; it appears
+  in no output, no state file, and no preview. If the save lands but the card
+  does not, `omb answer --resume --request <messageId>` finishes it — that
+  route carries no value, so the user is never asked twice. `--dismiss` lets
+  the bot continue without it. `boxToken` is refused here: provide it in the
+  app.
 - A connected app: `omb answer --connect --request <messageId>` returns a link
   once, for the user to open (exit 5). When they are done,
   `omb answer --resume --request <messageId>`; one request can ask for several
