@@ -26,6 +26,10 @@ const KINDS = {
   question: { label: "a question", accepts: ["answer"], use: "--message" },
   approval: { label: "an approval card", accepts: ["allow", "deny"], use: "--allow or --deny" },
   routine: { label: "a routine confirmation", accepts: ["allow", "deny"], use: "--confirm or --cancel" },
+  // A learned-skill card has no third answer: every behaviour other than allow
+  // rejects the staged write (index.ts:6470-6504), so `--message` would throw
+  // the skill away while reading like a comment.
+  skill: { label: "a learned-skill card", accepts: ["allow", "deny"], use: "--allow --reviewed <sha256> or --deny; a message would reject the skill" },
 };
 
 /** How a pending entry is named to the user and matched by `--request`. */
@@ -36,7 +40,7 @@ const kindOf = (p) => (p.kind === "card" ? p.cardKind : p.kind);
 verb("answer", {
   options: {
     allow: { type: "boolean" }, deny: { type: "boolean" }, message: { type: "string" },
-    confirm: { type: "boolean" }, cancel: { type: "boolean" },
+    confirm: { type: "boolean" }, cancel: { type: "boolean" }, reviewed: { type: "string" },
     request: { type: "string" }, run: { type: "string" },
   },
   allowPositionals: true,
@@ -74,8 +78,10 @@ verb("answer", {
       if (target.kind !== "card") throw new Fail(EXIT.NEEDS_USER, `${target.botName} has a ${target.kind} request the driver cannot answer`, { hint: target.kind === "connector" ? "connect the app in OpenMausBot's UI (connector cards use /api/bots/:id/connector-cards)" : "provide the credential in OpenMausBot's UI (secret cards use /api/bots/:id/secret-cards)" });
       throw new Fail(EXIT.NEEDS_USER, `${target.botName} has a ${kind} request the driver cannot answer`, { hint: "review the learned skill in OpenMausBot's app; its response requires reviewedSha256 matching the displayed preview" });
     }
+    if (flags.reviewed !== undefined && kind !== "skill") throw new Fail(EXIT.USAGE, "--reviewed belongs to a learned-skill card", { hint: `request ${handleOf(target)} is ${spec.label}` });
     if (!spec.accepts.includes(behavior)) throw new Fail(EXIT.USAGE, `request ${handleOf(target)} is ${spec.label}: use ${spec.use}`);
     if (kind === "routine") return routine(client, cfg, target, behavior);
+    if (kind === "skill") return skill(client, cfg, target, behavior, flags.reviewed);
     if (cfg.dryRun) return { result: { dryRun: true, requestId: target.requestId, threadId: target.threadId, behavior } };
     const res = await client.post(`/api/threads/${target.threadId}/respond`, { requestId: target.requestId, behavior, ...(behavior === "answer" ? { message: flags.message } : {}) });
     const outcome = res.outcome ?? "unknown";
@@ -91,6 +97,40 @@ verb("answer", {
     return { result: { requestId: target.requestId, threadId: target.threadId, bot: target.botName, behavior, outcome, fellBackToSend, sent }, brief: `answer · ${target.botName} · ${behavior} → ${outcome}${fellBackToSend ? " (sent as chat instead)" : ""}` };
   }, { lockWhen: ({ flags }) => modesIn(flags).length > 0 }),
 });
+
+/**
+ * A learned-skill card. The skill stays staged until this answer, and the
+ * server installs it only against the hash the person says they reviewed
+ * (index.ts:6513-6519), so `--reviewed` is the review itself: it is checked
+ * against this card before anything is posted, because a hash from another
+ * card would otherwise buy an allow for a skill nobody read.
+ *
+ * Whether the preview still hashes to that sha256 is the server's own check
+ * (`:6520-6523`); it refuses before it applies anything, and its words name
+ * the remedy. Nothing is installed by any refusal here.
+ */
+async function skill(client, cfg, target, behavior, reviewed) {
+  const request = target.skillRequest ?? {};
+  if (behavior === "allow") {
+    if (reviewed === undefined) throw new Fail(EXIT.USAGE, "allowing a learned skill needs --reviewed <sha256>: the hash of the preview you read to the user", { hint: `this card's sha256 is ${request.sha256}; its preview is in pending[].skillRequest.preview` });
+    if (!/^[0-9a-f]{64}$/.test(reviewed)) throw new Fail(EXIT.USAGE, "--reviewed must be 64 hex characters (a sha256)");
+    if (reviewed !== request.sha256) throw new Fail(EXIT.USAGE, "--reviewed is not this card's sha256", { hint: `this card's sha256 is ${request.sha256}` });
+  }
+  const base = { requestId: target.requestId, threadId: target.threadId, bot: target.botName, cardKind: "skill", name: request.name ?? null, action: request.action ?? null, behavior };
+  if (cfg.dryRun) return { result: { dryRun: true, ...base, ...(behavior === "allow" ? { reviewedSha256: reviewed } : {}) } };
+  let res;
+  try { res = await client.post(`/api/threads/${target.threadId}/respond`, { requestId: target.requestId, behavior, ...(behavior === "allow" ? { reviewedSha256: reviewed } : {}) }); }
+  catch (e) {
+    throw refused(e, behavior === "allow"
+      ? "nothing was installed: deny this card and ask the bot to stage the skill again"
+      : "the staged write was not cleaned up; read the server's words to the bot");
+  }
+  const outcome = res.outcome ?? "unknown";
+  return {
+    result: { ...base, outcome, ...(res.alreadySettled ? { alreadySettled: true } : {}) },
+    brief: `answer · ${target.botName} · ${behavior} → ${outcome}`,
+  };
+}
 
 /**
  * A routine confirmation. The card holds a proposal the bot wrote and the

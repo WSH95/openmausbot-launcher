@@ -833,9 +833,11 @@ export async function createFake(opts = {}) {
             version: 1, requestId: card.requestId, botId: owner?.id, threadId, stagedId: newId(), action, name, gist,
             source: op.source ?? `learned:${name}`,
             // A preview that no longer hashes to its sha256 is the card the
-            // server refuses with 422 (S: index.ts:6520-6523).
-            preview: op.stalePreview ? `${preview}an edit after review\n` : preview,
+            // server refuses with 422 (S: index.ts:6520-6523); a card with no
+            // preview at all is one an older build persisted (S: :6506-6512).
+            ...(op.olderBuild ? {} : { preview: op.stalePreview ? `${preview}an edit after review\n` : preview }),
             sha256: createHash("sha256").update(preview).digest("hex"), warnings, createdAt: now(),
+            ...(op.stagedGone ? { stagedGone: true } : {}),
           };
         }
         if (kind === "routine") {

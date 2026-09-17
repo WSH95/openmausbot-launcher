@@ -56,22 +56,6 @@ test("answer: approval and question cards, dead cards, several pending, unsuppor
   assert.equal(r.code, 3, "an answered card is no longer pending");
 });
 
-test("skill, routine, credential and connection requests refuse every ordinary response mode before posting", async (t) => {
-  const { f, dir } = await setup(t);
-  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
-  const posts = [];
-  f.server.on("request", (req) => { if (req.method === "POST" && req.url.endsWith("/respond")) posts.push(req.url); });
-  for (const kind of ["skill"]) {
-    await f.control({ op: "card", threadId: run.json.leadThreadId, kind, requestId: kind });
-    for (const mode of [["--allow"], ["--deny"], ["--message", "yes"]]) {
-      const r = await runOmb(["answer", ...mode, "--request", kind, "--project", dir], { env });
-      assert.equal(r.code, 5, r.stdout);
-      assert.match(r.json.error, new RegExp(`${kind} request`));
-    }
-  }
-  assert.deepEqual(posts, [], "even a rejected response POST is forbidden for unsupported requests");
-});
-
 test("routine: a confirmation applies the operation, a cancel rejects it, and a textual answer never reaches the server", async (t) => {
   const { f, dir } = await setup(t);
   const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
@@ -117,6 +101,63 @@ test("routine: a refused revalidation is reported in the server's words and leav
   assert.equal(r.code, 3, r.stdout); assert.equal(r.json.status, 404); assert.equal(r.json.error, "That routine no longer exists");
   r = await runOmb(["answer", "--cancel", "--request", "rt2", "--project", dir], { env });
   assert.equal(r.code, 0, "a held card can still be cancelled"); assert.equal(r.json.outcome, "rejected");
+});
+
+test("skill: an allow carries the hash the user reviewed, and a hash that is not this card's never reaches the server", async (t) => {
+  const { f, dir, lead } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const lt = run.json.leadThreadId;
+  const posts = [];
+  f.server.on("request", (req) => { if (req.method === "POST" && req.url.endsWith("/respond")) posts.push(req.url); });
+  await f.control({ op: "card", threadId: lt, kind: "skill", requestId: "s1", name: "release-notes", gist: "Write release notes" });
+  await f.control({ op: "card", threadId: lt, kind: "question", requestId: "q1", text: "Which one?" });
+  const sha = (await thread(f, lt)).find((m) => m.card?.requestId === "s1").card.skillRequest.sha256;
+  let r = await runOmb(["status", "--project", dir], { env });
+  assert.equal(r.json.pending[0].skillRequest.preview, "# release-notes\nA fixture proposal.\n", "the preview is in the JSON, for the user to read before deciding");
+  r = await runOmb(["answer", "--allow", "--request", "s1", "--project", dir], { env });
+  assert.equal(r.code, 2, r.stdout); assert.match(r.json.error, /--reviewed/); assert.match(r.json.hint, new RegExp(sha));
+  r = await runOmb(["answer", "--allow", "--reviewed", "f".repeat(64), "--request", "s1", "--project", dir], { env });
+  assert.equal(r.code, 2, r.stdout); assert.match(r.json.error, /not this card's/);
+  r = await runOmb(["answer", "--allow", "--reviewed", "not-a-hash", "--request", "s1", "--project", dir], { env });
+  assert.equal(r.code, 2, r.stdout); assert.match(r.json.error, /64 hex/);
+  r = await runOmb(["answer", "--message", "looks fine", "--request", "s1", "--project", dir], { env });
+  assert.equal(r.code, 2, r.stdout); assert.match(r.json.error, /learned-skill card/); assert.match(r.json.error, /reject/);
+  r = await runOmb(["answer", "--allow", "--reviewed", sha, "--request", "q1", "--project", dir], { env });
+  assert.equal(r.code, 2, r.stdout); assert.match(r.json.error, /--reviewed belongs to a learned-skill card/);
+  assert.deepEqual(posts, [], "no decision reaches the server until the reviewed hash is this card's");
+  r = await runOmb(["answer", "--allow", "--reviewed", sha, "--request", "s1", "--project", dir, "--dry-run"], { env });
+  assert.equal(r.code, 0, r.stdout); assert.equal(r.json.dryRun, true); assert.equal(r.json.reviewedSha256, sha);
+  assert.deepEqual(posts, []);
+  r = await runOmb(["answer", "--allow", "--reviewed", sha, "--request", "s1", "--project", dir], { env });
+  assert.equal(r.code, 0, r.stdout);
+  assert.deepEqual({ ...r.json }, { ok: true, verb: "answer", requestId: "s1", threadId: lt, bot: "Sudo", cardKind: "skill", name: "release-notes", action: "create", behavior: "allow", outcome: "allowed-once" });
+  assert.deepEqual((await f.snapshot()).skills, [`${lead.id}/release-notes`], "the allow is what installed it");
+  assert.equal(posts.length, 1);
+  r = await runOmb(["answer", "--allow", "--reviewed", sha, "--request", "s1", "--project", dir], { env });
+  assert.equal(r.code, 3, "a settled card is no longer pending");
+});
+
+test("skill: a deny rejects the staged write, and a refused allow is reported in the server's words", async (t) => {
+  const { f, dir } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const lt = run.json.leadThreadId;
+  const shaOf = async (id) => (await thread(f, lt)).find((m) => m.card?.requestId === id).card.skillRequest.sha256;
+  await f.control({ op: "card", threadId: lt, kind: "skill", requestId: "s1", name: "noisy" });
+  let r = await runOmb(["answer", "--deny", "--request", "s1", "--project", dir, "--brief"], { env });
+  assert.equal(r.stdout, "answer · Sudo · deny → rejected\n");
+  assert.deepEqual((await f.snapshot()).skills, [], "a denied proposal installs nothing");
+  await f.control({ op: "card", threadId: lt, kind: "skill", requestId: "s2", name: "stale", stalePreview: true });
+  r = await runOmb(["answer", "--allow", "--reviewed", await shaOf("s2"), "--request", "s2", "--project", dir], { env });
+  assert.equal(r.code, 3, r.stdout); assert.equal(r.json.status, 422);
+  assert.equal(r.json.error, "the skill preview changed after review — deny and recreate it");
+  assert.match(r.json.hint, /deny this card and ask the bot to stage the skill again/);
+  await f.control({ op: "card", threadId: lt, kind: "skill", requestId: "s3", name: "old", olderBuild: true });
+  r = await runOmb(["answer", "--allow", "--reviewed", await shaOf("s3"), "--request", "s3", "--project", dir], { env });
+  assert.equal(r.code, 3, r.stdout); assert.equal(r.json.status, 409);
+  assert.equal(r.json.error, "this proposal was created by an older build — deny it and ask the bot to create it again");
+  r = await runOmb(["answer", "--deny", "--request", "s3", "--project", dir], { env });
+  assert.equal(r.code, 0, "a card the server will not allow can still be denied");
+  assert.deepEqual((await f.snapshot()).skills, []);
 });
 
 test("a connection and a credential card are named by the message they arrived on", async (t) => {
