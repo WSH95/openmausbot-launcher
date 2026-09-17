@@ -54,13 +54,13 @@ export function makeRepo(opts = {}) {
 }
 
 /** Run the driver and parse its JSON stdout. No ambient OMB_* setting reaches
- * the child; only `opts.env` does. `opts.stdin` is written and closed, which is
+ * the child; only `opts.env` does. `opts.stdin` (a string or promise) is written and closed, which is
  * how a credential reaches the driver without passing through argv. */
 export function runOmb(args, opts = {}) {
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("OMB_")));
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [OMB, ...args], { cwd: opts.cwd ?? ROOT, env: { ...env, ...opts.env }, stdio: [opts.stdin != null ? "pipe" : "ignore", "pipe", "pipe"] });
-    if (opts.stdin != null) child.stdin.end(opts.stdin);
+    if (opts.stdin != null) Promise.resolve(opts.stdin).then((value) => child.stdin.end(value));
     let stdout = ""; let stderr = "";
     child.stdout.on("data", (c) => { stdout += c; });
     child.stderr.on("data", (c) => { stderr += c; });

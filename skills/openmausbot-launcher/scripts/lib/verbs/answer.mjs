@@ -281,19 +281,26 @@ async function secret(client, cfg, target, mode, flags, runFlag = "") {
   // even read, and there is no flag to override it.
   const restarts = RESTARTS_PROVIDERS.has(card.target);
   const guard = restarts ? `saving the ${label} restarts every provider and interrupts the turns that are running` : null;
-  let busy = [];
-  if (restarts) {
-    const fleet = await client.get("/api/bots?messages=0");
-    busy = (fleet.bots ?? []).filter((b) => b.busy === true || BUSY.has(b.activity)).map((b) => b.name);
+  const checkFleet = async () => {
+    if (!restarts) return;
+    const [fleet, map] = await Promise.all([client.get("/api/bots?messages=0"), client.get("/api/team-map")]);
+    if (!Array.isArray(fleet?.bots) || !Array.isArray(map?.queued) || !Array.isArray(map?.running)) {
+      throw new Fail(EXIT.PRECONDITION, "the fleet's idle state could not be verified; the credential was not saved");
+    }
+    const busy = fleet.bots.filter((b) => b.busy === true || BUSY.has(b.activity)).map((b) => b.name);
     if (busy.length) {
       throw new Fail(EXIT.PRECONDITION, `${busy.join(", ")} ${busy.length > 1 ? "are" : "is"} working, and ${guard}`, {
         hint: `save it when they are idle, or answer --dismiss --request ${target.messageId}${runFlag} to let the bot continue without it`,
       });
     }
-  }
+    if (map.queued.length || map.running.length) throw new Fail(EXIT.PRECONDITION, `delegations queued ${map.queued.length}, running ${map.running.length}, and ${guard}`, {
+      hint: `save it when they are idle, or answer --dismiss --request ${target.messageId}${runFlag} to let the bot continue without it`,
+    });
+  };
+  await checkFleet();
   // The preview names the two routes and stops: reading the value here would
   // put it in a dry run's output.
-  if (cfg.dryRun) return { result: { dryRun: true, ...base, action: "provide", ...(restarts ? { guard, busy } : {}), would: ["PUT /api/config", `POST ${route("provided")}`] } };
+  if (cfg.dryRun) return { result: { dryRun: true, ...base, action: "provide", ...(restarts ? { guard, busy: [] } : {}), would: ["PUT /api/config", `POST ${route("provided")}`] } };
   const value = readSecretValue(flags);
   // The hint must not be a command the value could be pasted into: whatever
   // an agent composes lands in its own transcript.
@@ -303,6 +310,10 @@ async function secret(client, cfg, target, mode, flags, runFlag = "") {
   // (index.ts:12015-12042), so this one call gets a longer budget and a lost
   // answer is never read as "nothing was written".
   let saveOutcome = "saved";
+  // Stdin may have blocked while a routine or delegation started. Recheck
+  // immediately before the PUT; 0.1.56 has no idle-conditional config write,
+  // so the remaining read/write window cannot be eliminated client-side.
+  await checkFleet();
   try { await client.put("/api/config", patch(value), { timeoutMs: 60_000 }); }
   catch (e) {
     // A 4xx is the server refusing before it wrote anything.

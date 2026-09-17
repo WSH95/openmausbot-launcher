@@ -255,9 +255,13 @@ historical reports append a reanalysis instead of replacing the original.
   changed` on every busy bot's thread (`:7175-7207`). Of the credential
   targets that is `xaiApiKey` and `opencodeGoApiKey`; `ttsKey` and
   `openaiImageApiKey` write excluded sections and are safe. `answer --provide`
-  therefore reads the whole fleet first and refuses while any bot is working —
-  any bot on the server, not only this team's — before it reads the value.
-  There is no override: wait for them, or dismiss the card.
+  checks the whole fleet and team map before reading the value, and again
+  immediately before the PUT. Any busy bot or queued/running delegation on
+  the server refuses the write, including other teams' work. Dry runs and
+  calls without a value retain the early check. There is no override.
+  The server has no idle-conditional config write: work can still start in
+  the residual millisecond window between the last reads and the PUT.
+  Wait for the fleet and its queues to settle, or dismiss the card.
 - **`doctor --server` reports only the names it strips.** It reads
   `/proc/<pid>/environ` and names the ones in `STRIPPED_ENV` —
   `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, `OMB_TOKEN`,

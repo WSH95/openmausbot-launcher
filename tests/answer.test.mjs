@@ -358,6 +358,52 @@ test("credential: a provider key is not saved while any bot is working, because 
   assert.equal((await f.snapshot()).providerReloads, 1, "an idle fleet takes the reload the save causes");
 });
 
+test("credential: queued and running delegations refuse provider writes even with idle bots", async (t) => {
+  const { f, dir, lead, team } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const worker = team.bots.find((b) => b.key === "nova");
+  const card = await f.control({ op: "secret", threadId: run.json.leadThreadId, target: "opencodeGoApiKey" });
+  for (const op of ["queued", "running"]) {
+    await f.control({ op, sourceBotId: lead.id, targetBotId: worker.id });
+    for (const flags of [[], ["--dry-run"]]) {
+      const r = await runOmb(["answer", "--provide", "--request", card.message.id, "--project", dir, ...flags], { env });
+      assert.equal(r.code, 3, r.stdout);
+      assert.match(r.json.error, /delegations/);
+    }
+    assert.equal((await f.snapshot()).providerReloads, 0);
+    await f.control({ op: "clearDelegations" });
+  }
+});
+
+test("credential: provider writes recheck the fleet after waiting for stdin", async (t) => {
+  const { f, dir, lead } = await setup(t);
+  const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const outsider = (await f.control({ op: "bot", name: "Outside", section: "Another team" })).bot;
+  const card = await f.control({ op: "secret", threadId: run.json.leadThreadId, target: "xaiApiKey" });
+  for (const op of ["activity", "queued", "running"]) {
+    const input = Promise.withResolvers();
+    let reads = 0;
+    let writes = 0;
+    const observe = (req) => {
+      if (req.method === "PUT" && req.url === "/api/config") writes++;
+      // Snapshot first, early fleet guard second. Its response has already
+      // been formed; the value is withheld until new fleet work is visible.
+      if (req.url === "/api/bots?messages=0" && ++reads === 2) {
+        f.apply({ op, botId: outsider.id, activity: "working", sourceBotId: lead.id, targetBotId: outsider.id });
+        input.resolve("dummy-provider-key\n");
+      }
+    };
+    f.server.on("request", observe);
+    const r = await runOmb(["answer", "--provide", "--secret-stdin", "--request", card.message.id, "--project", dir], { env, stdin: input.promise });
+    f.server.off("request", observe);
+    assert.equal(r.code, 3, `${op}: ${r.stdout}`);
+    assert.equal(writes, 0, "no config write after work started while input was held");
+    assert.equal((await f.snapshot()).providerReloads, 0);
+    await f.control({ op: "activity", botId: outsider.id, activity: "idle" });
+    await f.control({ op: "clearDelegations" });
+  }
+});
+
 test("credential: a config write that never answered is checked, not assumed to have failed", async (t) => {
   const { f, dir } = await setup(t);
   const run = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
