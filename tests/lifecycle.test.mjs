@@ -345,9 +345,19 @@ async function ownedServer(t, pids, project) {
   const up = await runOmb(["up", "--project", project, "--port", String(await freePortPair()), "--data-dir", dataDir], { env });
   assert.equal(up.code, 0, up.stdout + up.stderr);
   pids.push(up.json.supervisorPid, up.json.healthPid);
-  const control = async (op) => { const r = await fetch(`${up.json.url}/__fake`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(op) }); const b = await r.json(); if (!r.ok) throw new Error(b.error); return b; };
-  const setCwd = (botId, cwd) => fetch(`${up.json.url}/api/bots/${botId}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ cwd }) });
-  return { env, url: up.json.url, dataDir, environmentId: up.json.environmentId, control, setCwd, down: (...args) => runOmb(["down", "--project", project, ...args], { env }) };
+  const control = async (op) => { const r = await fetch(`${up.json.url}/__fake`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(op), signal: AbortSignal.timeout(10_000) }); const b = await r.json(); if (!r.ok) throw new Error(b.error); return b; };
+  const setCwd = (botId, cwd) => fetch(`${up.json.url}/api/bots/${botId}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ cwd }), signal: AbortSignal.timeout(10_000) });
+  /** Wait for a fact about the server, never for a duration. */
+  const until = async (matches, what, budgetMs = 15_000) => {
+    const stop = Date.now() + budgetMs;
+    while (Date.now() < stop) {
+      const snapshot = await (await fetch(`${up.json.url}/__fake/state`, { signal: AbortSignal.timeout(10_000) })).json();
+      if (matches(snapshot)) return snapshot;
+      await sleep(20);
+    }
+    throw new Error(`waited ${budgetMs} ms for ${what}`);
+  };
+  return { env, url: up.json.url, dataDir, environmentId: up.json.environmentId, control, setCwd, until, down: (...args) => runOmb(["down", "--project", project, ...args], { env }) };
 }
 /** Another project's folder, with the state file the test wants in it. */
 function foreignProject(doc) {
@@ -361,8 +371,9 @@ test("down refuses a server under work it can observe, and --stop-others overrid
   const { dir } = makeRepo();
   const pids = reaper(t);
   const s = await ownedServer(t, pids, dir);
+  const sudo = (await s.control({ op: "bot", name: "Sudo", section: "Dev team", chiefOfStaff: true })).bot;
+  assert.equal((await runOmb(["import", "--adopt", "Dev team", "--project", dir, "--url", s.url], { env: s.env })).code, 0);
   const stranger = (await s.control({ op: "bot", name: "Stranger", section: "Other team" })).bot;
-  const mate = (await s.control({ op: "bot", name: "Mate", section: "Other team" })).bot;
   await s.control({ op: "activity", botId: stranger.id, activity: "working" });
   const dry = await s.down("--dry-run");
   assert.equal(dry.code, 3, dry.stdout);
@@ -378,13 +389,13 @@ test("down refuses a server under work it can observe, and --stop-others overrid
   r = await s.down();
   assert.equal(r.code, 3); assert.deepEqual(r.json.others.waitingBots, ["Stranger"]);
   await s.control({ op: "activity", botId: stranger.id, activity: "idle" });
-  await s.control({ op: "queued", sourceBotId: stranger.id, targetBotId: mate.id });
+  await s.control({ op: "queued", sourceBotId: stranger.id, targetBotId: sudo.id });
   r = await s.down();
-  assert.equal(r.code, 3); assert.deepEqual(r.json.others.delegations, [{ state: "queued", source: "Stranger", target: "Mate" }]);
+  assert.equal(r.code, 3); assert.deepEqual(r.json.others.delegations, [{ state: "queued", source: "Stranger", target: "Sudo" }], "a foreign source with one of ours as target");
   await s.control({ op: "clearDelegations" });
-  await s.control({ op: "running", sourceBotId: mate.id, targetBotId: stranger.id });
+  await s.control({ op: "running", sourceBotId: sudo.id, targetBotId: stranger.id });
   r = await s.down();
-  assert.equal(r.code, 3); assert.equal(r.json.others.delegations[0].state, "running", "either end of a delegation counts");
+  assert.equal(r.code, 3); assert.deepEqual(r.json.others.delegations, [{ state: "running", source: "Sudo", target: "Stranger" }], "and one of ours delegating to a foreign bot");
   await s.control({ op: "clearDelegations" });
   const room = (await s.control({ op: "group", name: "Their Room", memberIds: [stranger.id] })).group;
   await s.control({ op: "roomWorking", groupId: room.id });
@@ -410,6 +421,24 @@ test("down refuses a server under work it can observe, and --stop-others overrid
   const stale = await s.down("--stop-others");
   assert.equal(stale.code, 3, "--stop-others bypasses only the other-work guard");
   assert.match(stale.json.error, /attached, not owned/);
+});
+
+test("a dry run refuses where the real down would: ownership is proven again after the inspection", { skip: !linux && "needs /proc" }, async (t) => {
+  const { dir } = makeRepo();
+  const pids = reaper(t);
+  const s = await ownedServer(t, pids, dir);
+  // The team map is held open while the server's identity changes underneath
+  // the inspection: a barrier, so the preview cannot pass on a stale record.
+  await s.control({ op: "hold", route: "^/api/team-map" });
+  const preview = s.down("--dry-run", "--stop-others");
+  await s.until((snapshot) => snapshot.holdWaiting >= 1, "the inspection to reach the team map");
+  await s.control({ op: "newEnvironment" });
+  await s.control({ op: "release" });
+  const r = await preview;
+  assert.equal(r.code, 3, r.stdout);
+  assert.match(r.json.error, /the environment id changed/);
+  assert.equal(r.json.dryRun, undefined, "a refused preview is a refusal, not a preview");
+  assert.equal(await healthOk(s.url), true, "and nothing was signalled");
 });
 
 test("down stops on known negatives, keeps what it could not read under unknown, and never treats this project as foreign", { skip: !linux && "needs /proc" }, async (t) => {
@@ -483,9 +512,16 @@ test("down counts a same-section helper as this team's, and a numbered section a
   r = await s.down("--dry-run");
   assert.equal(r.code, 3, r.stdout);
   assert.deepEqual(r.json.others.busyBots, ["Twin"], "Dev team and Dev team 2 are two teams");
+  // The live server is untouched; only the recorded team belongs elsewhere, so
+  // membership itself has to decide, and no bot of that section is ours.
+  await updateState(statePaths(dir), (d) => { d.team.environmentId = "an-environment-this-team-was-imported-on"; return d; });
+  r = await s.down("--dry-run");
+  assert.equal(r.code, 3, r.stdout);
+  assert.deepEqual(r.json.others.busyBots.sort(), ["Helper", "Twin"], "a team recorded for another environment hides no bot");
+  await updateState(statePaths(dir), (d) => { d.team.environmentId = s.environmentId; return d; });
   await s.control({ op: "newEnvironment" });
   r = await s.down();
-  assert.equal(r.code, 3, "a changed environment is refused by verification, before any of this");
+  assert.equal(r.code, 3, "a changed live environment is refused by verification, before any of this");
   assert.match(r.json.error, /environment id changed/);
   assert.equal(r.json.others, undefined);
 });

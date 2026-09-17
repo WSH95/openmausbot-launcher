@@ -212,12 +212,14 @@ verb("down", {
     }
     const overrode = blocking ? describeOthers(others) : "";
     const unknowns = others.counts.unknown ? ` · ${others.counts.unknown} unknown` : "";
-    if (cfg.dryRun) return { result: { dryRun: true, signal: "SIGTERM", supervisorPid: server.supervisorPid, others }, brief: `down · dry run · SIGTERM ${server.supervisorPid}${overrode ? ` · would override ${overrode}` : ""}${unknowns}` };
     // Ownership is verified again after an inspection that may have been slow,
-    // and `stopOwned` reads the process identities one last time with nothing
-    // awaited between that read and the signal.
+    // and the process identities are read one last time with nothing awaited
+    // between that read and the signal. A preview runs both, so it refuses
+    // exactly where the signalling command would.
     const again = await srv.verifyOwned(server, client);
     if (!again.ok) throw unverified(again.reasons);
+    srv.assertProcessIdentity(server);
+    if (cfg.dryRun) return { result: { dryRun: true, signal: "SIGTERM", supervisorPid: server.supervisorPid, others }, brief: `down · dry run · SIGTERM ${server.supervisorPid}${overrode ? ` · would override ${overrode}` : ""}${unknowns}` };
     const stopped = await srv.stopOwned(server, { timeoutMs: num(flags.timeout, 15) * 1000 });
     if (!stopped) throw new Fail(EXIT.ERROR, "the server did not exit after SIGTERM", { hint: `pids ${server.supervisorPid} and ${server.healthPid} are still alive; see ${server.log}` });
     await save( (doc) => { doc.server = { ...server, owned: false, supervisorPid: null, healthPid: null, supervisorStart: null, healthStart: null, stoppedAt: new Date().toISOString() }; return doc; });

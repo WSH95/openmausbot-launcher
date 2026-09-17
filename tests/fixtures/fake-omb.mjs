@@ -309,6 +309,13 @@ export async function createFake(opts = {}) {
     // A named route that fails for the next N calls, for a reader whose failure
     // must be told apart from an empty answer.
     if (state.failRoute?.count > 0 && state.failRoute.re.test(p)) { state.failRoute.count--; return json(res, state.failRoute.status, { error: "the fake was told to fail this route" }); }
+    // A named route held until the test releases it: the barrier a scenario
+    // needs to act while a verb is between two of its own requests.
+    if (state.hold && !p.startsWith("/__fake") && state.hold.re.test(p)) {
+      const held = state.hold;
+      held.waiting += 1;
+      await new Promise((resolve) => held.waiters.push(resolve));
+    }
     const auth = authorize(req, method, p);
     // Reachability probe, public: the phone races it across a server's
     // addresses before it has a session. A stranger learns only the app name;
@@ -846,7 +853,7 @@ export async function createFake(opts = {}) {
     if (method === "GET" && p === "/__fake/state") {
       // `config` is deliberately absent: what a credential PUT leaves behind
       // is a boolean, and no test should be able to read a value from here.
-      return json(res, 200, { environmentId, bots: state.bots.map((b) => ({ ...publicBot(b), key: b.key })), groups: state.groups.map(publicGroup), receipts: state.receipts, decisions: state.decisions, queue: state.queue ?? [], lastSeq, streamId: STREAM_ID, threads: Object.fromEntries(state.threads), routines: state.routines, wakes: state.wakes, providerReloads: state.providerReloads, skills: [...state.skills.keys()] });
+      return json(res, 200, { environmentId, bots: state.bots.map((b) => ({ ...publicBot(b), key: b.key })), groups: state.groups.map(publicGroup), receipts: state.receipts, decisions: state.decisions, queue: state.queue ?? [], lastSeq, streamId: STREAM_ID, threads: Object.fromEntries(state.threads), routines: state.routines, wakes: state.wakes, providerReloads: state.providerReloads, skills: [...state.skills.keys()], holdWaiting: state.hold?.waiting ?? 0 });
     }
     if (method !== "POST" || p !== "/__fake") return json(res, 404, { error: "no route" });
     const body = await readBody(req) ?? {};
@@ -1020,6 +1027,8 @@ export async function createFake(opts = {}) {
       case "delay": state.delay = { count: op.count ?? 1, ms: op.ms ?? 1000 }; return;
       case "dropNext": state.dropNext = op.count ?? 1; return;
       case "failRoute": state.failRoute = { re: new RegExp(op.route), status: op.status ?? 503, count: op.count ?? 1 }; return;
+      case "hold": state.hold = { re: new RegExp(op.route), waiting: 0, waiters: [] }; return;
+      case "release": { const held = state.hold; state.hold = null; for (const resolve of held?.waiters ?? []) resolve(); return { released: held?.waiters.length ?? 0 }; }
       case "steer": state.steer = op.enabled !== false; state.lateSteerConflict = op.lateConflict === true; return;
       case "autoWork": state.autoWork = op.enabled !== false; return;
       case "dropStreams": state.dropStreams = op.enabled !== false; if (state.dropStreams) for (const c of [...sse]) { try { c.res.end(); } catch {} } return;

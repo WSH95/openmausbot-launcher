@@ -184,8 +184,15 @@ export function processIdentityOk(server) {
     && child?.alive && child.startTicks === server.healthStart && child.ppid === server.supervisorPid);
 }
 
+/** The same check as a refusal, for the last step before a signal and for the
+ * preview that must refuse wherever the signal would. */
+export function assertProcessIdentity(server) {
+  if (processIdentityOk(server)) return;
+  throw new Fail(EXIT.PRECONDITION, "the recorded processes changed while the server was being verified", { hint: `verify with ps -o pid,lstart,args -p ${server.supervisorPid},${server.healthPid}, then run down again` });
+}
+
 export async function stopOwned(server, { timeoutMs = 15_000 } = {}) {
-  if (!processIdentityOk(server)) throw new Fail(EXIT.PRECONDITION, "the recorded processes changed while the server was being verified", { hint: `verify with ps -o pid,lstart,args -p ${server.supervisorPid},${server.healthPid}, then run down again` });
+  assertProcessIdentity(server);
   process.kill(server.supervisorPid, "SIGTERM");
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {

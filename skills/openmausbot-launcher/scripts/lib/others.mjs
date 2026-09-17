@@ -11,6 +11,9 @@ import { openRuns, runLabel } from "./runs.mjs";
 export const LIST_MAX = 10;
 export const cap = (list) => list.slice(0, LIST_MAX);
 const MAX_STATE_BYTES = 8 * 1024 * 1024;
+const CHUNK_BYTES = 64 * 1024;
+const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+const text = (v) => (typeof v === "string" && v !== "" ? v : null);
 
 /**
  * A folder as it is compared: its `realpath` when that resolves, else the
@@ -75,6 +78,45 @@ export function membership(state, environmentId) {
   };
 }
 
+/** The name a list prints for a record whose own name is missing. */
+export const botName = (bot) => text(bot?.name) ?? "unnamed bot";
+
+/**
+ * The bots and rooms a `/api/bots` answer really carries. An entry that is not
+ * an object with an id is dropped and counted rather than trusted: malformed
+ * data must not throw past a guard and erase what the same answer proved. A
+ * body that is not the documented shape at all is a read that failed.
+ */
+export function fleetOf(body) {
+  if (!isObject(body)) throw new Error("the fleet answer is not an object");
+  const list = (value, what) => {
+    if (value === undefined || value === null) return [];
+    if (!Array.isArray(value)) throw new Error(`the fleet answer's ${what} are not a list`);
+    return value;
+  };
+  const bots = list(body.bots, "bots");
+  const groups = list(body.groups, "rooms");
+  const usable = (x) => isObject(x) && text(x.id) !== null;
+  const kept = { bots: bots.filter(usable), groups: groups.filter(usable) };
+  return { ...kept, dropped: bots.length - kept.bots.length + (groups.length - kept.groups.length) };
+}
+
+/** The queued and running edges a `/api/team-map` answer carries, by id. */
+export function edgesOf(body) {
+  if (!isObject(body)) throw new Error("the team map is not an object");
+  const edges = []; let dropped = 0;
+  for (const state of ["queued", "running"]) {
+    const value = body[state];
+    if (value === undefined || value === null) continue;
+    if (!Array.isArray(value)) throw new Error(`the team map's ${state} work is not a list`);
+    for (const edge of value) {
+      if (isObject(edge) && text(edge.sourceBotId) && text(edge.targetBotId)) edges.push({ state, source: edge.sourceBotId, target: edge.targetBotId });
+      else dropped += 1;
+    }
+  }
+  return { edges, dropped };
+}
+
 /** The distinct folders foreign bots are configured for, this project's excluded. */
 export function foreignFolders(fleet, { projectDir, ours }) {
   const seen = new Set();
@@ -86,93 +128,132 @@ export function foreignFolders(fleet, { projectDir, ours }) {
   return [...seen];
 }
 
-/** Another project's state file, read without following a symlink and bounded
- * on the descriptor it is read from. That project's lock is never taken. */
-function readForeignState(file) {
+/**
+ * Another project's state file, read without following a symlink and bounded
+ * by the read itself: a file that is small when it is opened and grows in place
+ * is still refused at the limit, whatever `fstat` said. That project's lock is
+ * never taken, and a failed close never escapes this guard. `io` exists so a
+ * test can stage a descriptor that outgrows its own stat.
+ */
+export function readForeignState(file, io = fs) {
   let fd;
-  try { fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW); }
+  try { fd = io.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW); }
   catch (e) {
     if (e.code === "ENOENT") return { absent: true };
     return { why: e.code === "ELOOP" ? "the state file is a symlink" : `the state file could not be opened (${e.code ?? e.message})` };
   }
-  let text;
+  let raw;
   try {
-    const stat = fs.fstatSync(fd);
-    if (!stat.isFile()) return { why: "the state path is not a regular file" };
-    if (stat.size > MAX_STATE_BYTES) return { why: `the state file is larger than ${MAX_STATE_BYTES} bytes` };
-    text = fs.readFileSync(fd, "utf8");
+    if (!io.fstatSync(fd).isFile()) return { why: "the state path is not a regular file" };
+    const chunks = []; let total = 0;
+    for (;;) {
+      const buf = Buffer.allocUnsafe(CHUNK_BYTES);
+      const read = io.readSync(fd, buf, 0, CHUNK_BYTES, null);
+      if (!read) break;
+      total += read;
+      if (total > MAX_STATE_BYTES) return { why: `the state file is larger than ${MAX_STATE_BYTES} bytes` };
+      chunks.push(read === CHUNK_BYTES ? buf : buf.subarray(0, read));
+    }
+    raw = Buffer.concat(chunks, total).toString("utf8");
   } catch (e) { return { why: `the state file could not be read (${e.code ?? e.message})` }; }
-  finally { fs.closeSync(fd); }
+  finally { try { io.closeSync(fd); } catch {} }
   let doc;
-  try { doc = JSON.parse(text); } catch { return { why: "the state file is not valid JSON" }; }
-  if (!doc || typeof doc !== "object" || Array.isArray(doc)) return { why: "the state file is not a state document" };
-  // Each version is validated in its own shape before the pure in-memory
-  // migration: version 1 holds one `task`, version 2 holds `runs` (state.mjs:24).
-  const object = (v) => v && typeof v === "object" && !Array.isArray(v);
-  if (doc.version === 1) { if (doc.task !== undefined && !object(doc.task)) return { why: "the version 1 task is not an object" }; }
-  else if (doc.version === 2) {
-    if (doc.runs !== undefined && !object(doc.runs)) return { why: "the runs are not an object" };
-    if (Object.values(doc.runs ?? {}).some((r) => !object(r))) return { why: "a recorded run is not an object" };
+  try { doc = JSON.parse(raw); } catch { return { why: "the state file is not valid JSON" }; }
+  if (!isObject(doc)) return { why: "the state file is not a state document" };
+  // Each version is validated in the shape that version really has, before the
+  // pure in-memory migration: version 1 holds one `task`, which older launchers
+  // wrote as `null` when nothing was open, and version 2 holds `runs`
+  // (state.mjs:24-33). A missing required field is unknown, never a negative.
+  if (doc.version === 1) {
+    if (!("task" in doc)) return { why: "the version 1 state has no task field" };
+    if (doc.task !== null && !isObject(doc.task)) return { why: "the version 1 task is neither null nor an object" };
+  } else if (doc.version === 2) {
+    if (!isObject(doc.runs)) return { why: "the version 2 state has no runs object" };
+    if (Object.values(doc.runs).some((r) => !isObject(r))) return { why: "a recorded run is not an object" };
   } else return { why: `state file version ${doc.version} is not one this launcher reads` };
   return { doc: migrate(doc) };
 }
 
-/** The open runs a foreign state records on this environment. A run's own
- * saved context decides, else the file's current server; two null ids are never
- * equal, and identity nobody supplies is unknown rather than absent. */
+/** The open runs a foreign state records on this environment. A run's own saved
+ * context decides, else the file's current server; two null ids are never equal,
+ * two present and unequal ids are a contradiction, and identity nobody supplied
+ * is unknown rather than absent. */
 function recordedOpenRuns(doc, environmentId) {
-  const labels = []; const unknown = [];
+  const labels = []; const unclear = new Set();
   for (const run of openRuns(doc)) {
-    const context = run?.context?.server?.environmentId;
-    const id = typeof context === "string" && context ? context
-      : typeof doc.server?.environmentId === "string" && doc.server.environmentId ? doc.server.environmentId : null;
-    if (id === null) unknown.push(runLabel(run));
-    else if (id === environmentId) labels.push(runLabel(run));
+    const context = text(run?.context?.server?.environmentId);
+    const file = text(doc.server?.environmentId);
+    if (context && file && context !== file) { unclear.add("contradictory environment identity"); continue; }
+    const id = context ?? file;
+    if (!id) { unclear.add("a recorded open run names no environment"); continue; }
+    if (id === environmentId) labels.push(runLabel(run));
   }
-  return { labels, unknown };
+  return { labels, unclear: [...unclear] };
 }
 
 /**
- * What else is running on this server, within an inspection budget of its own.
- * Every source is independent: one that fails or times out keeps every positive
- * the others already found, and says so under `unknown`. Positives are
- * observations of other work, never proof that there is none.
+ * What else is running on this server, within an inspection budget of its own,
+ * measured on a monotonic clock. Every source is independent: one that fails or
+ * times out keeps every positive the others already found, and says so under
+ * `unknown`. A budget that runs out stops the loops and is reported once per
+ * loop with the number of candidates left. Positives are observations of other
+ * work, never proof that there is none; a synchronous filesystem call that
+ * stalls is an accepted limitation.
  */
 export async function observeOthers({ client, cfg, environmentId, budgetMs = 5_000 }) {
-  const deadline = Date.now() + budgetMs;
-  const left = () => deadline - Date.now();
+  const deadline = performance.now() + budgetMs;
+  const left = () => deadline - performance.now();
   const request = () => ({ timeoutMs: Math.max(1, left()) });
   const { ours, ourRoom } = membership(cfg.state, environmentId);
   const busyBots = []; const waitingBots = []; const delegations = []; const workingRooms = [];
   const projects = []; const sharedConfiguration = []; const unknown = [];
-  const spent = (source) => unknown.push({ source, why: "the inspection budget ran out" });
+  const note = (source, why) => unknown.push({ source, why });
+  const ranOut = (source, count, what) => note(source, `${count} ${what} were not inspected: the inspection budget ran out`);
 
   let fleet = null;
-  if (left() <= 0) spent("fleet");
-  else try { fleet = await client.get("/api/bots?messages=0", request()); }
-  catch (e) { unknown.push({ source: "fleet", why: e.message }); }
+  if (left() <= 0) note("fleet", "the inspection budget ran out");
+  else try { fleet = fleetOf(await client.get("/api/bots?messages=0", request())); }
+  catch (e) { note("fleet", e.message); }
+  if (fleet?.dropped) note("fleet", `${fleet.dropped} entr${fleet.dropped === 1 ? "y" : "ies"} in the fleet answer could not be read`);
 
-  const foreign = (fleet?.bots ?? []).filter((b) => !ours(b));
-  for (const bot of foreign) {
-    if (bot.activity === "waiting-on-you") waitingBots.push(bot.name);
-    else if (bot.busy) busyBots.push(bot.name);
+  const byId = new Map();
+  const foreign = [];
+  if (fleet) {
+    let index = 0;
+    for (; index < fleet.bots.length; index++) {
+      if (left() <= 0) break;
+      const bot = fleet.bots[index];
+      byId.set(bot.id, bot);
+      if (ours(bot)) continue;
+      foreign.push(bot);
+      if (bot.activity === "waiting-on-you") waitingBots.push(botName(bot));
+      else if (bot.busy === true) busyBots.push(botName(bot));
+    }
+    if (index < fleet.bots.length) ranOut("fleet", fleet.bots.length - index, "bot(s)");
+    let room = 0;
+    for (; room < fleet.groups.length; room++) {
+      if (left() <= 0) break;
+      const group = fleet.groups[room];
+      if (group.working === true && !ourRoom(group)) workingRooms.push(botName(group));
+    }
+    if (room < fleet.groups.length) ranOut("fleet", fleet.groups.length - room, "room(s)");
   }
-  for (const group of fleet?.groups ?? []) if (group.working && !ourRoom(group)) workingRooms.push(group.name);
 
-  if (!fleet) unknown.push({ source: "team-map", why: "the fleet could not be read, so no delegation has a side" });
-  else if (left() <= 0) spent("team-map");
+  if (!fleet) note("team-map", "the fleet could not be read, so no delegation has a side");
+  else if (left() <= 0) note("team-map", "the inspection budget ran out");
   else {
     try {
-      const map = await client.get("/api/team-map", request());
-      const byId = new Map((fleet.bots ?? []).map((b) => [b.id, b]));
-      for (const [state, list] of [["queued", map.queued ?? []], ["running", map.running ?? []]]) {
-        for (const edge of list) {
-          const ends = [edge.sourceBotId, edge.targetBotId].map((id) => byId.get(id));
-          if (ends.some((b) => !b)) { unknown.push({ source: "team-map", why: `a ${state} delegation names a bot the fleet does not list` }); continue; }
-          if (ends.some((b) => !ours(b))) delegations.push({ state, source: ends[0].name, target: ends[1].name });
-        }
+      const { edges, dropped } = edgesOf(await client.get("/api/team-map", request()));
+      if (dropped) note("team-map", `${dropped} delegation(s) named no source or target`);
+      for (const edge of edges) {
+        const ends = [byId.get(edge.source) ?? null, byId.get(edge.target) ?? null];
+        // A delegation with one known foreign end is observed work whether or
+        // not the other end was in the fleet snapshot; only an edge with no
+        // known foreign end is merely uncertain.
+        if (ends.some((b) => b && !ours(b))) delegations.push({ state: edge.state, source: ends[0] ? botName(ends[0]) : "unknown bot", target: ends[1] ? botName(ends[1]) : "unknown bot" });
+        if (ends.some((b) => !b)) note("team-map", `a ${edge.state} delegation names a bot the fleet does not list`);
       }
-    } catch (e) { unknown.push({ source: "team-map", why: e.message }); }
+    } catch (e) { note("team-map", e.message); }
   }
 
   // Only `<folder>/.omb/state.json`, never an ancestor: a state file above a
@@ -181,18 +262,31 @@ export async function observeOthers({ client, cfg, environmentId, budgetMs = 5_0
   // sub-folder are documented blind spots.
   const ownProject = canonical(cfg.projectDir).folder;
   const ownState = canonical(cfg.paths.file).folder;
-  for (const folder of foreignFolders(fleet, { projectDir: cfg.projectDir, ours })) {
-    if (folder === ownProject) continue;
+  const folders = new Set();
+  let collected = 0;
+  for (; collected < foreign.length; collected++) {
+    if (left() <= 0) break;
+    const cwd = foreign[collected].cwd;
+    if (typeof cwd !== "string" || !cwd.trim()) continue;
+    const folder = canonical(cwd).folder;
+    if (folder !== ownProject) folders.add(folder);
+  }
+  if (collected < foreign.length) ranOut("folders", foreign.length - collected, "bot folder(s)");
+  const candidates = [...folders];
+  let inspected = 0;
+  for (; inspected < candidates.length; inspected++) {
+    if (left() <= 0) break;
+    const folder = candidates[inspected];
     const file = path.join(folder, ".omb", "state.json");
     if (canonical(file).folder === ownState) continue;
-    if (left() <= 0) { spent(folder); continue; }
     const read = readForeignState(file);
     if (read.absent) { sharedConfiguration.push(folder); continue; }
-    if (read.why) { unknown.push({ source: folder, why: read.why }); continue; }
-    const { labels, unknown: unidentified } = recordedOpenRuns(read.doc, environmentId);
-    if (unidentified.length) unknown.push({ source: folder, why: `${unidentified.length} recorded open run(s) name no environment` });
+    if (read.why) { note(folder, read.why); continue; }
+    const { labels, unclear } = recordedOpenRuns(read.doc, environmentId);
+    for (const why of unclear) note(folder, why);
     if (labels.length) projects.push({ folder, runs: cap(labels) });
   }
+  if (inspected < candidates.length) ranOut("folders", candidates.length - inspected, "folder(s)");
 
   const ownOpenRuns = openRuns(cfg.state).map(runLabel);
   const lists = { busyBots, waitingBots, delegations, workingRooms, projects, sharedConfiguration, unknown, ownOpenRuns };
@@ -211,4 +305,16 @@ export function describeOthers(others) {
     others.counts.projects && `${others.counts.projects} other project(s) with a recorded open run`,
   ].filter(Boolean);
   return parts.join(", ");
+}
+
+/** The same observation in counts alone: a brief never prints a folder. */
+export function briefOthers(others) {
+  const parts = [
+    others.counts.busyBots && `${others.counts.busyBots} busy`,
+    others.counts.waitingBots && `${others.counts.waitingBots} waiting`,
+    others.counts.delegations && `${others.counts.delegations} delegation(s)`,
+    others.counts.workingRooms && `${others.counts.workingRooms} working room(s)`,
+    others.counts.projects && `${others.counts.projects} other project(s)`,
+  ].filter(Boolean);
+  return `${parts.join(", ") || "nothing"} · ${others.counts.unknown} unknown`;
 }
