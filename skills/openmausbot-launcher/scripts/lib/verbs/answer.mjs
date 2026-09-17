@@ -104,6 +104,9 @@ verb("answer", {
     const modes = modesIn(flags);
     if (modes.length > 1) throw new Fail(EXIT.USAGE, `pass one of ${MODE_FLAGS}`);
     const task = runFor(cfg, flags);
+    // Every run-scoped verb refuses to guess once a second run is open, so a
+    // command this verb hands back has to carry the run it was selected for.
+    const runFlag = task && openRuns(cfg.state).length > 1 ? ` --run ${task.slug ?? task.runId}` : "";
     if (!modes.length) {
       if (!bare) throw new Fail(EXIT.USAGE, 'usage: answer <mode> [--request ID]  |  answer "<text>"', { hint: `modes: ${MODE_FLAGS}; a learned skill also needs --reviewed <sha256>, a credential --secret-stdin (or an OMB_SECRET the user exported themselves)` });
       const out = await VERBS.get("send").handler({ flags: { ...flags }, positionals: [bare], verb: "send" });
@@ -133,8 +136,8 @@ verb("answer", {
     if (!spec.accepts.includes(behavior)) throw new Fail(EXIT.USAGE, `request ${handleOf(target)} is ${spec.label}: use ${spec.use}`);
     if (kind === "routine") return routine(client, cfg, target, behavior);
     if (kind === "skill") return skill(client, cfg, target, behavior, flags.reviewed);
-    if (kind === "secret") return secret(client, cfg, target, behavior, flags);
-    if (kind === "connector") return connector(client, cfg, snap, target, behavior);
+    if (kind === "secret") return secret(client, cfg, target, behavior, flags, runFlag);
+    if (kind === "connector") return connector(client, cfg, snap, target, behavior, runFlag);
     if (cfg.dryRun) return { result: { dryRun: true, requestId: target.requestId, threadId: target.threadId, behavior } };
     const res = await client.post(`/api/threads/${target.threadId}/respond`, { requestId: target.requestId, behavior, ...(behavior === "answer" ? { message: flags.message } : {}) });
     const outcome = res.outcome ?? "unknown";
@@ -157,7 +160,7 @@ verb("answer", {
  * them is connected and none was dismissed (`index.ts:6687-6697`), so each
  * mode reports the whole family, not just the card that was named.
  */
-async function connector(client, cfg, snap, target, mode) {
+async function connector(client, cfg, snap, target, mode, runFlag = "") {
   const own = target.connector ?? {};
   const route = (p, action, query = "") => `/api/bots/${p.botId}/connector-cards/${p.messageId}/${action}${query}`;
   const family = [...snap.pending, ...(snap.resumable ?? [])]
@@ -174,7 +177,7 @@ async function connector(client, cfg, snap, target, mode) {
     // (index.ts:12231-12233): it is handed to the user now or not at all.
     return {
       code: EXIT.NEEDS_USER,
-      result: { ...base, url: res.url ?? null, status: "authorizing", siblings: family.map(listed), hint: `the user opens this link once; then omb answer --resume --request ${target.messageId}` },
+      result: { ...base, url: res.url ?? null, status: "authorizing", siblings: family.map(listed), hint: `the user opens this link once; then omb answer --resume --request ${target.messageId}${runFlag}` },
       brief: `answer · ${target.botName} · open once to connect ${base.label}: ${res.url}`,
     };
   }
@@ -195,7 +198,7 @@ async function connector(client, cfg, snap, target, mode) {
   if (unopened.length) {
     const name = (p) => `${p.connector?.label ?? p.connector?.slug}${p.connector?.alias ? ` (${p.connector.alias})` : ""}`;
     throw new Fail(EXIT.PRECONDITION, `${unopened.map(name).join(", ")} ${unopened.length > 1 ? "have" : "has"} not been authorized yet, and every app in one request resumes together`, {
-      hint: unopened.map((p) => `connect each first: omb answer --connect --request ${p.messageId}`).join("; "),
+      hint: unopened.map((p) => `connect each first: omb answer --connect --request ${p.messageId}${runFlag}`).join("; "),
     });
   }
   // The status read is what refreshes the stored card from the provider, and
@@ -229,7 +232,7 @@ async function connector(client, cfg, snap, target, mode) {
  * why the two steps are reported separately when the second one fails: the
  * credential is on the server either way.
  */
-async function secret(client, cfg, target, mode, flags) {
+async function secret(client, cfg, target, mode, flags, runFlag = "") {
   const card = target.secret ?? {};
   const label = card.label ?? card.target;
   const route = (action) => `/api/bots/${target.botId}/secret-cards/${target.messageId}/${action}`;
@@ -257,8 +260,8 @@ async function secret(client, cfg, target, mode, flags) {
     try { res = await client.post(route(action), { threadId: target.threadId }); }
     catch (e) {
       throw refused(e, /was not saved yet/.test(e.body?.error ?? "")
-        ? `the server has no value for this credential: ask the user for it and run answer --provide --secret-stdin --request ${target.messageId} < the file they wrote`
-        : `the card was not resumed; answer --dismiss --request ${target.messageId} lets the bot continue without it`);
+        ? `the server has no value for this credential: ask the user for it and run answer --provide --secret-stdin --request ${target.messageId}${runFlag} < the file they wrote`
+        : `the card was not resumed; answer --dismiss --request ${target.messageId}${runFlag} lets the bot continue without it`);
     }
     return {
       result: { ...base, provided: res.provided === true || card.provided === true, resumed: res.resumed === true, woken: true },
@@ -271,7 +274,7 @@ async function secret(client, cfg, target, mode, flags) {
   // account owns and refuse the whole write when it cannot (index.ts:11752-11790).
   // That is a conversation with a provider, not a settings write; it belongs
   // where the person can see what it did.
-  if (card.target === "boxToken") throw new Fail(EXIT.PRECONDITION, "boxToken has cloud side effects; provide it in the app", { hint: `saving it makes the server list and verify the cloud computers on that account; open OpenMausBot and paste it there, then answer --provide is not needed — or answer --dismiss --request ${target.messageId} to let the bot continue without it` });
+  if (card.target === "boxToken") throw new Fail(EXIT.PRECONDITION, "boxToken has cloud side effects; provide it in the app", { hint: `saving it makes the server list and verify the cloud computers on that account; open OpenMausBot and paste it there, then answer --provide is not needed — or answer --dismiss --request ${target.messageId}${runFlag} to let the bot continue without it` });
   // Saving one of the provider keys restarts the fleet and interrupts every
   // turn that is running anywhere on this server — not only this team's. That
   // is not a cost to discover afterwards, so it is checked before the value is
@@ -284,7 +287,7 @@ async function secret(client, cfg, target, mode, flags) {
     busy = (fleet.bots ?? []).filter((b) => b.busy === true || BUSY.has(b.activity)).map((b) => b.name);
     if (busy.length) {
       throw new Fail(EXIT.PRECONDITION, `${busy.join(", ")} ${busy.length > 1 ? "are" : "is"} working, and ${guard}`, {
-        hint: `save it when they are idle, or answer --dismiss --request ${target.messageId} to let the bot continue without it`,
+        hint: `save it when they are idle, or answer --dismiss --request ${target.messageId}${runFlag} to let the bot continue without it`,
       });
     }
   }
@@ -294,7 +297,7 @@ async function secret(client, cfg, target, mode, flags) {
   const value = readSecretValue(flags);
   // The hint must not be a command the value could be pasted into: whatever
   // an agent composes lands in its own transcript.
-  if (value === null) throw new Fail(EXIT.NEEDS_USER, `ask the user for the ${label}`, { hint: `have them write it to a file only they can read (umask 077) and run: omb answer --provide --secret-stdin --request ${target.messageId} < that-file — or have them export OMB_SECRET in their own shell with 'read -rs OMB_SECRET && export OMB_SECRET' and run it there. Never put the value in a command, in chat or in your notes${card.helpUrl ? `; it comes from ${card.helpUrl}` : ""}` });
+  if (value === null) throw new Fail(EXIT.NEEDS_USER, `ask the user for the ${label}`, { hint: `have them write it to a file only they can read (umask 077) and run: omb answer --provide --secret-stdin --request ${target.messageId}${runFlag} < that-file — or have them export OMB_SECRET in their own shell with 'read -rs OMB_SECRET && export OMB_SECRET' and run it there. Never put the value in a command, in chat or in your notes${card.helpUrl ? `; it comes from ${card.helpUrl}` : ""}` });
   // The write itself is durable before the provider reload the server runs
   // after it, and that reload can outlast an ordinary request
   // (index.ts:12015-12042), so this one call gets a longer budget and a lost
@@ -309,7 +312,7 @@ async function secret(client, cfg, target, mode, flags) {
     try { status = await client.get("/api/config"); }
     catch {
       throw new Fail(EXIT.PRECONDITION, `it is unknown whether the ${label} was saved: ${said}`, {
-        hint: `the server's settings could not be read back; omb answer --resume --request ${target.messageId} finishes the card if the value did land, and says so if it did not — do that before asking the user for it again`,
+        hint: `the server's settings could not be read back; omb answer --resume --request ${target.messageId}${runFlag} finishes the card if the value did land, and says so if it did not — do that before asking the user for it again`,
       });
     }
     if (status?.[CREDENTIAL_SECTION[card.target]]?.configured !== true) {
@@ -323,7 +326,7 @@ async function secret(client, cfg, target, mode, flags) {
   } catch (e) {
     throw new Fail(EXIT.PRECONDITION, `the ${label} was saved, the card was not resumed: ${e.body?.error ?? e.message}`, {
       status: e.status,
-      hint: `the value is stored on the server now; omb answer --resume --request ${target.messageId} resumes the card without the value, or answer --dismiss --request ${target.messageId} lets the bot continue without it`,
+      hint: `the value is stored on the server now; omb answer --resume --request ${target.messageId}${runFlag} resumes the card without the value, or answer --dismiss --request ${target.messageId}${runFlag} lets the bot continue without it`,
     });
   }
 }

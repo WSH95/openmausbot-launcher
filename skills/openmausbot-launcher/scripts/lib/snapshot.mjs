@@ -512,7 +512,7 @@ export async function snapshot(client, state, { dataDir = null, runtimeTrusted =
       ? [...new Set([...Object.values(run.threads ?? {}), leadThreadId].filter(Boolean))].map((threadId) => ({ threadId, botId: threadOwners.get(threadId) ?? null }))
       : [...threadOwners].map(([threadId, botId]) => ({ threadId, botId }));
     return {
-      at: now, complete: incomplete.length === 0, incomplete,
+      at: now, complete: incomplete.length === 0, incomplete, openRuns: runs.length,
       bots: scoped, lead: scoped.find((b) => b.id === leadId) ?? null,
       teamMap: { queued: tm.queued.filter((q) => attributable(bots.find((b) => b.id === q.targetBotId), run)), running: tm.running.filter((r) => attributable(bots.find((b) => b.id === r.targetBotId), run)) },
       leadThreadId, runThreads, leadTail: msgs, executing,
@@ -663,7 +663,9 @@ export function brief(ev, snap, task, now = Date.now()) {
     case "done": return `${slug} · DONE after ${elapsed} · ${lead}: "${summarize(snap.leadText?.text ?? "", 120)}"`;
     case "needs-user": {
       const p = ev.pending?.[0];
-      const id = p?.handle ?? p?.requestId ?? p?.messageId;
+      // With a second run open every run-scoped verb refuses to guess, so a
+      // command this line hands over has to name the run it came from.
+      const id = `${p?.handle ?? p?.requestId ?? p?.messageId}${snap.openRuns > 1 ? ` --run ${slug}` : ""}`;
       if (p?.kind === "card" && p.cardKind === "question") return `${slug} · NEEDS YOU · ${p.botName}: "${summarize(p.text, 100)}" → omb answer --message "…" --request ${id}`;
       if (p?.kind === "card" && p.cardKind === "approval") return `${slug} · APPROVAL · ${p.botName}: "${summarize(p.text, 100)}" (request ${id}) → omb answer --allow --request ${id}`;
       // A skill is approved by its hash, so the line carries the hash and

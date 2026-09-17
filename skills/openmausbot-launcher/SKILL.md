@@ -126,7 +126,8 @@ From then on every run-scoped verb takes `--run <ref>` — a slug, a title, a
 tag, or a run id — and with two runs open it refuses to guess: `send`,
 `answer`, `interrupt`, `watch`, `report`, `task --resume`, `task --abandon`.
 `status` reports all of them in `runs[]`. A closed run is read with
-`report --run <ref>`; nothing speaks to it any more.
+`report --run <ref>`; nothing speaks to it any more. While two are open, every
+command the driver prints for you to run already carries its `--run`.
 
 Then loop on the watch until a terminal state:
 

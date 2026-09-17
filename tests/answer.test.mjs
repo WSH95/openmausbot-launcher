@@ -12,6 +12,14 @@ const PKG = path.join(ROOT, "tests", "fixtures", "dev-team.package.json");
 const env = { OMB_TOKEN: "" };
 const thread = async (f, id) => (await (await fetch(`${f.url}/api/threads/${id}/messages`)).json()).messages;
 
+/** The lead's extra implementer, recorded and bound, so a second run can open. */
+async function addImplementer(f, dir, name = "Vex") {
+  const bot = (await f.control({ op: "bot", name, title: "Implementer", section: "Dev team" })).bot;
+  assert.equal((await runOmb(["import", "--adopt", "Dev team", "--project", dir, "--url", f.url], { env })).code, 0);
+  assert.equal((await runOmb(["bind", "--project", dir, "--default", "claude/claude-sonnet-5"], { env })).code, 0);
+  return bot;
+}
+
 async function setup(t) {
   const f = await startFake(); t.after(() => f.close()); env.OMB_DATA_DIR = f.dataDir;
   const { dir } = makeRepo();
@@ -375,6 +383,45 @@ test("credential: a config write that never answered is checked, not assumed to 
   assert.equal(r.code, 3, r.stdout);
   assert.match(r.json.error, /the OpenAI API key was not saved/);
   assert.equal((await (await fetch(`${f.url}/api/config`)).json()).imageGen.configured, false);
+});
+
+test("with two runs open, every command the driver prints names the run it belongs to", async (t) => {
+  const { f, dir } = await setup(t);
+  await addImplementer(f, dir);
+  const a = await runOmb(["task", "--todo", "T10", "--project", dir], { env });
+  const b = await runOmb(["task", "--todo", "T11", "--project", dir], { env });
+  assert.equal(b.code, 0, b.stdout);
+  const lt = a.json.leadThreadId;
+  await f.control({ op: "card", threadId: lt, kind: "skill", requestId: "s1", name: "release-notes" });
+  let r = await runOmb(["status", "--project", dir, "--brief"], { env });
+  assert.match(r.stdout, /SKILL · Sudo: .* --request s1 --run t10 \| --deny/);
+  await runOmb(["answer", "--deny", "--request", "s1", "--run", "t10", "--project", dir], { env });
+  await f.control({ op: "card", threadId: lt, kind: "routine", requestId: "rt1", name: "Nightly" });
+  r = await runOmb(["status", "--project", dir, "--brief"], { env });
+  assert.match(r.stdout, /ROUTINE · Sudo: .* --request rt1 --run t10 \| --cancel/);
+  await runOmb(["answer", "--cancel", "--request", "rt1", "--run", "t10", "--project", dir], { env });
+  const made = await f.control({ op: "connector", threadId: lt, items: [{ slug: "slack", label: "Slack" }, { slug: "github", label: "GitHub" }] });
+  const [slack, github] = made.messages;
+  r = await runOmb(["status", "--project", dir, "--brief"], { env });
+  assert.match(r.stdout, new RegExp(`CONNECT · Sudo needs Slack \\(required\\) → omb answer --connect --request ${slack.id} --run t10`));
+  r = await runOmb(["answer", "--connect", "--request", slack.id, "--run", "t10", "--project", dir], { env });
+  assert.equal(r.code, 5, r.stdout);
+  assert.match(r.json.hint, new RegExp(`omb answer --resume --request ${slack.id} --run t10`));
+  r = await runOmb(["answer", "--resume", "--request", slack.id, "--run", "t10", "--project", dir], { env });
+  assert.equal(r.code, 3, r.stdout);
+  assert.match(r.json.hint, new RegExp(`omb answer --connect --request ${github.id} --run t10`));
+  r = await runOmb(["answer", "--dismiss", "--request", slack.id, "--run", "t10", "--project", dir], { env });
+  assert.match(r.json.hint, /omb send "…" to tell it/);
+  await runOmb(["answer", "--dismiss", "--request", github.id, "--run", "t10", "--project", dir], { env });
+  const card = await f.control({ op: "secret", threadId: lt, target: "ttsKey" });
+  r = await runOmb(["status", "--project", dir, "--brief"], { env });
+  assert.match(r.stdout, new RegExp(`CREDENTIAL · Sudo needs the ElevenLabs API key → omb answer --provide --secret-stdin --request ${card.message.id} --run t10 < <file the user wrote> \\| --dismiss`));
+  r = await runOmb(["answer", "--resume", "--request", card.message.id, "--run", "t10", "--project", dir], { env });
+  assert.equal(r.code, 3, r.stdout);
+  assert.match(r.json.hint, new RegExp(`--request ${card.message.id} --run t10 < the file they wrote`));
+  r = await runOmb(["answer", "--provide", "--request", card.message.id, "--run", "t10", "--project", dir], { env });
+  assert.equal(r.code, 5, r.stdout);
+  assert.match(r.json.hint, new RegExp(`--request ${card.message.id} --run t10 < that-file`));
 });
 
 test("OMB_SECRET never reaches a server this launcher starts", () => {

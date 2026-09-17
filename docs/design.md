@@ -357,6 +357,10 @@ each with its own payload and no request id, so every pending entry also
 carries `handle` — the request id, else the message id — which is what
 `answer --request` matches and what the brief prints.
 
+Every command a brief line or a hint hands over carries ` --run <slug>` while
+more than one run is open, because each run-scoped verb refuses to guess then;
+with one run the output is unchanged.
+
 Each brief names the command for that kind and nothing a transcript should
 not hold: a learned skill by its title and hash, a routine by its title, a
 connection by its app and status, a credential by its label with
