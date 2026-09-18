@@ -735,3 +735,9 @@ After the OpenClaw phone check was recorded: `npm test` 520 passed, 0 failed;
 SKILL.md frontmatter; a grep of the diff found no token or key value. The
 phone check itself spent 0 OpenMausBot bot turns (no server listening).
 
+## Last verified (2026-09-18, 6d772d3)
+
+`npm test` 523 passed, 0 failed on the port-band change; `tests/lifecycle.test.mjs`
+33/33 on five repeats; the stress script in the session scratchpad lost 0
+neighbour ports in 929 picks against 4 in 571 with the old picker.
+

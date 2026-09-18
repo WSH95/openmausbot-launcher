@@ -3,6 +3,9 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-18T21:34:40Z — cli
+oml-xml closed at 6d772d3: test ports moved outside the kernel's ephemeral range (portBand), suite 523/523; only oml-hou remains; nothing pushed
+
 ### 2026-09-18T20:25:55Z — cli
 oml-c37 closed: explicit invocation on every host that reads the switch, in-skill README, invocation guard, DSH and OpenClaw phone checks recorded with 0 bot turns; main at e49db12, nothing pushed
 

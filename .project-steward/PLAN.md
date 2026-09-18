@@ -73,7 +73,8 @@ OpenMausBot server or OMB bot turn was used.
 `oml-c37` closed at `e49db12`: every host that reads the switch requires an
 explicit invocation, SKILL.md refuses an uninvoked arrival, the skill carries a
 README for the installer, and every host including the OpenClaw phone form was
-checked with 0 bot turns (`docs/evidence.md`). Open: `oml-hou`, `oml-xml`.
+checked with 0 bot turns (`docs/evidence.md`). `oml-xml` (test port
+collision) closed at `6d772d3`. Open: `oml-hou`.
 
 ## Later
 

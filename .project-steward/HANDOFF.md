@@ -1,5 +1,5 @@
 ---
-updated_at: 2026-09-18T20:25:55Z
+updated_at: 2026-09-18T21:34:40Z
 updated_by: cli
 session_status: closed
 branch: main
@@ -26,8 +26,11 @@ nothing; `/openmausbot_launcher status` with and without `--project` ran one
 are in `docs/evidence.md`, section "2026-09-18 — Explicit invocation on every
 host that reads the switch". `npm test` passes 520/520. Two gpt-5.6-sol
 review rounds, a gpt-6-astra Codex rescue and an Opus 5 completeness review
-went into the last commit. Open beads: `oml-hou` (macOS lifecycle) and
-`oml-xml` (a lifecycle test port collision seen once).
+went into that commit. `oml-xml` is closed at `6d772d3`: test ports now come
+from outside the kernel's ephemeral range (`portBand` in `tests/helpers.mjs`),
+which removes the port collision that once replaced the lease refusal in
+`tests/lifecycle.test.mjs:525`; the suite is 523/523. The only open bead is
+`oml-hou` (macOS lifecycle).
 
 ## In flight
 
@@ -36,16 +39,12 @@ handoff; every earlier dirty file was committed in `e49db12`.
 
 ## Next steps
 
-1. Optional third review, per the user's instruction of 2026-09-18: run
-   `/grok-build:delegate` with grok-4.6 at xhigh effort and an Opus 5 (max)
-   reviewer over `git diff ff2b7dd..HEAD`; expect no required changes.
-2. `oml-xml`: reproduce the port collision in `tests/lifecycle.test.mjs:525`
-   (assertion at line 545, "port … is in use" instead of the lease refusal)
-   by looping `node --test tests/lifecycle.test.mjs` twenty times; fix the
-   port reservation in the test, not the driver.
-3. `oml-hou`: macOS `up`/`down`/`cleanup --kill` without `/proc`, only when a
+1. `oml-hou`: macOS `up`/`down`/`cleanup --kill` without `/proc`, only when a
    Mac or an explicit decision is available.
-4. Any `git push` needs the user's explicit permission for that push.
+2. Code reviews from now on, per the user's instruction of 2026-09-18: run
+   `/grok-build:review` with grok-4.6 at xhigh effort and a Fable 5.1 reviewer
+   at xhigh effort; Opus 5 (max) still implements approved plans.
+3. Any `git push` needs the user's explicit permission for that push.
 
 ## Blockers
 
@@ -68,6 +67,8 @@ None.
   design/SKILL frontmatter byte-identical, routing outcomes, README facts,
   exactly one extension key).
 - `.project-steward/DECISIONS.md` 0019; `VERIFY.md` for the mutation checks.
+- `tests/helpers.mjs` `portBand`, `freePort`, `freePortPair`: the test port
+  band and why it avoids `listen(0)`; `tests/helpers.test.mjs` pins it.
 
 ## Tried and rejected
 
@@ -92,3 +93,6 @@ None.
   editing the tree at the same time for half an hour; avoid that.
 - Every real bot turn costs the user's subscriptions. This session spent 0
   OpenMausBot turns and about 22 host inference sessions.
+- In a shell wait loop, `pgrep -f "node --test"` matches the loop's own
+  command line and waits forever; match on something the loop does not
+  contain, or wait on a pid. The same self-match applies to `pkill -f`.
