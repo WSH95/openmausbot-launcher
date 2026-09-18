@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { setImmediate as turn } from "node:timers/promises";
+import { setImmediate as turn, setTimeout as sleep } from "node:timers/promises";
 import { watchRun } from "../skills/openmausbot-launcher/scripts/lib/watch.mjs";
 import { snapshot, evaluate, evidenceOf, carriedVerdict, executingThread } from "../skills/openmausbot-launcher/scripts/lib/snapshot.mjs";
 import { deliverToLead } from "../skills/openmausbot-launcher/scripts/lib/verbs/run.mjs";
@@ -420,20 +420,37 @@ test("a receipt change during a multi-run read invalidates a verdict without an 
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   fs.mkdirSync(path.join(dataDir, "events"));
   fs.writeFileSync(path.join(dataDir, "delegation-receipts.json"), "[]");
+  // Synchronise on the notification this test is about, not on a deadline:
+  // the real watcher's callback resolves `seen` once it has invalidated the
+  // read, so the receipt cannot reach the loop after its first verdict.
+  let notified; const seen = new Promise((resolve) => { notified = resolve; });
+  const watch = fs.watch;
+  t.mock.method(fs, "watch", (target, listener) => watch(target, (event, name) => {
+    listener(event, name);
+    if (name === "delegation-receipts.json") notified();
+  }));
   // Hold the last optional read after receipts were read, so fs.watch can
   // invalidate exactly that snapshot. Mock only the filesystem read boundary.
   const promises = await import("node:fs/promises");
   const read = promises.default.readFile;
-  let first = true;
+  let first = true; let staged = null;
   t.mock.method(promises.default, "readFile", async (file, opts) => {
     if (first && String(file).endsWith("la.ndjson")) {
       first = false;
       fs.writeFileSync(path.join(dataDir, "delegation-receipts.json"), JSON.stringify([{ id: "new", sourceThreadId: "la", finishedAt: Date.now(), status: "completed" }]));
-      await turn(); await turn();
+      // Five real seconds bound the failure; they never decide the success.
+      staged = Promise.race([seen.then(() => true), sleep(5_000, false, { ref: false })]);
+      await staged;
     }
     return read(file, opts);
   });
-  const result = await f.watch({ dataDir, maxSeconds: 0.08, dropMs: Infinity });
+  // `reported` is null, so the invalidated read's replacement is the first
+  // verified view and `change` returns it; the receipt is newer than the
+  // lead's text, so this settled fixture reads as running again.
+  const result = await f.watch({ dataDir, until: "change", maxSeconds: 5, dropMs: Infinity });
+  assert.equal(await staged, true, "no fs.watch notification for the receipt write: the first read was not invalidated");
+  assert.equal(result.outcome, "change");
+  assert.equal(result.snap.complete, true);
   assert.equal(result.ev.state, "running");
   assert.equal(result.snap.outcomes[0]?.id, "receipt:new");
 });
