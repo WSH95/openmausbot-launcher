@@ -3,6 +3,9 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-18T20:25:55Z — cli
+oml-c37 closed: explicit invocation on every host that reads the switch, in-skill README, invocation guard, DSH and OpenClaw phone checks recorded with 0 bot turns; main at e49db12, nothing pushed
+
 ### 2026-09-18 — oml-c37: Codex rescue after the second review
 The invocation guard now requires host delivery for an explicit request or
 Hermes's skill tool; a copy found on disk must run no verb. The size test

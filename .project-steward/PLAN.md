@@ -68,6 +68,13 @@ general OpenClaw bot remains pairing-only for DMs with OpenClaw group processing
 disabled; BotFather group joining stays enabled for later topic work. No
 OpenMausBot server or OMB bot turn was used.
 
+## Explicit invocation and the in-skill README (2026-09-18, complete)
+
+`oml-c37` closed at `e49db12`: every host that reads the switch requires an
+explicit invocation, SKILL.md refuses an uninvoked arrival, the skill carries a
+README for the installer, and every host including the OpenClaw phone form was
+checked with 0 bot turns (`docs/evidence.md`). Open: `oml-hou`, `oml-xml`.
+
 ## Later
 
 Done on 2026-09-17: `oml-fg8`, the two report attribution gaps of `oml-j4r`,

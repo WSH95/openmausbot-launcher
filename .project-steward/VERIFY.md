@@ -727,3 +727,11 @@ The real-server session; see `docs/evidence.md` "v2 validation" and
   Hermes (34 s) each read back a live `watch` brief.
 - Codex sandbox: session `01a0ade0…`, `EPERM` before connect, 31 s.
 - Package sha unchanged; clone `ddd4684`, 99 tests OK.
+
+## Last verified (2026-09-18, e49db12)
+
+After the OpenClaw phone check was recorded: `npm test` 520 passed, 0 failed;
+`git diff --check` clean; the design.md yaml block byte-identical to the
+SKILL.md frontmatter; a grep of the diff found no token or key value. The
+phone check itself spent 0 OpenMausBot bot turns (no server listening).
+

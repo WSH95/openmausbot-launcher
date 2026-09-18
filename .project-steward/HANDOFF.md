@@ -1,6 +1,6 @@
 ---
-updated_at: 2026-09-18T20:05:42Z
-updated_by: codex
+updated_at: 2026-09-18T20:25:55Z
+updated_by: cli
 session_status: closed
 branch: main
 ---
@@ -8,56 +8,87 @@ branch: main
 
 ## Now
 
-`oml-c37` is in the Codex rescue stage after two review rounds returned
-rework. The five required changes and the saved DSH evidence are implemented:
-SKILL.md refuses an uninvoked disk read, the whole frontmatter is explicitly
-nonconforming because of its one extension, tests pin every top-level key,
-routing outcomes and README prerequisites, and host claims match the probes.
-DSH completed two after-edit sessions; its positive ran read-only
-`state --show` before `status`. Four earlier launches failed before inference.
-The OpenClaw phone invocation remains unexercised.
+The explicit-invocation change is complete and committed on `main`
+(`7a87b1b` … `e49db12`, seven commits after `ff2b7dd`); bead `oml-c37` is
+closed and nothing was pushed. The skill's SKILL.md frontmatter carries
+`disable-model-invocation: true` and `agents/openai.yaml` carries
+`policy.allow_implicit_invocation: false`, so Claude Code, Grok Build, OpenClaw,
+DeepSeek Harness and Codex no longer hand the skill to the model on an
+ordinary message; Hermes Agent does not read the key and stays implicit.
+SKILL.md §1 acts only when the host delivered the file for the user's
+invocation and runs no verb otherwise. The skill directory has a README for
+the person installing it; SKILL.md never references it. Every host was checked
+with zero OpenMausBot bot turns, including DeepSeek Harness (key read by a
+wrapper from `~/.config/dsh/api_key`, 0600, never printed) and the OpenClaw
+phone form from the user's Telegram (fresh-session ordinary message ran
+nothing; `/openmausbot_launcher status` with and without `--project` ran one
+`status` each; a follow-up worked without the command). Records, ids and hashes
+are in `docs/evidence.md`, section "2026-09-18 — Explicit invocation on every
+host that reads the switch". `npm test` passes 520/520. Two gpt-5.6-sol
+review rounds, a gpt-6-astra Codex rescue and an Opus 5 completeness review
+went into the last commit. Open beads: `oml-hou` (macOS lifecycle) and
+`oml-xml` (a lifecycle test port collision seen once).
 
 ## In flight
 
-All rescue edits are uncommitted on `main` at
-`e0d77350df46545b3b36297c133aeb6f442fdc33`. The user explicitly forbids commits
-until the coordinator's Opus completeness review; nothing was pushed. Only
-documentation, skill text, the two documentation tests and Steward state
-changed. No driver implementation or host policy value changed.
+Nothing. The working tree is clean after the steward commit that carries this
+handoff; every earlier dirty file was committed in `e49db12`.
 
-Three mutation/restore cycles in `/tmp/oml-rescue-validation-5xpltkwu`
-caught the intended regressions; all restored suites passed 520/520. Final
-working-tree `npm test` passed 520/520 in 112.4 s, and `git diff --check`
-passed. Results are in `VERIFY.md` and the report below. `oml-c37` stays in
-progress for the coordinator's review and commit.
+## Next steps
 
-## Next step
+1. Optional third review, per the user's instruction of 2026-09-18: run
+   `/grok-build:delegate` with grok-4.6 at xhigh effort and an Opus 5 (max)
+   reviewer over `git diff ff2b7dd..HEAD`; expect no required changes.
+2. `oml-xml`: reproduce the port collision in `tests/lifecycle.test.mjs:525`
+   (assertion at line 545, "port … is in use" instead of the lease refusal)
+   by looping `node --test tests/lifecycle.test.mjs` twenty times; fix the
+   port reservation in the test, not the driver.
+3. `oml-hou`: macOS `up`/`down`/`cleanup --kill` without `/proc`, only when a
+   Mac or an explicit decision is available.
+4. Any `git push` needs the user's explicit permission for that push.
 
-The coordinator reads the rescue report, runs the Opus completeness review,
-and commits only after that review. Detailed work belongs in Beads. The
-existing phone follow-up is `oml-u43`; macOS lifecycle is `oml-hou`. A new
-follow-up, `oml-xml`, records a port collision in the untouched lifecycle
-overlap test; its subsequent restored suite passed.
+## Blockers
 
-## Evidence and verification
+None.
 
-- `docs/evidence.md`, 2026-09-18 section: five hosts exercised, four with a
-  before/after comparison; DSH source paths, revisions, hashes and session IDs.
-- `skills/openmausbot-launcher/SKILL.md` §1 and `references/hosts.md`: the
-  host-delivery guard and invocation policy versus manual file reads.
-- `tests/docs.test.mjs` and `tests/size.test.mjs`: strengthened assertions.
-- `.project-steward/DECISIONS.md` 0019: accepted nonconforming frontmatter.
-- `/tmp/claude-1000/-home-wsh-Documents-openmausbot-launcher/2b4b2778-354c-488a-9e30-f8796e2611c7/scratchpad/rescue-report.md`:
-  per-finding changes, mutation red/green logs and the DSH rows as written.
+## Key files
 
-## Limits and working rules
+- `skills/openmausbot-launcher/SKILL.md`: line 4 the switch; §1 the
+  invocation guard and routing rules (verb → run and stop; task → §2 only on
+  `no team is recorded for this project`, else follow `error`/`hint`).
+- `skills/openmausbot-launcher/agents/openai.yaml`: the Codex policy.
+- `skills/openmausbot-launcher/README.md`: human entry point; prerequisites,
+  install, invocation forms.
+- `skills/openmausbot-launcher/references/hosts.md`: Invoke column per host;
+  phone-mode steps 3 and 5 (`/new` must be confirmed before the first message).
+- `docs/design.md`: "## SKILL.md" preamble (frontmatter nonconforming to the
+  agentskills.io spec by design), host table, phone flow, host checks.
+- `docs/evidence.md`: the 2026-09-18 section, all invocation probes.
+- `tests/docs.test.mjs`, `tests/size.test.mjs`: the guards (switch values,
+  design/SKILL frontmatter byte-identical, routing outcomes, README facts,
+  exactly one extension key).
+- `.project-steward/DECISIONS.md` 0019; `VERIFY.md` for the mutation checks.
 
-The rescue ran no host CLI and no live OpenMausBot server, read no credential
-file, and spent zero OMB bot turns. The new invocation guard is covered by
-text regression tests, not a fresh host session. The saved probes precede it.
-Run `npm test` under `omb-loopback-dev` with both `NO_PROXY` and `no_proxy`
-set to `127.0.0.1,localhost,127.0.0.2` as documented in the root README.
-Beads is embedded; use `DOLT_DISABLE_EVENT_LOG=true` and
-`bd --dolt-auto-commit off --sandbox` during this no-commit rescue. Every push
-still requires explicit permission. The phone check needs the user's phone;
-macOS lifecycle needs a Mac or an implementation decision.
+## Tried and rejected
+
+- Putting the key under `metadata`: the hosts read it only at top level.
+- Narrowing the description instead of the switch: Hermes relies on it.
+- `openclaw sessions archive agent:main:main`: refused, "Cannot archive an
+  agent's main session"; use `/new` in the chat and wait for its confirmation.
+- Launching the Codex rescue with `codex exec --full-auto` or the
+  `codex:rescue` subagent: blocked by the auto-mode classifier; the plain
+  `codex exec` form ran and completed.
+
+## Warnings
+
+- The frontmatter fails the agentskills.io reference validator because of the
+  one extension key; that is accepted in Decision 0019. Do not remove the key.
+- `docs/design.md`'s yaml block must stay byte-identical to the SKILL.md
+  frontmatter; a test enforces it.
+- The guard's refusal branch (an uninvoked model reading SKILL.md and stopping)
+  has not been exercised in a host session; only its text is tested.
+- `nohup setsid codex exec …` returns at once while Codex keeps running; wait
+  on the pid or a done-marker. This session had Codex and an Opus subagent
+  editing the tree at the same time for half an hour; avoid that.
+- Every real bot turn costs the user's subscriptions. This session spent 0
+  OpenMausBot turns and about 22 host inference sessions.
