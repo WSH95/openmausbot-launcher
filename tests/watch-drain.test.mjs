@@ -433,14 +433,17 @@ test("a receipt change during a multi-run read invalidates a verdict without an 
   // invalidate exactly that snapshot. Mock only the filesystem read boundary.
   const promises = await import("node:fs/promises");
   const read = promises.default.readFile;
-  let first = true; let staged = null;
+  // The loop's optional reads swallow errors, so the staging records what it
+  // reached, what it threw and what it saw; the assertions read that record.
+  let first = true; const stage = { reached: false, error: null, notified: null };
   t.mock.method(promises.default, "readFile", async (file, opts) => {
     if (first && String(file).endsWith("la.ndjson")) {
-      first = false;
-      fs.writeFileSync(path.join(dataDir, "delegation-receipts.json"), JSON.stringify([{ id: "new", sourceThreadId: "la", finishedAt: Date.now(), status: "completed" }]));
-      // Five real seconds bound the failure; they never decide the success.
-      staged = Promise.race([seen.then(() => true), sleep(5_000, false, { ref: false })]);
-      await staged;
+      first = false; stage.reached = true;
+      try {
+        fs.writeFileSync(path.join(dataDir, "delegation-receipts.json"), JSON.stringify([{ id: "new", sourceThreadId: "la", finishedAt: Date.now(), status: "completed" }]));
+        // Five real seconds bound the failure; they never decide the success.
+        stage.notified = await Promise.race([seen.then(() => true), sleep(5_000, false, { ref: false })]);
+      } catch (e) { stage.error = e; }
     }
     return read(file, opts);
   });
@@ -448,7 +451,9 @@ test("a receipt change during a multi-run read invalidates a verdict without an 
   // verified view and `change` returns it; the receipt is newer than the
   // lead's text, so this settled fixture reads as running again.
   const result = await f.watch({ dataDir, until: "change", maxSeconds: 5, dropMs: Infinity });
-  assert.equal(await staged, true, "no fs.watch notification for the receipt write: the first read was not invalidated");
+  assert.equal(stage.reached, true, "the staged la.ndjson read was never reached");
+  assert.equal(stage.error, null, `the receipt write threw: ${stage.error?.message}`);
+  assert.equal(stage.notified, true, "no fs.watch notification for the receipt write: the first read was not invalidated");
   assert.equal(result.outcome, "change");
   assert.equal(result.snap.complete, true);
   assert.equal(result.ev.state, "running");
