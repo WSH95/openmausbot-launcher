@@ -3,6 +3,9 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-18T23:59:01Z — cli
+Team package authoring: SKILL.md §3 interview with a confirmed summary, references/team-authoring.md with a tested skeleton, and the offline validate verb; real-server parity check recorded; two code reviews applied; 590 tests green; host acceptance is the user's step
+
 ### 2026-09-18T21:34:40Z — cli
 oml-xml closed at 6d772d3: test ports moved outside the kernel's ephemeral range (portBand), suite 523/523; only oml-hou remains; nothing pushed
 

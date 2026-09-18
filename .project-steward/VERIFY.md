@@ -782,3 +782,11 @@ cross-reference documents) and by the Fable 5.1 reviewer (180 documents,
 the review-fix commit) — with throwaway scripts that import zod from outside
 the repository and so are not part of the suite. Host acceptance of the
 authoring section remains the user's step (`PLAN.md`).
+
+## Last verified (2026-09-18, 79ea8ad)
+
+`npm test` on `main` at `79ea8ad`: **590 passed, 0 failed, 0 skipped**
+(about 100 s), after the Fable 5.1 review fixes (`784115e`) and the Grok
+Build review fixes (`79ea8ad`). The real-server parity check of the same day
+is in `docs/evidence.md` (0 bot turns). Host acceptance of the authoring
+section is still the user's step (`oml-i13`).
