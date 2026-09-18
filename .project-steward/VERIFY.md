@@ -8,6 +8,14 @@ Run the relevant checks before marking work as verified in `HANDOFF.md`.
 | Tests | `npm test` | all pass |
 | Lint | `none` | clean |
 
+## oml-0vr: the receipt-change drain test (2026-09-17)
+
+Last verified: `main` at `2c409af`, **516 passed, 0 failed** in 85.5 s on the
+branch before the fast-forward. `tests/watch-drain.test.mjs` passed 20 of 20
+runs beside a continuous full suite (its own duration 11 to 24 ms against a
+5 s failure bound) and five more times after the diagnostic change. The
+original flake did not reproduce in 20 loaded runs with the old staging.
+
 ## Several projects on one machine: bind, up and down guards (2026-09-17)
 
 Last verified: `main` at `73c623c`, `npm test` under Claude Code with loopback

@@ -1,5 +1,5 @@
 ---
-updated_at: 2026-09-18T01:03:26Z
+updated_at: 2026-09-18T01:34:37Z
 updated_by: claude
 session_status: closed
 branch: main
@@ -8,6 +8,9 @@ branch: main
 
 ## Now
 
+`oml-0vr` is closed at `2c409af`: the receipt-change drain test now
+synchronises on the real `fs.watch` notification and ends on its change, with
+the red proof that suppressing the callback's `invalidate` fails it (516/516).
 The multi-project guards are merged: `bind`, `up` and `down` now protect a
 server several projects share (`docs/review/2026-09-17-multi-project-guards.md`);
 `main` is at `73c623c`, 516/516. Before that, every non-macOS bead was closed: `oml-fg8`, `oml-j4r`, `oml-2rc`, and three
@@ -42,11 +45,7 @@ removed.
 
 ## Next steps
 
-1. `oml-0vr` (P3): `tests/watch-drain.test.mjs:417` failed once in about
-   fourteen loaded full runs (`receipt:new` expected, `undefined` received).
-   Read the drain test's receipt-watch staging, replace the timing assumption
-   with a condition, prove the red as `3eacb89` did; no production change.
-2. Leave `oml-hou` open until macOS work is requested and a Mac or an explicit
+1. Leave `oml-hou` open until macOS work is requested and a Mac or an explicit
    implementation decision is available.
 
 ## Blockers

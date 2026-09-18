@@ -3,6 +3,18 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-17 — oml-0vr: the receipt-change drain test ends on its condition
+The one loaded failure the rescue saw in `tests/watch-drain.test.mjs:417` was
+a test that gave the watch 80 ms for an `fs.watch` notification and a re-read.
+The test now wraps the real watcher so the held read is released only after
+the receipts callback ran, and ends with `until: change` at the receipt
+re-read; suppressing the callback's `invalidate` makes it fail on the stale
+terminal result, and removing the write fails its staging guard. One
+gpt-6-astra plan review (which found that the fixture's first view is already
+terminal, so a seeded signature alone could not wait), an Opus implementer,
+one gpt-5.6-sol code review (one diagnostic fix). 20/20 loaded runs, 516/516.
+`main` at `2c409af`. Only `oml-hou` remains open.
+
 ### 2026-09-17 — Several projects on one machine: bind, up and down guards
 The user asked whether several projects can use the skill with the same team
 package. The file is only read; a shared server was the risk, and three
