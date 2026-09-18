@@ -3,6 +3,24 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-17 — Several projects on one machine: bind, up and down guards
+The user asked whether several projects can use the skill with the same team
+package. The file is only read; a shared server was the risk, and three
+unguarded paths were filed and fixed (`oml-jpu`, `oml-1gd`, `oml-6kr`):
+`bind` and `facts` refuse a team configured for another project's folder
+unless `--take-over` is passed; `up` names the other folders a shared server
+carries, logs each attempt to its own file, and translates upstream's
+data-directory lease refusal; `down` refuses under other work it can observe
+unless `--stop-others` is passed, with a bounded read-only look at other
+projects' state files. `main` fast-forwarded from `8fc6828` to `73c623c` (ten
+commits); 516/516. The pipeline ran in full: two gpt-6-astra plan reviews,
+Opus implementation, two gpt-5.6-sol code reviews, a gpt-6-astra rescue under
+the two-rounds rule, an Opus completeness review (COMPLETE), and three small
+hardenings from its observations. Record:
+`docs/review/2026-09-17-multi-project-guards.md`. Filed and left open:
+`oml-0vr` (a watch-drain test failed once in about fourteen loaded runs).
+Nothing pushed, no bot turn.
+
 ### 2026-09-17 — Real-server confirmation of the watch and report output (2 bot turns)
 The handoff's remaining next step was done at the user's request. Real
 OpenMausBot 0.1.56 was started on the T14/T15 data directory, the team adopted

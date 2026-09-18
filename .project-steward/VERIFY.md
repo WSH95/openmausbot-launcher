@@ -8,6 +8,30 @@ Run the relevant checks before marking work as verified in `HANDOFF.md`.
 | Tests | `npm test` | all pass |
 | Lint | `none` | clean |
 
+## Several projects on one machine: bind, up and down guards (2026-09-17)
+
+Last verified: `main` at `73c623c`, `npm test` under Claude Code with loopback
+available, **516 passed, 0 failed** in 87.4 s after the fast-forward merge of
+`fix/multi-project-guards`. Fake-server tests only; no OpenMausBot server and
+no bot turn.
+
+| Who | Tree | Result |
+| --- | --- | --- |
+| Opus implementer, round 1 | F1 to F3 | 481/481 three times (88 to 92 s); the two hot files 10/10 beside a concurrent 481/481 |
+| Orchestrator | same | 481/481 in 85.5 s |
+| Opus implementer, round 2 | eleven review findings | 493/493 three times (82 to 83 s); 10/10 beside a concurrent 493/493 |
+| Orchestrator | same | 493/493 in 86.0 s |
+| Codex gpt-6-astra rescue | ten rulings, `omb-loopback-dev` profile | 515/515 twice (153 s, 90 s) and a concurrent 515/515; ten stress runs of the three hot files 66/66 each; one further full run 514/515 on the untouched `tests/watch-drain.test.mjs:417` (filed as `oml-0vr`; passed alone and in both later runs) |
+| Orchestrator | same | 515/515 in 86.5 s |
+| Opus completeness review | same | focused 120/120; 515/515 in 83.9 s; COMPLETE |
+| Orchestrator | branch head `73c623c` | 516/516 in 85.2 s, then 516/516 on merged `main` |
+
+Red-before-green was recorded for every new test by the implementer and the
+rescue; the completeness review probed the parsers, the bounded reader, the
+folder comparison and the fake lease with adversarial inputs and found one
+hang (a FIFO planted as a foreign state file), fixed in `73c623c` with a
+child-process test that fails on a hang instead of blocking.
+
 ## Watch budget, report attribution and timing repairs (2026-09-17)
 
 Last verified: `main` at `0278dfd`, `npm test` under Claude Code with loopback

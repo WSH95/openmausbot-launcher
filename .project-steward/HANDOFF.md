@@ -1,5 +1,5 @@
 ---
-updated_at: 2026-09-17T20:58:34Z
+updated_at: 2026-09-18T01:03:26Z
 updated_by: claude
 session_status: closed
 branch: main
@@ -8,7 +8,9 @@ branch: main
 
 ## Now
 
-Every non-macOS bead is closed: `oml-fg8`, `oml-j4r`, `oml-2rc`, and three
+The multi-project guards are merged: `bind`, `up` and `down` now protect a
+server several projects share (`docs/review/2026-09-17-multi-project-guards.md`);
+`main` is at `73c623c`, 516/516. Before that, every non-macOS bead was closed: `oml-fg8`, `oml-j4r`, `oml-2rc`, and three
 found on the way, `oml-jc1`, `oml-47p` and `oml-507`. `main` went from
 `2234084` to `0278dfd` (eight commits) and then to `c769e53` (three follow-up
 commits); the merged tree passed 466/466 tests in 80.1 s. Only `oml-hou`
@@ -40,8 +42,12 @@ removed.
 
 ## Next steps
 
-1. Leave `oml-hou` open until macOS work is requested and a Mac or an explicit
-   implementation decision is available. `bd ready` shows nothing else.
+1. `oml-0vr` (P3): `tests/watch-drain.test.mjs:417` failed once in about
+   fourteen loaded full runs (`receipt:new` expected, `undefined` received).
+   Read the drain test's receipt-watch staging, replace the timing assumption
+   with a condition, prove the red as `3eacb89` did; no production change.
+2. Leave `oml-hou` open until macOS work is requested and a Mac or an explicit
+   implementation decision is available.
 
 ## Blockers
 
@@ -50,6 +56,8 @@ decision.
 
 ## Key files
 
+- `docs/review/2026-09-17-multi-project-guards.md` and `lib/others.mjs`: the
+  multi-project guards, their limits, and the shared vocabulary they use.
 - `docs/evidence.md`, last section, and
   `docs/validation/2026-09-17-watch-budget-v16-v17.json`: the real-server
   confirmation (V16/V17), with every command, id and output.
@@ -99,7 +107,10 @@ decision.
 
 ## Warnings
 
-The `oml-j4r` report attribution repairs are verified against the saved T13,
+One server per project: give each `up` an explicit `--port` (two apart) and
+`--data-dir` or `--fresh`; the defaults are shared by every project that names
+neither. `bind --take-over` and `down --stop-others` are deliberate overrides,
+not routine flags. The `oml-j4r` report attribution repairs are verified against the saved T13,
 T14 and T15 texts and the fake server; the V16/V17 probes merged nothing, so no
 real run has exercised them yet. This is not a task: the next ordinary dev-team
 run's `report --md --check-042` section will show them, and no bot turns should
