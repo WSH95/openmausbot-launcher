@@ -770,12 +770,20 @@ changes its `result`.
 
 Frontmatter, spec-valid (`metadata` is a string map; the OpenClaw block is
 omitted and its requirements live in `hosts.md`; `allowed-tools` omitted
-because the exec pattern is host-specific):
+because the exec pattern is host-specific). `disable-model-invocation: true`
+because this is an operator mode, not a reference: loading it reshapes the
+session and every bot turn it opens spends the user's subscriptions, so the
+timing belongs to the user. Claude Code, Grok Build, OpenClaw and DeepSeek
+Harness read that key and keep only the explicit form; Codex does not read
+it and takes `policy.allow_implicit_invocation: false` from
+`agents/openai.yaml` instead; Hermes Agent reads neither and still triggers
+on the description, which is why the description text is unchanged:
 
 ```yaml
 ---
 name: openmausbot-launcher
 description: Operate a local OpenMausBot (OMB) multi-bot server as the user's launcher. Starts and stops the headless server, imports a team package (.openmaus.json), binds the team to a project with engines and effort, sends a task brief to the lead bot, watches progress, relays the lead's questions and approval cards to the user and the answers back, reconciles the repository between tasks, cleans up orphaned processes and worktrees, and reports with evidence. Use when the user mentions OpenMausBot, OMB, "the team", "the lead" or Sudo, a team package, running a task (T10, a bead, a TODO item) through the bots, or wants to drive the bots from a phone or Telegram. Drives scripts/omb.mjs over the local HTTP API; never modifies OpenMausBot.
+disable-model-invocation: true
 license: MIT
 compatibility: Node 24 and the openmausbot npm package 0.1.56 (headless server, not the desktop app) on this Linux machine, or a paired session token for status, watch, send, and answer only; git; the project must be a git repository with a test command.
 metadata:
@@ -787,7 +795,10 @@ metadata:
 
 Sections (target 220 lines): 1 You are the operator (bots run real CLIs on
 the user's subscriptions; you drive, you never do the task; `omb` means
-`<dir of this file>/scripts/omb.mjs`, resolved per host); 2 Setup once per
+`<dir of this file>/scripts/omb.mjs`, resolved per host; and, because the
+invocation is explicit, how the request arrives with it — `ARGUMENTS:`,
+`$openmausbot-launcher`, `/openmausbot_launcher` — and what a named verb, a
+task and an unusable request each mean); 2 Setup once per
 project (`doctor`, `up`, `doctor --server`, `import`, `bind`, `facts`; what
 to ask the user first; the Stop-hook prerequisite in one sentence); 3 Per
 task (`task`, then the `watch` loop; the hard rules: the lead's own thread
@@ -807,18 +818,19 @@ log, one-hop chains, the wake budget, every turn costs subscription);
 `agents/openai.yaml`: `interface.display_name "OpenMausBot Launcher"`,
 `short_description`, `default_prompt "Use $openmausbot-launcher to run a
 task through my OpenMausBot team and relay its questions to me."`,
-`policy.allow_implicit_invocation: true`.
+`policy.allow_implicit_invocation: false` — Codex's own spelling of the
+frontmatter key it does not read; `$openmausbot-launcher` still works.
 
 ## Hosts (references/hosts.md)
 
-| Host | Install | Run | Time budget | Status |
-|---|---|---|---|---|
-| Claude Code | `ln -s <repo>/skills/openmausbot-launcher ~/.claude/skills/openmausbot-launcher` | Bash, `${CLAUDE_SKILL_DIR}/scripts/omb.mjs` | `--max-seconds 100` (120 s default), or 570 in background with a 600 s timeout | command checks verified; see evidence for watch coverage |
-| Grok Build | reads `~/.claude/skills`, nothing more | bash tool | 100 | command checks verified |
-| Codex | `ln -s … ~/.agents/skills/openmausbot-launcher` (also `~/.codex/skills`); `$openmausbot-launcher`; copy `assets/codex/omb-loopback.config.toml` to `$CODEX_HOME/omb-loopback.config.toml` | `codex --profile omb-loopback`; default `workspace-write` still blocks loopback and `up` | 100 under the profile or scoped escalation | profile parser plus local listen/connect and public-block probes verified on 0.154.0; real OMB command checks previously verified with escalation; default-profile long SSE exits in 47 ms with `EPERM` |
-| DSH 0.1.5-rc.1 | `~/.agents/skills` (non-recursive; the tier numbers are unverified) | shell, script path; `--remote --url http://127.0.0.1:<port>` for live verbs | 100, shell limit not measured | command checks verified 2026-09-16; its PID namespace defeats the local identity check |
-| OpenClaw 2026.9.4 | `~/.agents/skills` (default state only) or `openclaw skills install <path>`; keep `tools.exec.mode` at `ask`, never `allowlist`; an allowlist entry matches a command path, not every form the agent types | the agent's shell under the bundled Codex harness; one approval card per command, `approvals resolve <id> allow-once` | 1500 in background, or automations | command checks, the Telegram path and automations verified 2026-09-16; the 10 s exec yield is not |
-| Hermes Agent | `skills.external_dirs: [~/.agents/skills]` is required (the default scan missed it) or a `~/.hermes/skills/` copy; `hermes skills trust` for project installs | terminal tool, script path, no sandbox | 240 in cron via the `.sh` adapter; the terminal tool's own `timeout`/`lifetime_seconds` are 180 and 300 | command checks and the cron adapter verified 2026-09-16 |
+| Host | Install | Run | Invoke | Time budget | Status |
+|---|---|---|---|---|---|
+| Claude Code | `ln -s <repo>/skills/openmausbot-launcher ~/.claude/skills/openmausbot-launcher` | Bash, `${CLAUDE_SKILL_DIR}/scripts/omb.mjs` | `/openmausbot-launcher <request>` | `--max-seconds 100` (120 s default), or 570 in background with a 600 s timeout | command checks verified; see evidence for watch coverage |
+| Grok Build | reads `~/.claude/skills`, nothing more | bash tool | `/openmausbot-launcher <request>` | 100 | command checks verified |
+| Codex | `ln -s … ~/.agents/skills/openmausbot-launcher` (also `~/.codex/skills`); `$openmausbot-launcher`; copy `assets/codex/omb-loopback.config.toml` to `$CODEX_HOME/omb-loopback.config.toml` | `codex --profile omb-loopback`; default `workspace-write` still blocks loopback and `up` | `$openmausbot-launcher <request>` | 100 under the profile or scoped escalation | profile parser plus local listen/connect and public-block probes verified on 0.154.0; real OMB command checks previously verified with escalation; default-profile long SSE exits in 47 ms with `EPERM` |
+| DSH 0.1.5-rc.1 | `~/.agents/skills` (non-recursive; the tier numbers are unverified) | shell, script path; `--remote --url http://127.0.0.1:<port>` for live verbs | `/openmausbot-launcher <request>` in the message | 100, shell limit not measured | command checks verified 2026-09-16; its PID namespace defeats the local identity check |
+| OpenClaw 2026.9.4 | `~/.agents/skills` (default state only) or `openclaw skills install <path>`; keep `tools.exec.mode` at `ask`, never `allowlist`; an allowlist entry matches a command path, not every form the agent types | the agent's shell under the bundled Codex harness; one approval card per command, `approvals resolve <id> allow-once` | `/openmausbot_launcher <request>` in a channel; `$openmausbot-launcher` in the Control UI | 1500 in background, or automations | command checks, the Telegram path and automations verified 2026-09-16; the 10 s exec yield is not |
+| Hermes Agent | `skills.external_dirs: [~/.agents/skills]` is required (the default scan missed it) or a `~/.hermes/skills/` copy; `hermes skills trust` for project installs | terminal tool, script path, no sandbox | implicit; the key is not read | 240 in cron via the `.sh` adapter; the terminal tool's own `timeout`/`lifetime_seconds` are 180 and 300 | command checks and the cron adapter verified 2026-09-16 |
 
 `npx skills add ~/Documents/openmausbot-launcher -g` installs for the hosts
 it knows (symlinks by default); Hermes and OpenClaw still need the one
@@ -834,8 +846,11 @@ nor the development profile is installed with the Skill.
 
 **Phone mode, same machine (OpenClaw).** Telegram → gateway → the agent's
 shell → loopback OMB; verified end to end 2026-09-16, from a DM to the
-answer in the same chat, with one approval card in between. Session flow:
-"start the team on ~/proj and do T10 (bead slg-a9x)" → `doctor`, `up
+answer in the same chat, with one approval card in between — with the
+skill still implicitly invocable, which the 2026-09-18 change ends. Session
+flow: the first message of a fresh session carries the command,
+"/openmausbot_launcher start the team on ~/proj and do T10 (bead slg-a9x)"
+(OpenClaw's channel command names replace `-` with `_`), → `doctor`, `up
 --fresh`, `doctor --server`, `import`/`bind`/`facts` for that fresh server,
 `task --todo T10 --bead slg-a9x`, reply with the brief line. Progress: (a) an
 automation `openclaw automations create "*/5 * * * *" --command "<abs>/scripts/omb.mjs
@@ -845,9 +860,11 @@ telegram --to <chat>` (an admin-authored command, separate from the agent's
 exec allowlist; remove it after done; an empty output is **not** announced,
 verified 2026-09-16: the run reports `deliverySuppressionReason: "empty"`);
 or (b) the agent runs `watch --max-seconds 1500 --until change` in the
-background and relays each result, which is still unverified. Answers: "tell
-Sudo: …" → `send`; "approve" → `answer --allow --request <id>`; "what's
-happening" → `status --brief`. Reuse a team binding only on the same
+background and relays each result, which is still unverified. Answers are
+follow-ups inside the session the command activated: "tell Sudo: …" →
+`send`; "approve" → `answer --allow --request <id>`; "what's happening" →
+`status --brief`. Whether a follow-up needs the command again is
+**unverified** until the phone check records it. Reuse a team binding only on the same
 verified server; after a restart, re-import or adopt to establish the new
 identity even when old team state is present.
 

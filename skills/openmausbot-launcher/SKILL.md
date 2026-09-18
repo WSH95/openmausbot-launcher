@@ -1,6 +1,7 @@
 ---
 name: openmausbot-launcher
 description: Operate a local OpenMausBot (OMB) multi-bot server as the user's launcher. Starts and stops the headless server, imports a team package (.openmaus.json), binds the team to a project with engines and effort, sends a task brief to the lead bot, watches progress, relays the lead's questions and approval cards to the user and the answers back, reconciles the repository between tasks, cleans up orphaned processes and worktrees, and reports with evidence. Use when the user mentions OpenMausBot, OMB, "the team", "the lead" or Sudo, a team package, running a task (T10, a bead, a TODO item) through the bots, or wants to drive the bots from a phone or Telegram. Drives scripts/omb.mjs over the local HTTP API; never modifies OpenMausBot.
+disable-model-invocation: true
 license: MIT
 compatibility: Node 24 and the openmausbot npm package 0.1.56 (headless server, not the desktop app) on this Linux machine, or a paired session token for status, watch, send, and answer only; git; the project must be a git repository with a test command.
 metadata:
@@ -32,6 +33,20 @@ with no lock and no request, so a fresh session can see the recorded server,
 team, and run before acting.
 `--dry-run` previews actions without HTTP, process, Git, or state mutations;
 it never runs the project's tests or creates a lock database.
+
+The user invokes this skill on purpose; it never loads itself, so the
+request arrives with the invocation. Claude Code appends the rest of the
+line after this file as `ARGUMENTS: …`; Codex passes the message that
+carried `$openmausbot-launcher`; OpenClaw, DeepSeek Harness and Grok Build
+pass the message that carried `/openmausbot_launcher` or
+`/openmausbot-launcher`. Route that request: a named verb means run that
+verb against the named project, or the current one, and stop; a task means
+§2 first when the project is not set up, then §3; nothing usable means ask
+the user rather than guess. The project and the task come from the
+conversation, never inferred from the repository you happen to be in. So
+"Show status using $openmausbot-launcher" is one `status --project <cwd>`
+and a stop, and "/openmausbot-launcher do T10 in ~/proj" is `doctor` in
+`~/proj`, then §2 when `status` exits 3, then `task`.
 
 Exit codes: 0 ok; 1 network or HTTP error (`cannot reach <url>: <cause>`
 names the cause: `ECONNREFUSED` means nothing listens there, `EPERM` means

@@ -16,6 +16,22 @@ function tomlTable(source, name) {
   return lines.slice(start + 1, end < 0 ? undefined : end).join("\n");
 }
 
+/** The indented lines under `<name>:`, the way `tomlTable` reads a TOML table. */
+function yamlBlock(source, name) {
+  const lines = source.split("\n");
+  const start = lines.indexOf(`${name}:`);
+  assert.ok(start >= 0, `missing YAML block ${name}:`);
+  const end = lines.findIndex((line, index) => index > start && line.trim() !== "" && !/^\s/.test(line));
+  return lines.slice(start + 1, end < 0 ? undefined : end).join("\n");
+}
+
+/** The SKILL.md frontmatter, delimiters included: what the design has to mirror. */
+function skillFrontmatter() {
+  const m = /^(---\n[\s\S]*?\n---)\n/.exec(read("skills/openmausbot-launcher/SKILL.md"));
+  assert.ok(m, "SKILL.md opens with a YAML frontmatter block");
+  return m[1];
+}
+
 function registeredVerbs() {
   const r = spawnSync(process.execPath, [OMB], { encoding: "utf8" });
   assert.equal(r.status, 2, "no verb is a usage error");
@@ -103,3 +119,39 @@ test("the Codex instructions warn that legacy sandbox settings override permissi
   assert.match(hosts, /sandbox_workspace_write/);
   assert.match(hosts, /ignores?\s+`default_permissions`/);
 });
+
+test("the invocation switches are set on both sources of truth", () => {
+  // Claude Code, Grok Build, OpenClaw and DeepSeek Harness read the frontmatter
+  // key; Codex reads agents/openai.yaml. An operator mode that spends the
+  // user's subscriptions starts when the user says so, on every host that asks.
+  const frontmatter = skillFrontmatter();
+  const switches = frontmatter.split("\n").filter((line) => /^disable-model-invocation:\s*true$/.test(line));
+  assert.equal(switches.length, 1, "exactly one `disable-model-invocation: true` line in the frontmatter");
+  assert.doesNotMatch(frontmatter, /^user-invocable:/m, "no `user-invocable` line: the hosts that read it already default to true");
+
+  const codex = read("skills/openmausbot-launcher/agents/openai.yaml");
+  assert.match(yamlBlock(codex, "policy"), /^\s+allow_implicit_invocation: false$/m);
+  assert.equal(codex.match(/allow_implicit_invocation/g).length, 1, "one `allow_implicit_invocation` line, so no second value contradicts it");
+});
+
+test("the design mirrors the shipped frontmatter verbatim", () => {
+  const design = read("docs/design.md");
+  const heading = design.indexOf("\n## SKILL.md\n");
+  assert.ok(heading >= 0, "docs/design.md has the `## SKILL.md` section");
+  const quoted = /```yaml\n([\s\S]*?)```/.exec(design.slice(heading));
+  assert.ok(quoted, "that section quotes the frontmatter in a yaml block");
+  assert.equal(quoted[1].trimEnd(), skillFrontmatter(), "docs/design.md quotes the frontmatter the skill actually ships");
+});
+
+test("the routing paragraph precedes setup and covers each arrival form", () => {
+  const skill = read("skills/openmausbot-launcher/SKILL.md");
+  const opening = skill.slice(0, skill.indexOf("\n## 2."));
+  assert.ok(opening.length > 0, "SKILL.md has a section before `## 2.`");
+  for (const form of ["ARGUMENTS:", "$openmausbot-launcher", "/openmausbot_launcher"]) {
+    assert.ok(opening.includes(form), `the routing paragraph names how the request arrives as ${form}`);
+  }
+  for (const worked of ["Show status using $openmausbot-launcher", "/openmausbot-launcher do T10 in ~/proj"]) {
+    assert.ok(opening.includes(worked), `the routing paragraph works through "${worked}"`);
+  }
+});
+

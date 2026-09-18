@@ -7,14 +7,14 @@ the hosts' own documentation and are marked so.
 
 ## Install and run
 
-| Host | Install | How the agent runs the driver | Status |
-|---|---|---|---|
-| Claude Code 2.1.263 | `ln -s <repo>/skills/openmausbot-launcher ~/.claude/skills/openmausbot-launcher` (or `.claude/skills/` in a project) | Bash: `${CLAUDE_SKILL_DIR}/scripts/omb.mjs <verb> …` — the host substitutes the path into the skill text at load time and the shell variable itself is unset, so use the path as it appears in the loaded skill; a permission prompt shows the script path | doctor, server doctor, status, send and reply verified 2026-09-08; trigger phrase "run T10 through the team", the substituted skill path, and the 100 s foreground plus 570 s background watches verified 2026-09-08 (M1 review) |
-| Grok Build 1.0.13 | none: it reads `~/.claude/skills` and `.claude/skills` | bash tool, same path | doctor, server doctor, status, send and reply verified 2026-09-08; started the real server detached and it outlived the Grok process (survival spike, M1 review) |
-| Codex CLI 0.154.0 | `ln -s <repo>/skills/openmausbot-launcher ~/.agents/skills/openmausbot-launcher` (also read: `~/.codex/skills`, a project's `.agents/skills`); `agents/openai.yaml` makes it `$openmausbot-launcher`; install the opt-in profile below for loopback | shell; start Codex with `--profile omb-loopback`; default `workspace-write` still needs escalation for every loopback call and for `up` | the least-privilege profile loaded and allowed a local listener/client while blocking a public request on 2026-09-17; doctor, server doctor, status, send and reply were previously verified against real OMB with escalation |
-| DeepSeek Harness (dsh) 0.1.5-rc.1 | `~/.agents/skills/openmausbot-launcher`; discovery is not recursive (the tier numbers third-party posts quote are unverified) | shell, the script path directly; **add `--remote --url http://127.0.0.1:<port>` to every live verb** | doctor, server doctor, send and reply verified 2026-09-16; dsh runs its shell in its own PID namespace, so local identity checks fail and `status` exits 3 until `--remote` |
-| OpenClaw 2026.9.4 | `~/.agents/skills/openmausbot-launcher` (read in the default state) or `openclaw skills install <repo>/skills/openmausbot-launcher`; keep `tools.exec.mode` at `ask` or `auto`, never `allowlist`; the token for a chat channel goes in a 0600 file named by `channels.telegram.tokenFile` | the agent's shell under the bundled Codex harness; **every command raises one approval card**, resolved with `openclaw approvals resolve <id> allow-once` | doctor, server doctor, status, send and reply verified 2026-09-16 through that escalation; the Telegram phone path and automations verified the same day |
-| Hermes Agent (`pyproject` 0.21.3) | add `~/.agents/skills` to `skills.external_dirs` in `~/.hermes/config.yaml` (the documented default scan did not find the skill), or copy into `~/.hermes/skills/openmausbot-launcher`; project installs need `hermes skills trust` | terminal tool, the script path directly; no sandbox | doctor, server doctor, status, send and reply verified 2026-09-16; the cron adapter verified the same day |
+| Host | Install | How the agent runs the driver | Invoke | Status |
+|---|---|---|---|---|
+| Claude Code 2.1.263 | `ln -s <repo>/skills/openmausbot-launcher ~/.claude/skills/openmausbot-launcher` (or `.claude/skills/` in a project) | Bash: `${CLAUDE_SKILL_DIR}/scripts/omb.mjs <verb> …` — the host substitutes the path into the skill text at load time and the shell variable itself is unset, so use the path as it appears in the loaded skill; a permission prompt shows the script path | `/openmausbot-launcher <request>`; the rest of the line reaches the skill as an `ARGUMENTS:` line | doctor, server doctor, status, send and reply verified 2026-09-08; trigger phrase "run T10 through the team", the substituted skill path, and the 100 s foreground plus 570 s background watches verified 2026-09-08 (M1 review) |
+| Grok Build 1.0.13 | none: it reads `~/.claude/skills` and `.claude/skills` | bash tool, same path | `/openmausbot-launcher <request>`; its discovery parses the key and only the slash command runs the skill | doctor, server doctor, status, send and reply verified 2026-09-08; started the real server detached and it outlived the Grok process (survival spike, M1 review) |
+| Codex CLI 0.154.0 | `ln -s <repo>/skills/openmausbot-launcher ~/.agents/skills/openmausbot-launcher` (also read: `~/.codex/skills`, a project's `.agents/skills`); `agents/openai.yaml` makes it `$openmausbot-launcher`; install the opt-in profile below for loopback | shell; start Codex with `--profile omb-loopback`; default `workspace-write` still needs escalation for every loopback call and for `up` | `$openmausbot-launcher <request>`; Codex reads `policy.allow_implicit_invocation` in `agents/openai.yaml`, not the frontmatter key | the least-privilege profile loaded and allowed a local listener/client while blocking a public request on 2026-09-17; doctor, server doctor, status, send and reply were previously verified against real OMB with escalation |
+| DeepSeek Harness (dsh) 0.1.5-rc.1 | `~/.agents/skills/openmausbot-launcher`; discovery is not recursive (the tier numbers third-party posts quote are unverified) | shell, the script path directly; **add `--remote --url http://127.0.0.1:<port>` to every live verb** | a whitespace-bounded `/openmausbot-launcher <request>` inside the message; the catalog and the `skill` tool never expose it | doctor, server doctor, send and reply verified 2026-09-16; dsh runs its shell in its own PID namespace, so local identity checks fail and `status` exits 3 until `--remote` |
+| OpenClaw 2026.9.4 | `~/.agents/skills/openmausbot-launcher` (read in the default state) or `openclaw skills install <repo>/skills/openmausbot-launcher`; keep `tools.exec.mode` at `ask` or `auto`, never `allowlist`; the token for a chat channel goes in a 0600 file named by `channels.telegram.tokenFile` | the agent's shell under the bundled Codex harness; **every command raises one approval card**, resolved with `openclaw approvals resolve <id> allow-once` | `/openmausbot_launcher <request>` in a chat channel (channel command names replace `-` with `_`); `$openmausbot-launcher` in the Control UI | doctor, server doctor, status, send and reply verified 2026-09-16 through that escalation; the Telegram phone path and automations verified the same day |
+| Hermes Agent (`pyproject` 0.21.3) | add `~/.agents/skills` to `skills.external_dirs` in `~/.hermes/config.yaml` (the documented default scan did not find the skill), or copy into `~/.hermes/skills/openmausbot-launcher`; project installs need `hermes skills trust` | terminal tool, the script path directly; no sandbox | implicit; the key is not read, so the description still triggers it | doctor, server doctor, status, send and reply verified 2026-09-16; the cron adapter verified the same day |
 
 `npx skills add ~/Documents/openmausbot-launcher -g` creates the symlinks for
 the hosts it knows; check discovery on each host afterwards (`/skills`,
@@ -233,8 +233,9 @@ line was answered in the same chat after one approval tap; the record is in
    one command, and the allowlist entry that would replace it does not
    match every form the agent types. A card expires after 120 s and the
    command then stays inside the sandbox, where loopback is blocked.
-3. Session flow. "start the team on ~/proj and do T10 (bead slg-a9x)" →
-   `doctor --project ~/proj`, `up --fresh`, `doctor --server`, then
+3. Session flow. The first message of a fresh session carries the command:
+   `/openmausbot_launcher start the team on ~/proj and do T10 (bead slg-a9x)`
+   → `doctor --project ~/proj`, `up --fresh`, `doctor --server`, then
    `import`, `bind`, and `facts` for that fresh server, then
    `task --todo T10 --bead slg-a9x`, and reply with the `--brief` line.
    When attaching to the same verified server, reuse its binding. After a
@@ -254,9 +255,12 @@ line was answered in the same chat after one approval tap; the record is in
    - Interactive: the agent runs `watch --max-seconds 1500 --until change`
      in the background, relays each result, and loops. That background
      path is still unverified.
-5. Answers from the phone: "tell Sudo: no new dependency, use a table" →
+5. Answers from the phone are follow-ups inside the session step 3
+   activated: "tell Sudo: no new dependency, use a table" →
    `send "no new dependency, use a table"`; "approve" → `answer --allow
-   --request <id>`; "what's happening" → `status --brief`.
+   --request <id>`; "what's happening" → `status --brief`. Whether a
+   follow-up has to repeat `/openmausbot_launcher` is unverified; repeat it
+   if the agent answers without the skill.
 
 Automations are admin-authored commands, separate from the agent's exec
 allowlist; keep the command line exact.
