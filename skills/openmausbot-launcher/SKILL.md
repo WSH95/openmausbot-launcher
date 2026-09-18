@@ -34,14 +34,19 @@ team, and run before acting.
 `--dry-run` previews actions without HTTP, process, Git, or state mutations;
 it never runs the project's tests or creates a lock database.
 
-On every host except Hermes Agent the user invokes this skill on purpose,
-so the request arrives with the invocation: Claude Code appends the rest of
-the line after this file as `ARGUMENTS: …`; Codex passes the message that
-carried `$openmausbot-launcher`; OpenClaw, DeepSeek Harness and Grok Build
-pass the message that carried `/openmausbot_launcher` or
-`/openmausbot-launcher`. Hermes does not read the switch, so there the
-description can still load this file on an ordinary message; the request is
-then that message, routed exactly the same way.
+Act on this file only when the host delivered it for the user's own
+invocation: a Claude Code `ARGUMENTS: …` line after it, a Codex message that
+named `$openmausbot-launcher`, an OpenClaw, DeepSeek Harness or Grok Build
+message that carried `/openmausbot_launcher` or `/openmausbot-launcher` —
+or, on Hermes Agent, delivery through the host's own skill tool. Hermes does
+not read the switch, so there an ordinary message can still load this file;
+the request is then that message, routed the same way.
+
+If none of those markers is present — if you opened this file from disk
+yourself because a message resembled the description — you were not invoked:
+run no verb at all. Say what this skill is, name the explicit form for the
+user's host, and stop. The other hosts do not inject this file on an
+ordinary message; a model can still read it from disk.
 
 The project is the one the user names; when the user names none, omit
 `--project` and let the driver's own default apply. Never read the project

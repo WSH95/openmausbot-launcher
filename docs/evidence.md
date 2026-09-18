@@ -2086,18 +2086,22 @@ single snapshot, still words an idle run whose verdict does not carry as "idle
 for 0 s, not yet settled" and gives no hint; the skill already says never to
 read settlement from `status`.
 
-## 2026-09-18 — Explicit invocation on every host that reads the switch (0 OMB bot turns; Hermes implicit by design; DSH not runnable; the OpenClaw phone form not exercised)
+## 2026-09-18 — Explicit invocation on every host that reads the switch (0 OMB bot turns; Hermes implicit by design; the OpenClaw phone form verified from the user's phone)
 
 `disable-model-invocation: true` in the SKILL.md frontmatter and
 `policy.allow_implicit_invocation: false` in `agents/openai.yaml`, checked
-on the installed hosts before and after the edit. **No OpenMausBot bot turn
-was spent**: no `task`, `send`, `answer`, `import`, `bind` or `up` ran, and
-no server was started. The host sessions below spent those hosts' own
-inference: four Claude Code, five Codex, four Grok Build, two Hermes Agent.
+before and after the edit on Claude Code, Codex, Grok Build and Hermes Agent.
+DeepSeek Harness completed two after-edit probes, and OpenClaw's phone form
+ran after the edit from the user's phone (rows below).
+**No OpenMausBot bot turn was spent**: no `task`, `send`, `answer`, `import`,
+`bind` or `up` ran, and no server was started. The host sessions below spent those hosts' own
+inference: four Claude Code, five Codex, four Grok Build, two Hermes Agent,
+two DeepSeek Harness.
 
 **Isolation, enforced rather than instructed.** A bot turn needs a reachable
-server with an imported team. Before the first probe and again after the
-last: `pgrep -fa openmausbot` was **not** empty — it matched the terminal
+server with an imported team. For the four-host before/after checks, before
+the first probe and again after the last: `pgrep -fa openmausbot` was **not**
+empty — it matched the terminal
 window and this session's own shell pipeline (`bash -c …`, `tee`), because
 each of their command lines contains `openmausbot-launcher`, the checkout
 path, and none of them is an OpenMausBot process. Filtering that substring
@@ -2115,14 +2119,15 @@ read in `scripts/lib/verbs/answer.mjs:77` (and stripped from a spawned server
 by `scripts/lib/server.mjs:18`). The project was a fresh `git init` directory
 under the session scratchpad, one commit `0354953`, no `.omb`. Under that
 invariant `up` can neither attach nor spawn, and `status`/`send`/`task` exit
-3 at `requireTeam` (`scripts/lib/verbs/run.mjs:20`). Confirmed directly from
+3 at `requireTeam` (`scripts/lib/verbs/run.mjs:11`). Confirmed directly from
 this session's shell before any host ran:
 `status --project <tmp>` → exit 3,
 `{"ok":false,"verb":"status","error":"no team is recorded for this project",…}`.
 Afterwards: no `openmausbot` process, no listener, no `.omb` in the probe
 project or anywhere under `~/Documents`.
 
-**What was compared.** Before: `git rev-parse HEAD` `ff2b7dd`, SHA-256
+**What was compared on those four hosts.** Before: `git rev-parse HEAD`
+`ff2b7dd`, SHA-256
 `d62ace1ad6081a71f32501dcbb745f2746a1abb56bba07cf9643edc56b07fde3`
 (`SKILL.md`) and
 `dd6ca3fadc821982b67e166270d47144e42ec6ffe551b90db6acec966c9d94e7`
@@ -2132,15 +2137,39 @@ project or anywhere under `~/Documents`.
 `readlink -f` of `~/.claude/skills/openmausbot-launcher` and
 `~/.agents/skills/openmausbot-launcher` both resolve to
 `/home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher`, so
-every host read this checkout. Versions at check time: Claude Code 2.1.276,
-codex-cli 0.155.0, grok 1.0.34, dsh 0.1.5-rc.1, Hermes Agent v0.21.3
-(2026.9.14), OpenClaw 2026.9.4. The evidence is each host's own record —
+each of the five hosts exercised here — Claude Code, Codex, Grok Build,
+Hermes Agent and DeepSeek Harness — read this checkout. DSH's later revision
+is recorded below. Versions exercised: Claude Code 2.1.276, codex-cli 0.155.0,
+grok 1.0.34, dsh 0.1.5-rc.1, Hermes Agent v0.21.3 (2026.9.14).
+OpenClaw 2026.9.4 ran from the phone after the edit; its records are the
+Codex-harness thread files under
+`~/.openclaw/agents/main/agent/codex-home/sessions/`. The evidence is each host's
+own record —
 Claude Code's transcript under `~/.claude/projects/`, Codex's rollout under
 `~/.codex/sessions/`, Grok's session directory under `~/.grok/sessions/`,
-Hermes's SQLite session — searched for a sentence unique to the skill body,
+Hermes's SQLite session, and DSH's session JSONL — searched for a sentence
+unique to the skill body,
 "The bots in OpenMausBot run real coding CLIs" (`SKILL.md:17` after the
-frontmatter key was added; it was `SKILL.md:16` when the probes ran), and for the
+frontmatter key was added; it was `SKILL.md:16` in the before probes), and for the
 host's own catalog entry, "openmausbot-launcher: Operate a local".
+
+**DSH's later probes.** Saved artifacts are under
+`/tmp/claude-1000/-home-wsh-Documents-openmausbot-launcher/2b4b2778-354c-488a-9e30-f8796e2611c7/scratchpad/impl/dsh/`;
+DSH filenames below refer to that directory. `precond.txt:1` records
+2026-09-18T19:25:30Z; `precond.txt:2` records dsh 0.1.5-rc.1.
+`precond.txt:3` records HEAD `e0d77350df46545b3b36297c133aeb6f442fdc33`;
+`precond.txt:4` records `SKILL.md` SHA-256
+`69c37bd2884eacc900e67cec75f0164c00c76fb216d8a48731d8f8cf0befcb86`;
+`precond.txt:5` records `agents/openai.yaml` SHA-256
+`9d6dbe1bd1e1de874801599f618ef14ada2f99f83b35123d5bb5d75b8bf4c4bd`.
+`precond.txt:6` resolves `~/.agents/skills/openmausbot-launcher` to the
+checkout; `precond.txt:7`, `:8` and `:9` record no OpenMausBot process,
+no `openmausbot` on PATH and 127.0.0.1:8799 refusing connections. The
+coordinator verified the same seven-variable scrub and invalid `OMB_BIN`
+above, a separate fresh `git init` project at `impl/dsh/project`, and no
+`.omb` there afterwards. The key was read by a wrapper from a 0600 file into
+the dsh process environment only. The saved `session-*.jsonl` files are
+decompressed copies of the native `session.v3.jsonl.zstd` records.
 
 **The frontmatter key is an extension, and was not validated here.** The
 agentskills.io reference validator (`skills-ref`) reports any top-level field
@@ -2176,19 +2205,52 @@ $ skills-ref --version
 | Grok Build, explicit, **after** | same flags with `/openmausbot-launcher run status for <tmp> …`, `--max-turns 4`, plus four `--allow 'Bash(… omb.mjs status *)'` rules, session `…0004` | the slash command injected the skill body into `chat_history.jsonl` (once) with the catalog still absent; exactly one driver command, `status --project <tmp>`, `exit_code: 3`, `no team is recorded for this project`, then `end_turn`. The slash form does work in `-p` |
 | Grok Build, without an allow rule | the same prompt, session `…0003`, no `--allow` | the model composed the same single `status` command; headless `-p` has no approval surface, so it was refused with "User cancelled the execution for tool `run_terminal_command`". Nothing ran |
 | Hermes Agent, ordinary language, **before** and **after** | `hermes -z "run T10 through the team" --in <tmp>` | sessions `20260918_134328_ec4fb8` and `20260918_142350_d2ac27` (model `gpt-5.6-sol`): **both** loaded the skill through Hermes's own `skill_view` tool and both hold the body once. Hermes does not read the key, so this host is the deliberate exception and the description still triggers it. Neither run reached a bot: only `state --show` and `doctor` ran, each against repositories the model chose itself, and no `.omb` was created anywhere |
-| DeepSeek Harness | `dsh --profile headless "run T10 through the team"` and the `/openmausbot-launcher …` form, before and after | **could not run**, four times, exit 1 with the same line verbatim: `dsh: MISSING_CREDENTIAL: llm-deepseek: no API key for provider route "deepseek-official"; store DEEPSEEK_API_KEY through the credentials service (the web Models page writes it), or export DEEPSEEK_API_KEY in the launching environment`. The 2026-09-16 runs exported that key into the launching environment; it is not stored in `~/.dsh/storages`, and reading a credential file is out of scope for this session. The DSH row of `references/hosts.md` therefore keeps its 2026-09-16 wording and its invocation form remains unverified |
-| OpenClaw (phone) | — | **not exercised**: the check needs three messages typed on the user's phone and one approval card resolved there. The 2026-09-16 phone proof stands as the last real phone run, under implicit invocation; the root `README.md` says the slash-command form is pending, and the follow-up is tracked in beads |
+| DeepSeek Harness, ordinary language, **after** | `dsh --profile headless "run T10 through the team"` in the DSH probe project, 19:25:30Z, exit 0 | `session-1635bc87-99a5-4b53-a12b-e834b36d5365.jsonl:12` omits the launcher from the catalog; the session has no launcher `<skill_content>` injection; `negative.err:22` names only grilling, humanizer and show-me in the catalog. The model used `glob` and `read` to open the checkout's `SKILL.md`, `references/hosts.md`, `docs/design.md`, `docs/evidence.md` and `.project-steward/PLAN.md`; the unique sentence occurs only in file-read results. It ran **no driver command** — its other calls were read-only inspection of the checkout (`ls`, `git log`/`status`, `grep`, `sed`) — and asked for a project and the explicit form (`negative.txt:28`, exit 0 at `:39`). |
+| DeepSeek Harness, explicit, **after** | `dsh --profile headless "/openmausbot-launcher status --project <probe dir>"`, 19:26:36Z, exit 0 | `session-c5aa0acf-3577-4a0a-8879-a832e5c4382b.jsonl:13` records `<skill_content name="openmausbot-launcher">` injected by `/name`. Lines 20 and 25 record two read-only driver commands: `state --show --project <probe dir>`, then `status --project <probe dir>`; line 26 records the latter's exit 3, `no team is recorded for this project`. The model stopped and asked whether to set up the project (`positive.txt:13`, exit 0 at `:20`). This deviates from the planned exactly one command: §1 itself mentions the read-only `state --show`; the routing wording was not tightened to forbid it. |
+| DeepSeek Harness, four launches earlier that day | the same two prompts, **before the key file was found** | **history**: exit 1 each time, before any inference, with `dsh: MISSING_CREDENTIAL: llm-deepseek: no API key for provider route "deepseek-official"; store DEEPSEEK_API_KEY through the credentials service (the web Models page writes it), or export DEEPSEEK_API_KEY in the launching environment`. The two successful probes above replace this as the DSH invocation result. |
+| OpenClaw (phone), ordinary language, first pass | `/new` then "what is the team status" from Telegram (message 6, 19:27:04Z) | **inconclusive**: `/new` was still queued behind the message, so it ran in the 2026-09-17 thread `01a0adf6-e3ee-7eb1-b428-f7506c81f06d`, whose history holds the skill body; no `<skill>` injection for the message; from that history the agent ran three read-only driver commands, `status --brief` on `/tmp/oml-v2-hosts-i1Dlq7/project` (exit 3), `status --brief` on the slugkit clone (exit 1, `ECONNREFUSED` 127.0.0.1:8899) and `state --show` there; two approval cards (`plugin:c938aa84…`, `plugin:da393667…`), both allowed once from the phone; reply "Team status: offline …". Nothing was listening; 0 bot turns. |
+| OpenClaw (phone), explicit, first pass | "/openmausbot_launcher status --project /home/wsh/.cache/agent-team/phone" (messages 11 and 13, 19:31:08–19:31:39Z) | new thread `01a0b600-3d55-7392-ac5d-48b9494dacf8`: OpenClaw injected "Use the following explicitly referenced skills … Read each skill's SKILL.md before acting" and the `<skill>` body (the pre-guard text of that moment); the agent read `SKILL.md` and `hosts.md`, then ran exactly one driver command, `status --project …/phone` (19:32:12Z, exit 3); one card (`plugin:db7273cc…`); reply "No team is recorded for /home/wsh/.cache/agent-team/phone. Hint: run import <package.json> or import --adopt <section>." |
+| OpenClaw (phone), follow-up, first pass | "run status again" (message 16, 19:34:26Z) | thread `01a0b602-d9cb-7942-a4cd-7d383ae61818` (opened 19:33:59Z by a heartbeat): no `<skill>` injection; OpenClaw's assembled conversation context carried the previous exchange; the agent re-read the file from disk (by then carrying the §1 guard) and ran one `status --project …/phone` (19:35:00Z, exit 3); one card (`plugin:421f3114…`); the same reply. Follow-ups work through session context, not injection. |
+| OpenClaw (phone), ordinary language, fresh session | `/new` → "✅ New session started.", then "what is the team status" (message 22, 19:45:10Z) | **negative confirmed**: thread `01a0b60d-1656-73f2-8b35-31d92d5225cf`; no skill header, no `<skill>` body, no `omb.mjs` anywhere in the record; its three tool calls were a memory search, `list_agents` and the reply; no approval card; reply "If you mean the agent team: idle …". |
+| OpenClaw (phone), explicit without `--project` | "/openmausbot_launcher status" (message 25, 19:46:49Z) | thread `01a0b60e-964d-7701-8c4f-afcf9ab642af`: header and `<skill>` body injected (the guard-bearing text); one driver command, `env OMB_TOKEN= <path>/scripts/omb.mjs status` (the agent prefixed an empty `OMB_TOKEN=`, which the card masks), 19:47:39Z, exit 3 for the driver's default project; one card (`plugin:d45bd587…`); reply "OpenMausBot status: not configured for the current project. No team is recorded here." |
+| OpenClaw (phone), explicit with `--project` | "/openmausbot_launcher status --project /home/wsh/.cache/agent-team/phone" (message 28, 19:48:43Z, same thread) | header and body injected again; one driver command, `status --project …/phone` (19:48:54Z, exit 3); one card (`plugin:f9a93f97…`); reply "No team is recorded for this project." |
+
+**The phone check.** OpenClaw 2026.9.4 on the workstation, gateway restarted at
+19:14Z for a fresh skills snapshot, Telegram chat `7724282441` with the OpenClaw
+Laptop bot, the skill through the `~/.agents/skills` symlink at HEAD `e0d7735`
+plus the uncommitted working tree of that moment. The user typed every message
+and resolved every card from the phone; the coordinator read the thread
+records afterwards. Six messages, six approval cards, all allowed once;
+no server listened at any point and the probe project
+`~/.cache/agent-team/phone` has no team, so OpenMausBot bot turns were 0.
+The first ordinary-language message is inconclusive because `/new` had not
+taken effect before it was dispatched; the repeat after the bot confirmed the
+new session is the negative that counts.
 
 **What the before/after pairs prove.** For Claude Code, Codex and Grok Build
-the negative differs between the two runs on the host's own record: the
-catalog entry and the skill body are present before and absent after, from
-the same prompt under the same restrictions. For Hermes the negative does
-**not** differ, which is the point: that host never reads the key. For DSH
-neither run happened, so nothing is claimed. The positives show the explicit
-form still reaching the skill and the driver, and stopping after one
-`status`: a named verb is one command, as `SKILL.md` §1 now says.
+the catalog entry is present before and absent after, from the same prompt
+under the same restrictions. Claude Code and Grok also have no skill body
+afterwards. Codex has no host injection, but its model read the body from disk.
+For Hermes the negative does **not** differ: that host never reads the key. DSH has no
+"before" — its first successful launch was after the edit — so its pair is
+the ordinary-language and the explicit prompt against the same build: the
+first was not injected, the second was. The positives show the explicit form
+reaching the skill and the driver and then stopping, on a `status` that exits
+3 for want of a team.
 
-**Host inference, counted separately.** Fifteen host sessions in total —
-Claude Code ×4, Codex ×5, Grok Build ×4, Hermes ×2 — each spending that
-host's own subscription, plus four `dsh` launches that failed before any
-inference. OpenMausBot bot turns: **0**.
+**What the negatives also show.** Both the Codex and the DeepSeek Harness
+ordinary-language runs located this checkout and read `SKILL.md` on their own
+after the host declined to offer it, and the Codex one went on to run
+`state --show`. The switch governs what a host injects, not what
+a model can read. That is why `SKILL.md` §1 now refuses to run any verb when
+the arrival carries no invocation marker. OpenClaw's first-pass ordinary message showed the same thing from a third
+source: a reused thread acted on the skill body in its history and ran three
+read-only verbs. The guard was added after those probes; the second-pass phone
+runs injected the guard-bearing file and acted because they were invoked, so
+the guard's refusal branch itself has not been reached in any host session.
+
+**Host inference, counted separately.** Twenty-two host sessions in total —
+Claude Code ×4, Codex ×5, Grok Build ×4, Hermes ×2, DeepSeek Harness ×2,
+OpenClaw ×5 threads —
+plus four `dsh` launches that failed before any inference. OpenMausBot bot
+turns: **0**. The saved probes were recorded without re-running a host CLI.

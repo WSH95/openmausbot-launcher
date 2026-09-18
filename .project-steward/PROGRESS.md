@@ -3,9 +3,28 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-18 — oml-c37: Codex rescue after the second review
+The invocation guard now requires host delivery for an explicit request or
+Hermes's skill tool; a copy found on disk must run no verb. The size test
+examines every top-level key and calls the whole frontmatter nonconforming
+because of its one extension. Routing tests pin the task action and the
+exclusive error branch; README tests pin all prerequisite facts. Saved DSH
+probes replace the earlier credential failure as its result: no injection on
+the ordinary message; injection and two read-only commands on the explicit
+one. The before/after comparison names only the four hosts that ran it;
+five hosts read the checkout, and OpenClaw remains unexercised.
+
+Work is uncommitted on `main` at `e0d7735`, for the coordinator's Opus
+completeness review. No host CLI or live server ran and no OMB bot turn was
+spent. Three mutation/restore cycles caught the intended regressions and
+restored to 520/520 each; the final working-tree suite passed 520/520 in
+112.4 s. An unrelated lifecycle port collision is filed as `oml-xml`.
+Validation is in `VERIFY.md` and the coordinator scratchpad's
+`rescue-report.md`.
+
 ### 2026-09-18 — oml-c37: explicit invocation on every host that reads the switch, and a README in the skill
-Hermes is implicit by design, DSH was not runnable and the OpenClaw phone
-form was not exercised.
+Hermes is implicit by design; the OpenClaw phone form was verified from the
+user's phone later the same day.
 `disable-model-invocation: true` in the SKILL.md frontmatter,
 `allow_implicit_invocation: false` in `agents/openai.yaml`, a routing
 paragraph in SKILL.md §1 for the request that arrives with the invocation,
@@ -13,15 +32,20 @@ and a new `skills/openmausbot-launcher/README.md` for the person installing
 the directory. Four tests went red first — three new ones plus the credential
 scan, once the README joined its file list — while the fourth new test, the
 one that pins docs/design.md to the shipped frontmatter, passed before the
-edit and caught the drift during it. The host checks ran every
-headless negative twice, before and after the key, and read the result from
-each host's own record: Claude Code 2.1.276, Codex 0.155.0 and Grok 1.0.34
-stop offering the skill and each explicit form still runs exactly one
+edit and caught the drift during it. The Claude Code, Codex, Grok Build and
+Hermes checks ran the same ordinary-language prompt before and after the key
+and read each host's own record: Claude Code 2.1.276, Codex 0.155.0 and Grok
+1.0.34 no longer inject the skill and each explicit form still runs exactly one
 `status` (exit 3, no team); Hermes v0.21.3 loads it either way, as intended.
-Zero OpenMausBot bot turns, isolation checked before and after. DSH could not
-run (`MISSING_CREDENTIAL: llm-deepseek`) and the OpenClaw phone form was not
-exercised — it needs the user's phone and is tracked separately. `main` at
-`4d166ec`; 520/520.
+DeepSeek Harness 0.1.5-rc.1 subsequently completed two after-edit probes:
+no injection or driver command on the ordinary message; injection and two
+read-only commands (`state --show`, then `status`) on the explicit form. Its
+key was read by a wrapper from a 0600 file; the four earlier launches, before
+the key file was found, failed before inference. Zero OpenMausBot bot turns,
+isolation checked before and after. The OpenClaw phone form was verified from the user's phone afterwards (six
+messages, six approval cards, 0 bot turns; `docs/evidence.md`). Two negatives (Codex, DSH) showed an uninvoked model
+reading `SKILL.md` off disk, so §1 now refuses to run a verb without an
+invocation marker. Original implementation checkpoint: `4d166ec`; 520/520.
 
 ### 2026-09-17 — oml-0vr: the receipt-change drain test ends on its condition
 The one loaded failure the rescue saw in `tests/watch-drain.test.mjs:417` was

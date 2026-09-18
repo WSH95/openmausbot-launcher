@@ -7,18 +7,25 @@ import { SKILL_DIR } from "./helpers.mjs";
 function frontmatter(text) {
   const m = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/.exec(text);
   assert.ok(m, "SKILL.md starts with a YAML frontmatter block");
-  const fields = {};
-  for (const line of m[1].split("\n")) { const k = /^([a-z-]+):\s*(.*)$/.exec(line); if (k) fields[k[1]] = k[2]; }
+  const fields = Object.create(null);
+  // Every top-level key, whatever it is spelled with: the key is the text
+  // before the first colon on an unindented line. A narrower pattern would
+  // let a vendor key like `vendor_flag: true` through unexamined.
+  for (const line of m[1].split("\n")) {
+    const k = /^([^\s:][^:]*):\s*(.*)$/.exec(line);
+    if (k) fields[k[1].trim()] = k[2];
+  }
   return { fields, body: m[2] };
 }
 
 // The six top-level fields the agentskills.io specification defines. Its
 // reference validator (skills-ref `validator.py`) reports anything else as
-// "Unexpected fields in frontmatter"; the one extension below is deliberate
-// and is argued in .project-steward/DECISIONS.md 0019.
+// "Unexpected fields in frontmatter", so this frontmatter does not conform:
+// it carries one extension key on purpose, argued in DECISIONS.md 0019. What
+// the tests can still guarantee is that it is the only one.
 const SPEC_FIELDS = ["name", "description", "license", "allowed-tools", "metadata", "compatibility"];
 
-test("SKILL.md meets the spec on the spec's fields, carries one host-read extension, and the body stays small", () => {
+test("SKILL.md frontmatter does not conform to the spec: one extension key beyond the six, no other, and the body stays small", () => {
   const text = fs.readFileSync(path.join(SKILL_DIR, "SKILL.md"), "utf8");
   const { fields, body } = frontmatter(text);
   assert.equal(fields.name, path.basename(SKILL_DIR), "name equals the directory name");

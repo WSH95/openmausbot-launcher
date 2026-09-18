@@ -8,6 +8,35 @@ Run the relevant checks before marking work as verified in `HANDOFF.md`.
 | Tests | `npm test` | all pass |
 | Lint | `none` | clean |
 
+## Explicit invocation rescue (2026-09-18, uncommitted at e0d7735)
+
+Validation uses `npm test` under `omb-loopback-dev`, with both `NO_PROXY` and
+`no_proxy` set to `127.0.0.1,localhost,127.0.0.2` as the root README prescribes.
+No host CLI, live OpenMausBot server or OMB bot turn was used. Mutations are
+confined to `/tmp/oml-rescue-validation-5xpltkwu`; all three targets are
+restored before each green run. Each added YAML key was inserted into both
+frontmatter mirrors, so the extension assertion itself had to catch it.
+
+| Mutations | Red `npm test` | Restored `npm test` |
+| --- | --- | --- |
+| `vendor_flag`; `then task` changed to `then stop`; Node/git prerequisite bullet removed | 516 passed, 4 failed: the three intended tests plus one unrelated lifecycle port collision (130.0 s) | 520 passed, 0 failed (135.9 s) |
+| `__proto__`; invocation refusal paragraph removed; team/engine prerequisite bullet removed | 517 passed, 3 intended failures (89.8 s) | 520 passed, 0 failed (132.9 s) |
+| `Vendor9`; other nonzero exits routed into setup; Linux lifecycle prerequisite removed | 517 passed, 3 intended failures (112.4 s) | 520 passed, 0 failed (109.8 s) |
+
+Final working-tree `npm test`: **520 passed, 0 failed** in 112.4 s.
+`git diff --check` passed. The frontmatter bytes are unchanged from HEAD and equal the design's YAML block; SKILL.md's body is 394 lines. No
+dependency was added. The initial run without proxy exclusions was interrupted
+(exit 130) after loopback traffic went through the proxy; it is not counted
+as mutation evidence. The unrelated port collision in
+`tests/lifecycle.test.mjs` is tracked as `oml-xml`; no lifecycle code changed.
+
+Logs and the per-finding report are in
+`/tmp/claude-1000/-home-wsh-Documents-openmausbot-launcher/2b4b2778-354c-488a-9e30-f8796e2611c7/scratchpad/`:
+`rescue-mutation-{1,2,3}-{red,green}.log` (the valid first red is
+`rescue-mutation-1-red-loopback.log`), `rescue-final-test.log`, and
+`rescue-report.md`. DSH evidence comes from saved host records at `impl/dsh/`;
+the new invocation guard was not exercised in a host session.
+
 ## oml-0vr: the receipt-change drain test (2026-09-17)
 
 Last verified: `main` at `2c409af`, **516 passed, 0 failed** in 85.5 s on the

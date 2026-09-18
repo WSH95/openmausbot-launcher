@@ -10,8 +10,8 @@ OpenClaw, Hermes Agent, and DeepSeek Harness. The OpenClaw phone recipe
 uses a workstation gateway and Telegram; it was verified end to end on
 2026-09-16, from a Telegram message to the answer in the same chat, with
 the skill still implicitly invocable. Since 2026-09-18 invocation is
-explicit, and the phone recipe's slash-command form is pending a run from
-the user's phone.
+explicit, and the phone recipe's slash-command form was verified from the
+user's phone the same day (`docs/evidence.md`).
 
 This repository does not contain OpenMausBot. It is a launcher: a `SKILL.md`
 and a dependency-free Node driver (seventeen verbs, about 2,500 lines under
@@ -74,11 +74,13 @@ ln -s "$PWD/skills/openmausbot-launcher" ~/.claude/skills/openmausbot-launcher  
 ln -s "$PWD/skills/openmausbot-launcher" ~/.agents/skills/openmausbot-launcher   # Codex, DSH, OpenClaw, Hermes (external_dirs)
 ```
 
-Invocation is explicit on every host that reads the switch: type
-`/openmausbot-launcher <request>` (Claude Code, Grok Build, DeepSeek
-Harness), `$openmausbot-launcher <request>` (Codex), or
-`/openmausbot_launcher <request>` in an OpenClaw channel; Hermes Agent does
-not read the switch and still triggers on the description.
+Every host that reads the switch stops handing the skill to the model on an
+ordinary message, so ask for it by name: `/openmausbot-launcher <request>`
+(Claude Code, Grok Build, DeepSeek Harness), `$openmausbot-launcher
+<request>` (Codex), or `/openmausbot_launcher <request>` in an OpenClaw
+channel; Hermes Agent does not read the switch and still triggers on the
+description. The switch is a host policy, not a filesystem boundary, so the
+skill itself also refuses to run a verb when it arrives uninvoked.
 `skills/openmausbot-launcher/README.md` is the entry point for the person
 who receives the skill directory, and
 `skills/openmausbot-launcher/references/hosts.md` has the per-host notes.

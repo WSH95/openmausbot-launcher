@@ -769,21 +769,29 @@ changes its `result`.
 
 ## SKILL.md
 
-Frontmatter, spec-valid on the spec's own fields plus one host-read
-extension key, `disable-model-invocation`, which the agentskills.io
-reference validator reports as an unexpected field; accepted in Decision
-0019, because the four hosts that honour the switch read it only at the top
-level and `metadata` would not reach them (`metadata` is a string map; the
-OpenClaw block is omitted and its requirements live in `hosts.md`;
-`allowed-tools` omitted because the exec pattern is host-specific).
-`disable-model-invocation: true`
-because this is an operator mode, not a reference: loading it reshapes the
+The frontmatter as a whole **does not conform** to the agentskills.io
+specification because `disable-model-invocation` is outside its six allowed
+top-level fields. The specification reserves client-specific properties for
+`metadata`, and its reference validator reports any other top-level field as
+unexpected.
+The key stays at the top level because that is the only place the four hosts
+that honour it look — under `metadata` the switch would simply be off
+everywhere. Accepted in Decision 0019, and `tests/size.test.mjs` holds the
+extension to exactly that one key. (`metadata` is a string map; the OpenClaw
+block is omitted and its requirements live in `hosts.md`; `allowed-tools`
+omitted because the exec pattern is host-specific.)
+Set `disable-model-invocation: true` because this is an operator mode:
+loading it reshapes the
 session and every bot turn it opens spends the user's subscriptions, so the
 timing belongs to the user. Claude Code, Grok Build, OpenClaw and DeepSeek
-Harness read that key and keep only the explicit form; Codex does not read
-it and takes `policy.allow_implicit_invocation: false` from
-`agents/openai.yaml` instead; Hermes Agent reads neither and still triggers
-on the description, which is why the description text is unchanged:
+Harness read that key and stop injecting the skill on an ordinary message;
+Codex does not read it and takes `policy.allow_implicit_invocation: false`
+from `agents/openai.yaml` instead; Hermes Agent reads neither and still
+triggers on the description, which is why the description text is unchanged.
+None of that is a filesystem boundary: the 2026-09-18 Codex and DeepSeek
+Harness negatives both show a model locating the checkout and reading
+`SKILL.md` itself, so §1 of the skill refuses to run any verb on an arrival
+that carries no invocation marker. The frontmatter:
 
 ```yaml
 ---
@@ -869,8 +877,8 @@ or (b) the agent runs `watch --max-seconds 1500 --until change` in the
 background and relays each result, which is still unverified. Answers are
 follow-ups inside the session the command activated: "tell Sudo: …" →
 `send`; "approve" → `answer --allow --request <id>`; "what's happening" →
-`status --brief`. Whether a follow-up needs the command again is
-**unverified** until the phone check records it. Reuse a team binding only on the same
+`status --brief`. A follow-up does not need the command again
+(verified 2026-09-18 for `status`; `send`/`answer` follow-ups not exercised). Reuse a team binding only on the same
 verified server; after a restart, re-import or adopt to establish the new
 identity even when old team state is present.
 
@@ -1023,16 +1031,23 @@ not a shell variable. The Claude trigger-phrase row is history: since
 2026-09-18 the same phrase selects nothing.
 
 Invocation checks, 2026-09-18, 0 bot turns (`docs/evidence.md`, "Explicit
-invocation on every host that reads the switch"), each run twice against the
-same prompt, before and after the key, read back from the host's own record: Claude Code
-2.1.276, Codex 0.155.0 and Grok 1.0.34 all stop offering the skill to the
-model, and each explicit form — `/openmausbot-launcher`,
-`$openmausbot-launcher`, `/openmausbot-launcher` — still loads it and runs
-exactly one `status` (exit 3, no team). Codex drops it from the skill
-catalog altogether and injects it on `$name`. Hermes v0.21.3 loads it either
-way, the exception this design accepts. DSH could not run (its provider
-credential was absent), and the OpenClaw phone form was not exercised; both
-stay unverified in `hosts.md`.
+invocation on every host that reads the switch"): Claude Code 2.1.276, Codex
+0.155.0, Grok 1.0.34 and Hermes v0.21.3 ran the same ordinary-language prompt
+before and after the key. The first three hosts no longer inject the skill
+on an ordinary message; each explicit form still injected it and ran one
+`status` (exit 3, no team). Codex drops it from the catalog altogether and
+injects it on `$name`. Hermes still loads it through `skill_view`, the
+accepted exception. DSH 0.1.5-rc.1 has after-edit evidence only: the ordinary
+message had no launcher catalog entry or injection, and `/name` injected
+`<skill_content>` and ran two read-only commands, `state --show` then
+`status` (exit 3, no team). Four earlier DSH launches failed before inference,
+before the key file was found; the key was read by a wrapper from a 0600 file.
+The Codex and DSH negatives both read `SKILL.md` from disk themselves, so §1
+now refuses verbs on an uninvoked arrival. This guard was added after those
+probes. The OpenClaw phone form was verified from the user's phone the same day: a
+fresh-session ordinary message ran nothing, the slash form injected the skill
+and ran one `status` each time, and a follow-up worked without the command
+(`docs/evidence.md`).
 
 ## Implementation and validation tracking
 

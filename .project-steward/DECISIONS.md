@@ -372,28 +372,37 @@ the description; that host is the deliberate exception, and it is why the
 description text is unchanged — the spec requires it, the hosts show it in
 their menus, and narrowing it would cost Hermes its only trigger.
 
-The 2026-09-18 checks (`docs/evidence.md`) ran every headless negative twice,
-before and after, and read the result from each host's own record. Two
+The 2026-09-18 checks (`docs/evidence.md`) ran the Claude Code, Codex, Grok
+Build and Hermes negatives before and after the edit, and read each host's
+own record. DSH has two successful after-edit probes only. Two
 findings changed the documentation rather than the decision: Codex 0.155.0
 drops the skill from its catalog entirely and injects it on `$name`, and a
 Claude Code exec allowlist has to name the `node <path>/scripts/omb.mjs` form
-because that is what the model types. DSH could not run (no provider
-credential in this session) and the OpenClaw phone form needs the user's
-phone; both stay unverified, with the phone check tracked as its own bead.
+because that is what the model types. A third, from the Codex and DeepSeek
+Harness negatives, changed the skill: both uninvoked models located this
+checkout and read `SKILL.md` themselves, and Codex ran `state --show`, so
+`SKILL.md` §1 now refuses to run any verb without a host-delivered invocation
+or Hermes's skill tool. The DSH positive injected the body and ran
+`state --show` before `status`, two read-only commands rather than the planned
+one; its key was read by a wrapper from a 0600 file. Four launches before the
+key file was found failed before inference. The new invocation guard has not
+been exercised in a host session. The OpenClaw phone form was then verified from the
+user's phone the same day (`docs/evidence.md`); its bead `oml-u43` is closed.
 
-One deliberate deviation. The agentskills.io specification defines six
-top-level fields (`name`, `description`, `license`, `allowed-tools`,
+One deliberate deviation, stated plainly: **the frontmatter no longer
+conforms to the agentskills.io specification.** That specification defines
+six top-level fields (`name`, `description`, `license`, `allowed-tools`,
 `metadata`, `compatibility`) and reserves client-specific properties for
 `metadata`; its reference validator reports anything else as an unexpected
-field. `disable-model-invocation` is therefore an extension, and it stays at
-the top level because that is the only place the four hosts that honour it
-look — under `metadata` the switch would simply be off everywhere. The claim
-"spec-valid" in `docs/design.md` is qualified accordingly, and
-`tests/size.test.mjs` now asserts the spec's constraints on the spec's fields
-and that the set of top-level keys outside those six is exactly
-{`disable-model-invocation`}, so a second stray key fails. The reference
-validator is not installed on this machine and nothing was installed to run
-it; that is recorded in `docs/evidence.md`.
+field. The one extension key, `disable-model-invocation`, makes the
+frontmatter as a whole nonconforming. It stays at the top level because that
+is the only place the four hosts that honour it look:
+under `metadata` the switch would simply be off everywhere. `docs/design.md`
+says so in those words, and `tests/size.test.mjs` reads every top-level key,
+whatever it is spelled with, and asserts that the set outside those six is
+exactly {`disable-model-invocation`}, so a second vendor key fails. The
+reference validator is not installed on this machine and nothing was
+installed to run it; that is recorded in `docs/evidence.md`.
 
 The skill directory also gained a `README.md`: only that directory ships, and
 a person who receives it had no entry point. It names the prerequisites, the

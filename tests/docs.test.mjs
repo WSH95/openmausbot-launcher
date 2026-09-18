@@ -154,13 +154,23 @@ test("the routing paragraph precedes setup, covers each arrival form, and states
     assert.ok(opening.includes(form), `the routing paragraph names how the request arrives as ${form}`);
   }
   // The transport tokens alone would still pass with the rule deleted, so
-  // assert the outcomes: what a named verb does, when setup is entered, and
-  // what happens when nothing usable arrived. The file is hard-wrapped, so
-  // match against the text with its line breaks collapsed.
+  // assert the outcomes: the guard against an arrival with no invocation
+  // marker, what a named verb does, both branches of the one exit 3 that
+  // means setup, and what a task ends in. The file is hard-wrapped, so match
+  // against the text with its line breaks collapsed.
   const flowed = opening.replace(/\s+/g, " ");
-  for (const rule of ["run that verb", "and stop", "no team is recorded for this project", "ask the user", "Hermes does not read the switch"]) {
-    assert.ok(flowed.includes(rule), `the routing paragraph states "${rule}"`);
-  }
+  const rules = [
+    "run no verb at all",                       // an arrival the host did not inject
+    "run that verb",
+    "and stop",
+    "no team is recorded for this project",     // the only exit 3 that means setup
+    "read `error` and `hint`",                  // every other non-zero result
+    "instead of setting up",
+    "then `task`",                              // a task ends in the task verb
+    "ask the user",
+    "Hermes does not read the switch",
+  ];
+  for (const rule of rules) assert.ok(flowed.includes(rule), `the routing paragraph states "${rule}"`);
   for (const worked of ["Show status using $openmausbot-launcher", "/openmausbot-launcher do T10 in ~/proj"]) {
     assert.ok(opening.includes(worked), `the routing paragraph works through "${worked}"`);
   }
@@ -186,6 +196,16 @@ test("the skill README states the prerequisites and its links resolve, and SKILL
   for (const form of ["OMB_BIN", "/openmausbot-launcher", "$openmausbot-launcher", "/openmausbot_launcher"]) {
     assert.ok(readme.includes(form), `the README names ${form}`);
   }
+  // The prerequisites a person has to satisfy before the first `doctor`.
+  const flowed = readme.replace(/\s+/g, " ");
+  const prerequisites = [
+    "Node 24",
+    "git repository with a test command",
+    "`.openmaus.json`",
+    "engine CLIs",
+    "Linux for `up`, `down` and `cleanup --kill`",
+  ];
+  for (const fact of prerequisites) assert.ok(flowed.includes(fact), `the README states the prerequisite ${fact}`);
   const body = read("skills/openmausbot-launcher/SKILL.md").split("\n---\n").slice(1).join("\n---\n");
   assert.doesNotMatch(body, /README/, "SKILL.md is the operator's file and never sends the agent to the README");
 });

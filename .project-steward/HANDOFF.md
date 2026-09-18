@@ -1,6 +1,6 @@
 ---
-updated_at: 2026-09-18T01:34:37Z
-updated_by: claude
+updated_at: 2026-09-18T20:05:42Z
+updated_by: codex
 session_status: closed
 branch: main
 ---
@@ -8,117 +8,56 @@ branch: main
 
 ## Now
 
-`oml-0vr` is closed at `2c409af`: the receipt-change drain test now
-synchronises on the real `fs.watch` notification and ends on its change, with
-the red proof that suppressing the callback's `invalidate` fails it (516/516).
-The multi-project guards are merged: `bind`, `up` and `down` now protect a
-server several projects share (`docs/review/2026-09-17-multi-project-guards.md`);
-`main` is at `73c623c`, 516/516. Before that, every non-macOS bead was closed: `oml-fg8`, `oml-j4r`, `oml-2rc`, and three
-found on the way, `oml-jc1`, `oml-47p` and `oml-507`. `main` went from
-`2234084` to `0278dfd` (eight commits) and then to `c769e53` (three follow-up
-commits); the merged tree passed 466/466 tests in 80.1 s. Only `oml-hou`
-(macOS) is open. The repairs were then confirmed on real OpenMausBot 0.1.56
-with two overlapping probe runs, V16 and V17 (2 bot turns, both Sudo's; server
-stopped, clone unchanged at `ddd4684`): after a sibling opened or closed,
-`report` left the run open with the settlement hint, an 8 s and a 20 s watch
-returned the observed idle time with the budget hint, a 40 s and a 35 s watch
-settled `done`, and the second report closed each run.
-Nothing was pushed, no OpenMausBot server was started and no bot turn was
-spent. Every check ran against `tests/fixtures/fake-omb.mjs`.
-
-What changed for an operator: a `watch` that times out while the run is idle
-now reports the idle time it observed instead of `idle for 0 s`, and, only
-where the quiet window alone would settle the run, names the budget it needs
-in JSON and in `--brief`. `report` on such a run says to watch with
-`--max-seconds 35` or more and report again. Reaching the deadline in the
-idle wait ends the observation on the last verified view, so a timed-out watch
-can now return `checkpointed: true` where it used to return an unverified
-line. The report attributes the task-log entry and the merged commit by rule
-and returns `null` when it cannot tell; T15's closing text from the
-2026-09-17 run stays `unknown` on purpose.
+`oml-c37` is in the Codex rescue stage after two review rounds returned
+rework. The five required changes and the saved DSH evidence are implemented:
+SKILL.md refuses an uninvoked disk read, the whole frontmatter is explicitly
+nonconforming because of its one extension, tests pin every top-level key,
+routing outcomes and README prerequisites, and host claims match the probes.
+DSH completed two after-edit sessions; its positive ran read-only
+`state --show` before `status`. Four earlier launches failed before inference.
+The OpenClaw phone invocation remains unexercised.
 
 ## In flight
 
-Nothing. `main` is the only worktree and the working tree is clean after this
-handoff's commit. The feature worktree and its two merged branches were
-removed.
+All rescue edits are uncommitted on `main` at
+`e0d77350df46545b3b36297c133aeb6f442fdc33`. The user explicitly forbids commits
+until the coordinator's Opus completeness review; nothing was pushed. Only
+documentation, skill text, the two documentation tests and Steward state
+changed. No driver implementation or host policy value changed.
 
-## Next steps
+Three mutation/restore cycles in `/tmp/oml-rescue-validation-5xpltkwu`
+caught the intended regressions; all restored suites passed 520/520. Final
+working-tree `npm test` passed 520/520 in 112.4 s, and `git diff --check`
+passed. Results are in `VERIFY.md` and the report below. `oml-c37` stays in
+progress for the coordinator's review and commit.
 
-1. Leave `oml-hou` open until macOS work is requested and a Mac or an explicit
-   implementation decision is available.
+## Next step
 
-## Blockers
+The coordinator reads the rescue report, runs the Opus completeness review,
+and commits only after that review. Detailed work belongs in Beads. The
+existing phone follow-up is `oml-u43`; macOS lifecycle is `oml-hou`. A new
+follow-up, `oml-xml`, records a port collision in the untouched lifecycle
+overlap test; its subsequent restored suite passed.
 
-None for the launcher. The macOS lifecycle task needs a Mac or a user
-decision.
+## Evidence and verification
 
-## Key files
+- `docs/evidence.md`, 2026-09-18 section: five hosts exercised, four with a
+  before/after comparison; DSH source paths, revisions, hashes and session IDs.
+- `skills/openmausbot-launcher/SKILL.md` §1 and `references/hosts.md`: the
+  host-delivery guard and invocation policy versus manual file reads.
+- `tests/docs.test.mjs` and `tests/size.test.mjs`: strengthened assertions.
+- `.project-steward/DECISIONS.md` 0019: accepted nonconforming frontmatter.
+- `/tmp/claude-1000/-home-wsh-Documents-openmausbot-launcher/2b4b2778-354c-488a-9e30-f8796e2611c7/scratchpad/rescue-report.md`:
+  per-finding changes, mutation red/green logs and the DSH rows as written.
 
-- `docs/review/2026-09-17-multi-project-guards.md` and `lib/others.mjs`: the
-  multi-project guards, their limits, and the shared vocabulary they use.
-- `docs/evidence.md`, last section, and
-  `docs/validation/2026-09-17-watch-budget-v16-v17.json`: the real-server
-  confirmation (V16/V17), with every command, id and output.
-- `docs/review/2026-09-17-watch-budget-report-attribution.md`: the pipeline,
-  what each bead turned out to be, the decisions the reviews changed, and what
-  was left open.
-- `.project-steward/VERIFY.md`, first section: every full-suite run, the
-  stress counts, the mutation results and the fake-server dry run.
-- `skills/openmausbot-launcher/scripts/lib/watch.mjs`: `watchBudgetHint`, the
-  timeout rewrite, and the deadline boundary at the end of the loop.
-- `skills/openmausbot-launcher/scripts/lib/snapshot.mjs`: `awaitingQuiet` and
-  `quietSettles` in `evaluate`.
-- `skills/openmausbot-launcher/scripts/lib/report.mjs`: `taskLogEntry`,
-  `mergedShaFrom`, `recordCommitSha`, `namesRival`.
-- `tests/watch-deadline.test.mjs` and `heldWatchTimers` in `tests/helpers.mjs`:
-  the held virtual clock for the deadline tests.
-- `docs/design.md`: the task lifecycle paragraph that replaced the "Known
-  gap", the settlement block, and the `watch` loop's deadline rules.
+## Limits and working rules
 
-## Tried and rejected
-
-- Keeping `state` and `lastReported` on a timeout checkpoint so a short watch
-  cannot erase a verdict: it can preserve a verdict the watch itself saw
-  invalidated, and it makes every short watch read as a change, which breaks
-  `--quiet-if-unchanged` and `--until change`.
-- Persisting quiet across `watch` invocations: `docs/design.md` forbids it,
-  and the real defect was the output, not the algorithm.
-- Accepting a bare `` `main` at `<sha>` `` as a merge assertion: it says where
-  a branch is, and ancestry cannot tell a right sha from a wrong one.
-- Letting the time window select a task-log entry: parallel runs overlap, so
-  the window only excludes.
-- Repairing the quiet- or poll-bound wake that lands a few milliseconds before
-  the deadline (`oml-47p`, first half). Restoring the last verified
-  observation after a cut-short read can hide facts that read saw. Extending
-  the wait when the budget left is smaller than the last read took treats an
-  estimate as a bound and can suppress required reads with seconds left. Both
-  were blocked in plan review; the unverified timeout it produces is accurate
-  and is documented in `references/limits-and-pitfalls.md`.
-- Fixing `oml-jc1` with a minimum-budget threshold before a read: a condition
-  (the wait was the deadline's, nothing arrived, inputs unchanged) replaced
-  it.
-- The Codex companion for max-effort work: it rejects `--effort max`, and its
-  forwarder refuses under plan mode. Use `codex exec -m <model> -c
-  model_reasoning_effort="max"` with `--sandbox read-only` for reviews, or
-  `-c default_permissions="omb-loopback-dev"` for a rescue that must run the
-  suite. Such a rescue cannot commit from a worktree.
-
-## Warnings
-
-One server per project: give each `up` an explicit `--port` (two apart) and
-`--data-dir` or `--fresh`; the defaults are shared by every project that names
-neither. `bind --take-over` and `down --stop-others` are deliberate overrides,
-not routine flags. The `oml-j4r` report attribution repairs are verified against the saved T13,
-T14 and T15 texts and the fake server; the V16/V17 probes merged nothing, so no
-real run has exercised them yet. This is not a task: the next ordinary dev-team
-run's `report --md --check-042` section will show them, and no bot turns should
-be spent for that alone. Never run `watch` below `--max-seconds 35` with the default quiet window; the
-driver now says so, but a shorter watch still cannot settle a run.
-`heldWatchTimers` finds the watch's timers by the callback names `wokeUp`,
-`reachDeadline` and `done` in `watch.mjs`; renaming them makes the deadline
-tests fail with "the watch never installed a … timer". Treat every token shown
-in a screenshot or UI capture as compromised. The default Codex
-`workspace-write` sandbox cannot run the loopback-dependent tests; select
-`omb-loopback-dev` for repository testing. Every push still requires explicit
-user permission.
+The rescue ran no host CLI and no live OpenMausBot server, read no credential
+file, and spent zero OMB bot turns. The new invocation guard is covered by
+text regression tests, not a fresh host session. The saved probes precede it.
+Run `npm test` under `omb-loopback-dev` with both `NO_PROXY` and `no_proxy`
+set to `127.0.0.1,localhost,127.0.0.2` as documented in the root README.
+Beads is embedded; use `DOLT_DISABLE_EVENT_LOG=true` and
+`bd --dolt-auto-commit off --sandbox` during this no-commit rescue. Every push
+still requires explicit permission. The phone check needs the user's phone;
+macOS lifecycle needs a Mac or an implementation decision.
