@@ -141,12 +141,14 @@ export function foreignFolders(fleet, { projectDir, ours }) {
  * Another project's state file, read without following a symlink and bounded
  * by the read itself: a file that is small when it is opened and grows in place
  * is still refused at the limit, whatever `fstat` said. That project's lock is
- * never taken, and a failed close never escapes this guard. `io` exists so a
- * test can stage a descriptor that outgrows its own stat.
+ * never taken, and a failed close never escapes this guard. The open never
+ * blocks: a FIFO planted at that path would otherwise hold `down` for ever,
+ * and with `O_NONBLOCK` it opens and fails the regular-file check instead.
+ * `io` exists so a test can stage a descriptor that outgrows its own stat.
  */
 export function readForeignState(file, io = fs) {
   let fd;
-  try { fd = io.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW); }
+  try { fd = io.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK); }
   catch (e) {
     if (e.code === "ENOENT") return { absent: true };
     return { why: e.code === "ELOOP" ? "the state file is a symlink" : `the state file could not be opened (${e.code ?? e.message})` };
@@ -176,6 +178,9 @@ export function readForeignState(file, io = fs) {
   if (doc.version === 1) {
     if (!("task" in doc)) return { why: "the version 1 state has no task field" };
     if (doc.task !== null && !isObject(doc.task)) return { why: "the version 1 task is neither null nor an object" };
+    // The migration drops an open task without a run id (state.mjs:31); that
+    // is a task nobody can place, not proof that nothing is open.
+    if (isObject(doc.task) && doc.task.status !== "closed" && !doc.task.runId) return { why: "the version 1 task has no run id" };
   } else if (doc.version === 2) {
     if (!isObject(doc.runs)) return { why: "the version 2 state has no runs object" };
     if (Object.values(doc.runs).some((r) => !isObject(r))) return { why: "a recorded run is not an object" };

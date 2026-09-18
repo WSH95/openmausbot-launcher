@@ -90,6 +90,8 @@ test("a foreign state is read in its own version's shape, and contradictory iden
   assert.deepEqual(seen.others.projects, [{ folder: seen.dir, runs: ["t9 (aaaabbbb, dispatched)"] }]);
   seen = await withFolder({ version: 1, rev: 2, server: { environmentId: ENV } });
   assert.equal(seen.blocking, false); assert.equal(seen.others.counts.unknown, 1, "a version 1 state with no task key at all is unknown");
+  seen = await withFolder({ version: 1, rev: 2, server: { environmentId: ENV }, task: { status: "dispatched", title: "T9" } });
+  assert.equal(seen.blocking, false); assert.match(seen.others.unknown[0]?.why ?? "", /version 1 task has no run id/, "an open version 1 task without a run id cannot be placed, so it is unknown");
   seen = await withFolder({ version: 2, rev: 2, server: { environmentId: ENV } });
   assert.equal(seen.blocking, false); assert.equal(seen.others.counts.unknown, 1, "a version 2 state with no runs is unknown, not a known negative");
   seen = await withFolder({ version: 2, rev: 2, server: { environmentId: OTHER }, runs: { r: { runId: "aaaabbbbccccdddd", status: "dispatched", title: "T9", context: { server: { environmentId: ENV } } } } });
@@ -201,6 +203,21 @@ test("the inspection budget stops the loops and reports one aggregated unknown",
   const spent = await look({ "/api/bots": fleet, "/api/team-map": { queued: [], running: [] } }, cfg, { budgetMs: 0 });
   assert.equal(spent.blocking, false);
   assert.deepEqual(spent.others.unknown.map((u) => u.source), ["fleet", "team-map"], "a budget spent before the first request reads nothing and says so");
+});
+
+test("a FIFO planted as a foreign state file is unknown, never a hang", { skip: process.platform === "win32" && "no mkfifo" }, async () => {
+  // A synchronous open on a FIFO with no writer blocks the whole process, so
+  // the probe runs in a child that a real-time bound can kill: a hang is red.
+  const { execFileSync } = await import("node:child_process");
+  const dir = tmpDir("oml-fifo-"); fs.mkdirSync(path.join(dir, ".omb"), { recursive: true });
+  const file = path.join(dir, ".omb", "state.json");
+  execFileSync("mkfifo", [file]);
+  const lib = path.resolve("skills/openmausbot-launcher/scripts/lib/others.mjs");
+  let out;
+  try {
+    out = execFileSync(process.execPath, ["--input-type=module", "-e", `import { readForeignState } from ${JSON.stringify(lib)}; console.log(JSON.stringify(readForeignState(${JSON.stringify(file)})));`], { encoding: "utf8", timeout: 5000 });
+  } catch (e) { assert.fail(`readForeignState did not return on a FIFO: ${e.code ?? e.message}`); }
+  assert.match(JSON.parse(out).why ?? "", /not a regular file|could not be opened/, out);
 });
 
 test("canonical keeps its vocabulary: realpath, missing, unreadable", () => {

@@ -244,7 +244,7 @@ function readLog(file) {
     const buf = Buffer.alloc(Math.min(size, LOG_WINDOW));
     if (buf.length) fs.readSync(fd, buf, 0, buf.length, Math.max(0, size - LOG_WINDOW));
     return buf.toString("utf8");
-  } catch { return ""; } finally { fs.closeSync(fd); }
+  } catch { return ""; } finally { try { fs.closeSync(fd); } catch {} }
 }
 
 /** The last lines of the server log, for error hints. */
