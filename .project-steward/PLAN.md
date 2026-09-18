@@ -86,8 +86,9 @@ the summary template and a skeleton the test suite validates; the driver's
 `validate` verb judges a package offline in the server's own words. Two
 commits: `a04b6fd` (the verb, `scripts/lib/package.mjs`, its tests and the
 verb-count documents) and this commit (SKILL.md, the reference, the design and
-steward documents, Decision 0020). Still open on the bead: the real-server
-parity comparison (`VERIFY.md`) and host acceptance — running
+steward documents, Decision 0020). The real-server parity comparison ran the
+same day (`docs/evidence.md`, `VERIFY.md`). Still open on the bead: host
+acceptance — running
 `/openmausbot-launcher write a team package for <something small>` in a host
 and checking that the first reply is a question, that the summary precedes any
 file, and that the written file validates — which is the user's step, and the

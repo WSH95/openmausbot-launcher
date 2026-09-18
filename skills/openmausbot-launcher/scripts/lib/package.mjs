@@ -363,8 +363,10 @@ function advise(doc, unknown, fileName) {
       } else if (description.length > ADVISORY.createBotInstructions) {
         add(path, `agent ${key}'s description is ${description.length} characters, over create_bot's ${ADVISORY.createBotInstructions}-character instructions limit; only matters if the lead re-creates this specialist with create_bot`); // index.ts:8201-8203
       }
-      const mounted = (Array.isArray(agent.playbooks) ? agent.playbooks : []).reduce((sum, b) => sum + (books.get(asText(b)) ?? 0), 0);
-      if (mounted > ADVISORY.playbookMountPerBot) add(`package.agents.${i}.playbooks`, `agent ${key}'s playbooks total ${mounted} instruction characters; a turn mounts at most three matching playbooks within ${ADVISORY.playbookMountPerBot}, so some may be cut`); // installed-playbooks.ts:3-4
+      // A turn mounts at most three matching playbooks (installed-playbooks.ts:3), so the
+      // three longest assigned ones are the most a turn can ask of the budget (:4).
+      const mounted = (Array.isArray(agent.playbooks) ? agent.playbooks : []).map((b) => books.get(asText(b)) ?? 0).sort((a, b) => b - a).slice(0, 3).reduce((sum, n) => sum + n, 0);
+      if (mounted > ADVISORY.playbookMountPerBot) add(`package.agents.${i}.playbooks`, `agent ${key}'s three longest playbooks total ${mounted} instruction characters; a turn mounts at most three matching playbooks within ${ADVISORY.playbookMountPerBot}, so a turn that matches them may be cut`); // installed-playbooks.ts:3-4
     });
   }
   if (fileName && !fileName.endsWith(ADVISORY.fileSuffix)) add("", `${fileName} does not end in ${ADVISORY.fileSuffix} (convention only)`);

@@ -4,7 +4,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { verb, EXIT, Fail } from "../cli.mjs";
-import { validatePackage, parseJsonFile, renderError, BOTMRR } from "../package.mjs";
+import { validatePackage, parseJsonFile, renderError, BOTMRR, FORMAT } from "../package.mjs";
 
 verb("validate", {
   allowPositionals: true,
@@ -36,7 +36,12 @@ verb("validate", {
     // carry, and errors[] is not among them.
     return { code: EXIT.PRECONDITION, ok: false,
       result: { file: resolved, valid: false, error: `${errors.length} error(s) in ${base}: ${renderError(errors[0])}`, errors, warnings, summary,
-        hint: "fix errors[0] first: it is the one the server would report" },
+        // A document whose format is not openmaus.package never reaches this
+        // schema on the server: the import route hands it to the backup parser
+        // (index.ts:9179) or the legacy team parser (index.ts:9195-9196).
+        hint: doc?.format === FORMAT
+          ? "fix errors[0] first: it is the one the server would report"
+          : `this file's format is not ${FORMAT}, so the server would not judge it by this schema (a backup or legacy team file goes to another parser); write an ${FORMAT} document` },
       brief: `validate · ${base} · ${errors.length} error(s) · ${renderError(errors[0])}` };
   },
 });

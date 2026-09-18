@@ -105,6 +105,7 @@ openmausbot-launcher/
 │       ├── limits-and-pitfalls.md       # budgets, dead cards, tried-and-rejected
 │       ├── hosts.md                     # per-host install, allowlists, time budgets, phone recipes
 │       ├── dev-team.md                  # roster advice, Project facts block, brief template with the run marker, record step
+│       ├── team-authoring.md            # the package format and limits, the interview, the summary template, the skeleton
 │       └── evidence.md                  # evidence section template (what `report --md` emits)
 ├── tests/*.test.mjs                     # node:test; explicit discovery: node --test 'tests/**/*.test.mjs'
 ├── tests/fixtures/fake-omb.mjs          # contract fake; `serve` spawns a child that answers health with its own pid
@@ -866,7 +867,8 @@ to ask the user first; the Stop-hook prerequisite in one sentence);
 `validate`; no file before the user's yes; engines stay `bind` flags);
 4 Per
 task (`task`, then the `watch` loop; the hard rules: the lead's own thread
-never the room, one run at a time, resume or abandon a run rather than
+never the room, several open runs but one lead turn at a time, resume or
+abandon a run rather than
 forcing, done is the run marker and still needs reading); 5 Reading
 `watch` (state → meaning → action table, including `attention` and
 `stalled`); 6 Answering (plain question → `send`; approval card → `answer

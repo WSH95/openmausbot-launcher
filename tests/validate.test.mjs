@@ -139,11 +139,20 @@ test("a specialist over create_bot's 1000-character limit warns, and the chief i
   assert.equal(at(chief, "package.agents.0.description").length, 0, "the chief is measured against its own budget, not create_bot's");
 });
 
+test("four small playbooks on one bot do not warn: a turn mounts at most three of them", () => {
+  const out = warn((d) => {
+    d.package.playbooks = ["a", "b", "c", "e"].map((k) => ({ key: k, name: k.toUpperCase(), summary: "s", triggers: ["t"], instructions: X(7000) }));
+    d.package.agents[1].playbooks = ["a", "b", "c", "e"];
+  });
+  assert.deepEqual(out.errors, []);
+  assert.deepEqual(at(out, "package.agents.1.playbooks"), []);
+});
+
 test("one bot's assigned playbooks warn only when together they pass the mount budget", () => {
   const two = (d) => { d.package.playbooks = [{ key: "a", name: "A", summary: "s", triggers: ["t"], instructions: X(12001) }, { key: "b", name: "B", summary: "s", triggers: ["t"], instructions: X(12001) }]; };
   const one = warn((d) => { two(d); d.package.agents[1].playbooks = ["a", "b"]; });
   assert.deepEqual(one.errors, []);
-  assert.deepEqual(at(one, "package.agents.1.playbooks").map((w) => w.message), ["agent sage's playbooks total 24002 instruction characters; a turn mounts at most three matching playbooks within 24000, so some may be cut"]);
+  assert.deepEqual(at(one, "package.agents.1.playbooks").map((w) => w.message), ["agent sage's three longest playbooks total 24002 instruction characters; a turn mounts at most three matching playbooks within 24000, so a turn that matches them may be cut"]);
   const split = warn((d) => { two(d); d.package.agents[1].playbooks = ["a"]; d.package.agents[2].playbooks = ["b"]; });
   assert.deepEqual(split.errors, []);
   assert.deepEqual(split.warnings.filter((w) => w.path.endsWith(".playbooks")), [], "the budget is per bot, not per package");
@@ -287,6 +296,7 @@ test("a JSON document that is not a package is exit 3, not exit 2", async () => 
   const r = await runOmb(["validate", path.join(ROOT, "package.json")], { env });
   assert.equal(r.code, 3, r.stdout);
   assert.equal(r.json.errors[0].path, "format");
+  assert.match(r.json.hint, /format is not openmaus\.package, so the server would not judge it by this schema/);
   assert.equal(r.json.errors[0].message, "This is not an OpenMaus package");
 });
 
