@@ -741,3 +741,37 @@ phone check itself spent 0 OpenMausBot bot turns (no server listening).
 33/33 on five repeats; the stress script in the session scratchpad lost 0
 neighbour ports in 929 picks against 4 in 571 with the old picker.
 
+
+## Team package authoring and `validate` (2026-09-18)
+
+`npm test` **587 passed, 0 failed, 0 skipped** (105 s) with the authoring
+section, the reference and their four new tests; 583 at `a04b6fd`, the
+checkpoint that added the verb.
+
+The offline `validate` checks, run in checkpoint (a) and again on this
+commit:
+
+- `validate tests/fixtures/dev-team.package.json` → exit 0, `5 agents, 1
+  room(s), 1 playbook(s), chief sudo`, one warning: the file name does not
+  end in `.openmaus.json`.
+- the same fixture with `"color": "black"` → exit 3,
+  `package.agents.0.appearance.color is not supported`.
+- `~/Documents/agent-team-devpack/packages/dev-team/dev-team.openmaus.json`
+  → exit 0, no errors and no warnings (lead 3,865 characters with the
+  marker, specialists under 1,000, playbooks 11,114).
+- The leak rule, in the suite: a file whose whole content is
+  `sk-SYNTHETIC-9f3a` exits 2 from `validate` and from `import --dry-run`
+  with the text absent from stdout and stderr, with and without
+  `--verbose`, and the tests first assert that Node's own parser message
+  really quotes it, so they cannot pass vacuously; a valid package whose
+  prose carries the marker validates at exit 0 without printing it.
+- The skeleton in `references/team-authoring.md` is parsed out of the file's
+  first fenced `json` block and validates with `errors: []` and
+  `warnings: []`.
+
+Still to run: the real-server parity comparison (`docs/design.md`, "Package
+validation"). Four deliberately broken packages — a bad colour, a
+161-character tagline, a missing `package.name`, a duplicate agent key —
+imported against a real OpenMausBot 0.1.56, each 400 body compared with the
+validator's rendering of `errors[0]`. Zero bot turns; not yet run. Host
+acceptance of the authoring section is the user's step (`PLAN.md`).

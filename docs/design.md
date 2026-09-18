@@ -69,7 +69,11 @@ against the 0.1.56 source and folded in below:
    its chief of staff or the explicit `--lead`, and records the returned
    identities; model bindings come from the caller. Package behavior checks
    are optional diagnostics and do not define launcher acceptance
-   (Decision 0006).
+   (Decision 0006). The skill may also **write** a package with the user,
+   through an interview that ends in a confirmed summary and an offline
+   `validate` (Decision 0020); the file it produces is still the user's own
+   input — it is written only on the user's explicit yes, and importing it
+   stays the user's call.
 
 Calls made by the agent: generic OMB operator core with the dev-team pack
 conventions in a reference file; driver = dependency-free Node ESM `.mjs`
@@ -158,7 +162,8 @@ send, answer, watch, and open tasks but not import, bind, or change models
 (`request-auth.ts:326`), so `doctor` warns when `OMB_TOKEN` is set on a
 loopback URL. Supported runtime: Node 24.
 
-**Several projects on one machine.** The team package is only read, and every
+**Several projects on one machine.** The team package is only read by the
+driver, and written only by the operator on the user's yes, and every
 project has its own `.omb/state.json` and its own lock, so two projects can use
 one package at any time. A shared *server* is the case the guards below are
 for, and their scope is narrow: they are best-effort protection for
@@ -246,6 +251,47 @@ Deferred to v2: `send --room` (the rule is never to drive the lead from the
 room), `state --set`, macOS lifecycle. `pair` was deferred in v1 and landed on
 2026-09-16; the connection, credential, learned-skill and routine requests in
 `answer` landed the same day (bead `oml-170`).
+
+### Package validation (`validate`)
+
+`scripts/lib/package.mjs` encodes the 0.1.56 team-package contract offline:
+the constants and every message are transcribed from the pinned source with
+their `file:line` (`server/bot-package.ts:8-126` for the schema,
+`:167-207` for the cross-references, `server/schema.ts:14-19` for how one
+issue becomes the server's 400, zod 4.4.3 for the default wordings), and zod
+itself is never imported — the driver has no dependencies. The module is
+pure: it imports nothing, so the verb reads no configuration, takes no lock
+and makes no request.
+
+The checks, in the server's own order: the schema walk (object shape, key
+order, arrays element-before-size, every check of a field run even after an
+earlier one failed), then — only when the walk found nothing, as upstream
+does — the cross-references (duplicate agent, playbook, room and routine
+keys; unknown chief; an agent's unknown playbook; a room's duplicate or
+unknown member and its default responder; a routine's unknown agent).
+
+`warnings[]` is the launcher's own advice and never changes the exit code:
+a key the schema does not declare (the server drops unknown fields, so the
+text is lost), no `chiefOfStaff`, a chief description without the `Project
+facts` marker or over 3,900 characters with one, a non-chief description
+over `create_bot`'s 1,000 characters, one bot's playbooks totalling more
+than 24,000 instruction characters, and a file name that does not end in
+`.openmaus.json`.
+
+**The parity claim, precisely.** The validator judges a document *as an
+`openmaus.package`*. For a schema error, `errors[0]` rendered as
+`<path> <message>` is the text the server's 400 carries; for a
+cross-reference error the message is the server's and the path is the
+launcher's own addition. The claim is checked two ways: the unit table in
+`tests/validate.test.mjs`, whose expected texts are transcribed from zod
+4.4.3 and `bot-package.ts`, and the real-server comparison of Verification
+step 4, which imports four deliberately broken packages and asserts each 400
+body equals the validator's rendering of `errors[0]` (`VERIFY.md` records
+whether it has been run). Documented limits of the claim: a document whose
+`format` is not `openmaus.package` is judged by this schema's words, while
+the live route hands it to the backup (`index.ts:9179`) or legacy manifest
+(`:9195-9196`) parser instead; and a future upstream zod bump could reword
+zod's own default messages, which changes wording, never paths.
 
 ### Task lifecycle (`task`)
 
@@ -797,7 +843,7 @@ that carries no invocation marker. The frontmatter:
 ```yaml
 ---
 name: openmausbot-launcher
-description: Operate a local OpenMausBot (OMB) multi-bot server as the user's launcher. Starts and stops the headless server, imports a team package (.openmaus.json), binds the team to a project with engines and effort, sends a task brief to the lead bot, watches progress, relays the lead's questions and approval cards to the user and the answers back, reconciles the repository between tasks, cleans up orphaned processes and worktrees, and reports with evidence. Use when the user mentions OpenMausBot, OMB, "the team", "the lead" or Sudo, a team package, running a task (T10, a bead, a TODO item) through the bots, or wants to drive the bots from a phone or Telegram. Drives scripts/omb.mjs over the local HTTP API; never modifies OpenMausBot.
+description: Operate a local OpenMausBot (OMB) multi-bot server as the user's launcher. Starts and stops the headless server, imports a team package (.openmaus.json), binds the team to a project with engines and effort, sends a task brief to the lead bot, watches progress, relays the lead's questions and approval cards to the user and the answers back, reconciles the repository between tasks, cleans up orphaned processes and worktrees, and reports with evidence. Use when the user mentions OpenMausBot, OMB, "the team", "the lead" or Sudo, a team package, a team profile, running a task (T10, a bead, a TODO item) through the bots, or wants to drive the bots from a phone or Telegram. Also writes a team package (a team profile) for the user through an interview that confirms the intent before any file exists. Drives scripts/omb.mjs over the local HTTP API; never modifies OpenMausBot.
 disable-model-invocation: true
 license: MIT
 compatibility: Node 24 and the openmausbot npm package 0.1.56 (headless server, not the desktop app) on this Linux machine, or a paired session token for status, watch, send, and answer only; git; the project must be a git repository with a test command.
@@ -815,20 +861,23 @@ invocation is explicit, how the request arrives with it — `ARGUMENTS:`,
 `$openmausbot-launcher`, `/openmausbot_launcher` — and what a named verb, a
 task and an unusable request each mean); 2 Setup once per
 project (`doctor`, `up`, `doctor --server`, `import`, `bind`, `facts`; what
-to ask the user first; the Stop-hook prerequisite in one sentence); 3 Per
+to ask the user first; the Stop-hook prerequisite in one sentence);
+3 Writing a team package (interview → proposal → confirmed summary → file →
+`validate`; no file before the user's yes; engines stay `bind` flags);
+4 Per
 task (`task`, then the `watch` loop; the hard rules: the lead's own thread
 never the room, one run at a time, resume or abandon a run rather than
-forcing, done is the run marker and still needs reading); 4 Reading
+forcing, done is the run marker and still needs reading); 5 Reading
 `watch` (state → meaning → action table, including `attention` and
-`stalled`); 5 Answering (plain question → `send`; approval card → `answer
+`stalled`); 6 Answering (plain question → `send`; approval card → `answer
 --allow --request`; dead question card → `send`; unsupported request types
-→ tell the user what the server needs; keep the user's words); 6 Finish and
+→ tell the user what the server needs; keep the user's words); 7 Finish and
 clean up (`reconcile`, `cleanup --kill`, `report --md`, `down`; stopped
-tasks keep their worktree); 7 Guardrails (never fork or patch OMB, never
+tasks keep their worktree); 8 Guardrails (never fork or patch OMB, never
 bind publicly, never PATCH playbooks, ids not names, `/api/decisions` is a
 log, one-hop chains, the wake budget, every turn costs subscription);
-8 Hosts and phone mode (one line per host with its `--max-seconds`);
-9 References.
+9 Hosts and phone mode (one line per host with its `--max-seconds`);
+10 References.
 
 `agents/openai.yaml`: `interface.display_name "OpenMausBot Launcher"`,
 `short_description`, `default_prompt "Use $openmausbot-launcher to run a
@@ -957,7 +1006,13 @@ twice; `up`/`down` ownership (ancestry verified, repeated `up` stays
 reused pid refused, remote refused); `reconcile` and `cleanup` in a temp git
 repo with a worktree, a `task/*` branch, and a spawned `sleep` whose cwd is
 deleted; `report --md` on synthetic ndjson for several threads and its
-run-closing write; brief snapshots. `tests/size.test.mjs` checks the
+run-closing write; brief snapshots. `tests/validate.test.mjs` is a table of
+one row per schema and cross-reference message with its path and kind, the
+warning conditions, the leak checks (a file whose content is a token never
+reaches stdout, stderr or the parse error), the verb itself through a
+subprocess, and the skeleton in `references/team-authoring.md`, which is
+parsed out of the reference's first fenced `json` block and must validate
+with no errors and no warnings. `tests/size.test.mjs` checks the
 SKILL.md name equals the directory and the body stays under 500 lines.
 
 The quiet-output timeout test advances a controlled monotonic clock only

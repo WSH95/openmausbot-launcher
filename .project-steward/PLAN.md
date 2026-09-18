@@ -76,6 +76,23 @@ README for the installer, and every host including the OpenClaw phone form was
 checked with 0 bot turns (`docs/evidence.md`). `oml-xml` (test port
 collision) closed at `6d772d3`. Open: `oml-hou`.
 
+## Team package authoring (2026-09-18)
+
+Bead `oml-i13`. The skill now writes a team package with the user: `SKILL.md`
+§3 interviews one question at a time, sends a fixed-shape understanding
+summary and writes nothing before an explicit yes;
+`references/team-authoring.md` carries the format, the limits, the interview,
+the summary template and a skeleton the test suite validates; the driver's
+`validate` verb judges a package offline in the server's own words. Two
+commits: `a04b6fd` (the verb, `scripts/lib/package.mjs`, its tests and the
+verb-count documents) and this commit (SKILL.md, the reference, the design and
+steward documents, Decision 0020). Still open on the bead: the real-server
+parity comparison (`VERIFY.md`) and host acceptance — running
+`/openmausbot-launcher write a team package for <something small>` in a host
+and checking that the first reply is a question, that the summary precedes any
+file, and that the written file validates — which is the user's step, and the
+bead stays open until it is run or waived.
+
 ## Later
 
 Done on 2026-09-17: `oml-fg8`, the two report attribution gaps of `oml-j4r`,

@@ -1,6 +1,6 @@
 ---
 name: openmausbot-launcher
-description: Operate a local OpenMausBot (OMB) multi-bot server as the user's launcher. Starts and stops the headless server, imports a team package (.openmaus.json), binds the team to a project with engines and effort, sends a task brief to the lead bot, watches progress, relays the lead's questions and approval cards to the user and the answers back, reconciles the repository between tasks, cleans up orphaned processes and worktrees, and reports with evidence. Use when the user mentions OpenMausBot, OMB, "the team", "the lead" or Sudo, a team package, running a task (T10, a bead, a TODO item) through the bots, or wants to drive the bots from a phone or Telegram. Drives scripts/omb.mjs over the local HTTP API; never modifies OpenMausBot.
+description: Operate a local OpenMausBot (OMB) multi-bot server as the user's launcher. Starts and stops the headless server, imports a team package (.openmaus.json), binds the team to a project with engines and effort, sends a task brief to the lead bot, watches progress, relays the lead's questions and approval cards to the user and the answers back, reconciles the repository between tasks, cleans up orphaned processes and worktrees, and reports with evidence. Use when the user mentions OpenMausBot, OMB, "the team", "the lead" or Sudo, a team package, a team profile, running a task (T10, a bead, a TODO item) through the bots, or wants to drive the bots from a phone or Telegram. Also writes a team package (a team profile) for the user through an interview that confirms the intent before any file exists. Drives scripts/omb.mjs over the local HTTP API; never modifies OpenMausBot.
 disable-model-invocation: true
 license: MIT
 compatibility: Node 24 and the openmausbot npm package 0.1.56 (headless server, not the desktop app) on this Linux machine, or a paired session token for status, watch, send, and answer only; git; the project must be a git repository with a test command.
@@ -52,15 +52,19 @@ The project is the one the user names; when the user names none, omit
 `--project` and let the driver's own default apply. Never read the project
 out of the repository you happen to be in, and never take the task from it:
 the task always comes from the conversation. Then a named verb means run
-that verb for that project and stop; a task means §3, preceded by §2 when
-the project is not set up yet; nothing usable means ask the user rather
-than guess. So "Show status using $openmausbot-launcher" is one `status`
-with no `--project`, and a stop. "/openmausbot-launcher do T10 in ~/proj"
-starts with `status --project ~/proj`: exit 3 with
-`no team is recorded for this project` is the one result that means the
-project is not set up, so run §2, which begins with `doctor`; any other
-non-zero exit is its own problem — read `error` and `hint` and follow them
-instead of setting up; then `task`.
+that verb for that project and stop; a request to design, write or change a
+team package — a team profile, a roster, a new team — means §3 and runs no
+verb before the user approves the summary; a task means §4, preceded by §2
+when the project is not set up yet; nothing usable means ask the user
+rather than guess. So "Show status using $openmausbot-launcher" is one
+`status` with no `--project`, and a stop.
+"/openmausbot-launcher do T10 in ~/proj" starts with
+`status --project ~/proj`: exit 3 with `no team is recorded for this
+project` is the one result that means the project is not set up, so run §2,
+which begins with `doctor`; any other non-zero exit is its own problem —
+read `error` and `hint` and follow them instead of setting up; then `task`.
+"/openmausbot-launcher write a team package for reviewing pull requests"
+is §3: the first reply is a question, not a verb.
 
 Exit codes: 0 ok; 1 network or HTTP error (`cannot reach <url>: <cause>`
 names the cause: `ECONNREFUSED` means nothing listens there, `EPERM` means
@@ -76,10 +80,11 @@ Ask the user for what the driver cannot know: the project directory, the
 team package path, the test command, the engine and effort for each role,
 the merge policy (`auto` merges and cleans up by itself; `ask` reports and
 waits), the task log path and tracker, and whether plan reviews run as
-asks or delegations. OpenMausBot itself is not part of this skill: install
-the `openmausbot` package separately and either put it on `PATH` or set
-`OMB_BIN` to its `cli.js`; `doctor`'s `binary` check names the path and
-version it resolved. Then:
+asks or delegations. A user with no package yet writes one first (§3).
+OpenMausBot itself is not part of this skill: install the `openmausbot`
+package separately and either put it on `PATH` or set `OMB_BIN` to its
+`cli.js`; `doctor`'s `binary` check names the path and version it resolved.
+Then:
 
 ```
 omb doctor --project <dir>                       # node, binary, git, project, Stop hook
@@ -138,7 +143,57 @@ matching data directory. A restarted server needs a fresh import or adopt
 binding. A live or unverified owned server must be resolved before selecting
 another server; `up --fresh` reserves a unique directory.
 
-## 3. Per task
+## 3. Writing a team package
+
+A team package is the JSON file `import` sends to the server: the bots, each
+with a key, a name, a title, instructions of up to 4,000 characters and a
+colour; which of them is the chief of staff the user talks to; the rooms;
+and any playbooks. It carries no engine, model, effort, approval level,
+working folder or peer setting — the server strips those, and they are
+`bind` and `facts` flags after the import. The user may call it a team
+profile, a roster or a new team; it is this file. Read
+`references/team-authoring.md` before the first question: it holds the
+format, the limits, the interview, the summary template, a skeleton to copy,
+and what follows the file.
+
+Four steps, in order; the file exists only in the last.
+
+1. **Understand.** Ask one question per message, multiple choice with a
+   recommended option wherever the answers can be known, until nothing
+   load-bearing is open: the work and who it is for; what finished looks
+   like; the roles, and which bot the user talks to; where the user wants to
+   be asked and where not; what the bots may touch; what already exists (a
+   software team is usually the dev-team pack, `references/dev-team.md`,
+   imported rather than rewritten); which engine CLIs are installed; where
+   the file lives. Do not ask what the reference already decides — the keys,
+   the colours, the format.
+2. **Refine.** Turn the answers into a proposal with a reason for each
+   choice: one lead the user talks to, every other bot one hop from it;
+   titles that carry the role word the lead and `bind --reviewers` match;
+   rules in a bot's instructions rather than in a playbook when they may
+   change, because installed playbooks cannot be edited; no question tools.
+   When a wish collides with a limit in the reference, say so and offer the
+   nearest shape that works.
+3. **Confirm.** Send the understanding summary from the reference: the
+   purpose in the user's own words, the roster table, how the lead works and
+   when it stops to ask, what stays outside the file, and the assumptions
+   you made. Ask for a yes. Any change goes back to step 2 for that part and
+   the summary is sent again. No file, no verb, no draft JSON before an
+   explicit yes.
+4. **Write.** Write the file, then run `omb validate <file>` — offline: no
+   server, no project, no state. Fix every `errors[]` entry, and read
+   `warnings[]`: a field the server would drop is text the user will lose,
+   so fix it rather than report it. Then read the file back against the
+   summary the user approved — every bot in the roster table is in
+   `agents[]` with that title and those instructions, the finished result is
+   in `outcomes`, the lead's stop rules are in its instructions — and
+   anything that changed meaning goes to the user before you hand the file
+   over. Show the path, the roster, the warnings that remain, and the
+   `import`, `bind` and `facts` commands the answers imply. Import only when
+   the user asks: it creates bots on the server, and a re-import makes a new
+   numbered team.
+
+## 4. Per task
 
 Start it in the lead's own chat, never in a room:
 
@@ -217,12 +272,12 @@ A nudge cannot switch or retry after its request times out. A canceled
 optional checkpoint cannot write later; `checkpointed:false` also covers
 that timeout even when the returned verdict remains verified.
 
-## 4. Reading `watch`
+## 5. Reading `watch`
 
 | `state` | Meaning | What you do |
 |---|---|---|
-| `done` (0) | The lead's last text carries this run's marker line | Read the closing report to the user; then `report` (section 6). Done means the lead closed the run, not that everything passed |
-| `needs-user` (5) | A card, connection, or credential request is pending, a settled one never woke its bot (`resumable[]`), or a bot is waiting on you | Relay `pending[]` and `resumable[]` verbatim and answer with section 5; `handle` is what `--request` takes, and a `resumable` entry takes `--resume` |
+| `done` (0) | The lead's last text carries this run's marker line | Read the closing report to the user; then `report` (section 7). Done means the lead closed the run, not that everything passed |
+| `needs-user` (5) | A card, connection, or credential request is pending, a settled one never woke its bot (`resumable[]`), or a bot is waiting on you | Relay `pending[]` and `resumable[]` verbatim and answer with section 6; `handle` is what `--request` takes, and a `resumable` entry takes `--resume` |
 | `attention` (5) | Settled without the marker: the lead stopped early (Premise fails, BLOCKED, a plain question) | Read `lead.text` to the user; answer with `send` |
 | `stalled` (6) | A teammate's outcome is newer than the lead's last text and the lead stays idle (a dropped wake), or no change for 40 min | `omb send "status?"` wakes the lead; if it stays silent, `interrupt`, then ask the user |
 | `failed` (6) | The lead is dead or its turn failed to dispatch | Read the tail (`status --tail 10`), tell the user |
@@ -232,7 +287,7 @@ that timeout even when the returned verdict remains verified.
 `changes[]` lists what moved since the last report; `brief` is the phone
 line. Relay the lead's own words; do not paraphrase decisions.
 
-## 5. Answering
+## 6. Answering
 
 - A plain-text question or decision: `omb send "no new dependency, use a
   table"`. It goes to that run's lead thread with a deduplicating send id.
@@ -320,7 +375,7 @@ line. Relay the lead's own words; do not paraphrase decisions.
   proof that the turn running there is its own.
 - Keep the user's words. Never answer on the user's behalf.
 
-## 6. Finish and clean up
+## 7. Finish and clean up
 
 An anonymous partial queue drop leaves possible surviving delegations
 in flight. Reports stop attributing later shared-thread turns through the
@@ -349,7 +404,7 @@ older run whose roster and environment cannot be corroborated is incomplete.
 A stopped task keeps its worktree on purpose: remove it
 only when the user says so, with `reconcile --remove <slug>`.
 
-## 7. Guardrails
+## 8. Guardrails
 
 - Never fork or patch OpenMausBot; the driver uses its HTTP API and CLI
   only. Never bind the server to a public address.
@@ -371,7 +426,7 @@ only when the user says so, with `reconcile --remove <slug>`.
   automation, update every installed copy, then remove only the legacy
   path. See `references/limits-and-pitfalls.md` for recovery details.
 
-## 8. Hosts and phone mode
+## 9. Hosts and phone mode
 
 Claude Code and Grok Build: `--max-seconds 100`, or 570 in a background
 shell. Codex: `--max-seconds 100`; default `workspace-write` denies local
@@ -393,7 +448,7 @@ own PID namespace and the local identity check cannot pass (`status` exits
 3). Install paths, allowlists, and the recipes are in
 `references/hosts.md`.
 
-## 9. References
+## 10. References
 
 - `references/api.md`: the OpenMausBot 0.1.56 routes, shapes, 409 rules,
   SSE frames, and data-dir files the driver relies on.
@@ -403,3 +458,6 @@ own PID namespace and the local identity check cannot pass (`status` exits
 - `references/dev-team.md`: the dev-team pack's roster, Project facts,
   brief, closing report, record step, and the 0.4.2 checks.
 - `references/evidence.md`: what a run record must contain.
+- `references/team-authoring.md`: the package format and limits, the
+  interview, the understanding summary, the skeleton, and what follows the
+  file.

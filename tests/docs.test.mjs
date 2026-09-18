@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { ROOT, OMB, SKILL_DIR } from "./helpers.mjs";
+import { COLORS, LIMITS } from "../skills/openmausbot-launcher/scripts/lib/package.mjs";
 
 const WORDS = { ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20 };
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), "utf8");
@@ -167,11 +168,13 @@ test("the routing paragraph precedes setup, covers each arrival form, and states
     "read `error` and `hint`",                  // every other non-zero result
     "instead of setting up",
     "then `task`",                              // a task ends in the task verb
+    "runs no verb before the user approves",     // a package is written, not imported, on arrival
     "ask the user",
     "Hermes does not read the switch",
   ];
   for (const rule of rules) assert.ok(flowed.includes(rule), `the routing paragraph states "${rule}"`);
-  for (const worked of ["Show status using $openmausbot-launcher", "/openmausbot-launcher do T10 in ~/proj"]) {
+  for (const worked of ["Show status using $openmausbot-launcher", "/openmausbot-launcher do T10 in ~/proj",
+    "/openmausbot-launcher write a team package for reviewing pull requests"]) {
     assert.ok(opening.includes(worked), `the routing paragraph works through "${worked}"`);
   }
 });
@@ -208,4 +211,49 @@ test("the skill README states the prerequisites and its links resolve, and SKILL
   for (const fact of prerequisites) assert.ok(flowed.includes(fact), `the README states the prerequisite ${fact}`);
   const body = read("skills/openmausbot-launcher/SKILL.md").split("\n---\n").slice(1).join("\n---\n");
   assert.doesNotMatch(body, /README/, "SKILL.md is the operator's file and never sends the agent to the README");
+});
+
+test("the authoring section runs an interview, names the reference and ends in `validate`", () => {
+  const skill = read("skills/openmausbot-launcher/SKILL.md");
+  const start = skill.indexOf("\n## 3. Writing a team package\n");
+  assert.ok(start >= 0, "SKILL.md has the `## 3. Writing a team package` section");
+  const section = skill.slice(start, skill.indexOf("\n## 4.", start));
+  assert.ok(section.includes("references/team-authoring.md"), "the section sends the agent to the reference");
+  assert.ok(section.includes("omb validate"), "the section names the offline check");
+  // The three rules that make this an interview rather than a guess. The file
+  // is hard-wrapped, so match against the text with its line breaks collapsed.
+  const flowed = section.replace(/\s+/g, " ");
+  for (const rule of ["one question per message", "No file, no verb, no draft JSON before an explicit yes", "Import only when the user asks"]) {
+    assert.ok(flowed.includes(rule), `the authoring section states "${rule}"`);
+  }
+});
+
+test("every section cross-reference in SKILL.md names a section the file has", () => {
+  const skill = read("skills/openmausbot-launcher/SKILL.md");
+  const headings = new Set([...skill.matchAll(/^## (\d+)\. /gm)].map((m) => m[1]));
+  const mentions = [...skill.matchAll(/§(\d+)|section (\d+)/g)].map((m) => m[1] ?? m[2]);
+  assert.ok(mentions.length >= 4, "the file cross-references its own sections");
+  for (const n of mentions) assert.ok(headings.has(n), `SKILL.md points at section ${n}, which it does not have`);
+});
+
+test("the authoring reference ships, is listed, and states the format's own limits", () => {
+  const rel = "skills/openmausbot-launcher/references/team-authoring.md";
+  assert.ok(fs.existsSync(path.join(ROOT, rel)), "the authoring reference ships with the skill");
+  const skill = read("skills/openmausbot-launcher/SKILL.md");
+  const references = skill.slice(skill.indexOf("\n## 10. References\n"));
+  assert.ok(references.includes("references/team-authoring.md"), "the References section lists the authoring reference");
+
+  // The limits in the tables are the ones the driver enforces: a drift between
+  // the reference and `package.mjs` would send the agent to the server to
+  // discover a limit it was told wrongly.
+  const text = read(rel);
+  const cell = (limit) => (Array.isArray(limit) ? `${limit[0]}\u2013${limit[1]}` : `\u2264 ${limit}`);
+  const FIELDS = [["tagline", LIMITS.tagline], ["description", LIMITS.agentDescription], ["instructions", LIMITS.instructions],
+    ["outcomes", LIMITS.outcomes], ["setupMinutes", LIMITS.setupMinutes], ["agents", LIMITS.agents]];
+  for (const [field, limit] of FIELDS) {
+    const rows = text.split("\n").filter((line) => line.startsWith(`| \`${field}\` |`));
+    assert.equal(rows.length, 1, `exactly one table row whose first cell is \`${field}\``);
+    assert.ok(rows[0].includes(cell(limit)), `the \`${field}\` row states ${cell(limit)}`);
+  }
+  for (const color of COLORS) assert.ok(text.includes(color), `the reference names the colour ${color}`);
 });

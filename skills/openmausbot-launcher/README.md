@@ -15,8 +15,8 @@ costs money and minutes.
 - Node 24 or later; git; a project that is a git repository with a test command.
 - The `openmausbot` npm package 0.1.56 — the headless server, not the
   desktop app — on `PATH` or named by `OMB_BIN`, the path to its `cli.js`.
-- A team package (`.openmaus.json`), and the engine CLIs its roster binds,
-  installed and logged in.
+- A team package (`.openmaus.json`) — or none yet: the skill writes one with
+  you — and the engine CLIs its roster binds, installed and logged in.
 - Linux for `up`, `down` and `cleanup --kill`, which read `/proc`; elsewhere
   start the server yourself and attach to it. The other host limits and the
   remote variant are in [references/hosts.md](references/hosts.md).
@@ -40,4 +40,7 @@ refuses to run a verb when it arrives without one of those markers. Hermes
 Agent does not read that switch and picks the skill up from its description,
 so there an ordinary message can still start it. For example,
 `/openmausbot-launcher status --project ~/proj`. Setting a project up
-starts with `doctor`; the operator's own instructions are `SKILL.md`.
+starts with `doctor`; the operator's own instructions are `SKILL.md`. With
+no team package yet, the skill writes one with you — `/openmausbot-launcher
+write a team package for <what the team does>` asks one question at a time,
+confirms what it understood, and writes the file only after you say yes.

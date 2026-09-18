@@ -288,3 +288,17 @@ test("validate reads no configuration: a bad --project or --url cannot fail a fi
   assert.equal(r.code, 0, r.stdout);
   assert.equal(r.json.valid, true);
 });
+
+// The reference's skeleton is the one package this repository hands an agent to
+// copy, so it is held to the standard the reference asks of the agent's own
+// file: nothing the server would refuse, and nothing the launcher would warn
+// about.
+test("the skeleton in references/team-authoring.md validates with no errors and no warnings", () => {
+  const reference = fs.readFileSync(path.join(ROOT, "skills", "openmausbot-launcher", "references", "team-authoring.md"), "utf8");
+  const block = /```json\n([\s\S]*?)```/.exec(reference);
+  assert.ok(block, "the reference carries the skeleton in one fenced json block");
+  const doc = JSON.parse(block[1]);
+  const { errors, warnings } = validatePackage(doc, { fileName: "example.openmaus.json" });
+  assert.deepEqual(errors, []);
+  assert.deepEqual(warnings, []);
+});

@@ -408,3 +408,54 @@ The skill directory also gained a `README.md`: only that directory ships, and
 a person who receives it had no entry point. It names the prerequisites, the
 install line and the explicit forms, links to `references/hosts.md` instead of
 repeating it, and `SKILL.md` never references it.
+
+## 0020 — 2026-09-18 — The skill writes team packages through a confirmed interview; the driver validates them offline
+
+The user asked (2026-09-18) for a request to create a "team profile" to start
+an interview rather than a command: the agent understands the intent, refines
+the requirements with the user, confirms its understanding explicitly, and
+only then produces the file in the correct format. "Team profile" is the
+OpenMausBot **team package** — `format: "openmaus.package"`, conventionally
+`<id>.openmaus.json`, the document `import` posts to `POST /api/teams/import`
+(`server/bot-package.ts:40-126`). OpenMausBot has no separate profile file, so
+the skill writes that one.
+
+Decision 0006 is unchanged. The launcher still has no required package path,
+release, roster or bot names, and a package is still a supplied input: §3 of
+`SKILL.md` produces a file the user keeps, and importing it stays the user's
+call.
+
+The confirmation gate is mandatory, not a courtesy. An import creates bots
+that run real CLIs on the user's subscriptions; an installed playbook cannot
+be edited afterwards, because the import is its only writer
+(`server/index.ts:9248-9254`) and no bot route takes `playbooks`; and a second
+import of a changed file is a second team with fresh ids, its own numbered
+section and none of the first team's conversations. So the section is four
+ordered steps — understand, refine, confirm, write — with one question per
+message, a proposal that gives a reason per choice, a fixed-shape
+understanding summary, and no file, no verb and no draft JSON before an
+explicit yes.
+
+Engines, models, effort, approval levels, working folders and peer settings
+are never in the file. The parser strips unknown fields precisely so that
+"ids, grants, credentials, paths, model selections, and runtime state" cannot
+ride through the package boundary (`bot-package.ts:164-166`); they are `bind`
+and `facts` flags. The interview still gathers them, and the summary shows
+them as the commands they will become.
+
+The driver's side of this is `validate` (checkpoint (a), commit `a04b6fd`):
+`scripts/lib/package.mjs` encodes `bot-package.ts` with a `file:line` comment
+on every constant and message, and judges a document offline in the server's
+own words. The dev pack's tighter numbers — `create_bot`'s 1,000-character
+instructions, the 3,900-character budget for a lead whose `Project facts`
+block `facts` will fill, the 24,000-character playbook mount — are warnings
+only and never change the exit code: they are advice about text the user would
+otherwise lose, not the server's rules. `references/team-authoring.md` keeps
+the two lists apart for the same reason.
+
+One approved exception to the steward rule: the **Layout** bullet of
+`AGENTS.md`, which lies outside any `PROJECT-STEWARD` managed block, was
+edited to name the new `package` module and the `validate` verb handler,
+because that bullet enumerates the modules and would otherwise go stale. The
+user approved that single edit by approving this plan (the precedent is
+Decision 0008). No other line of `AGENTS.md` or `CLAUDE.md` changed.
