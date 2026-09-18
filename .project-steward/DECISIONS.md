@@ -353,3 +353,34 @@ processing remain the access policy. The user may use Telegram forum topics and
 per-topic OpenClaw agent routing for future projects. Defer a second bot unless
 users, permissions or workspaces require isolation. The former validation bot was
 deleted after replacement validation; its revoked token was never restored.
+
+## 0019 — 2026-09-18 — Explicit invocation on every host that reads the switch
+
+The skill is an operator mode, not a reference: loading it reshapes the
+session, and every bot turn it opens spends the user's subscriptions. Claude
+Code's own documentation reserves `disable-model-invocation: true` for
+"workflows with side effects or that you want to control timing", which is
+exactly this. The user chose the scope "explicit on every host" after the
+per-host facts were verified.
+
+`disable-model-invocation: true` sits in the SKILL.md frontmatter and is read
+by Claude Code, Grok Build, OpenClaw and DeepSeek Harness. Codex does not read
+it and takes `policy.allow_implicit_invocation: false` from
+`agents/openai.yaml` instead. Hermes Agent reads neither and still triggers on
+the description; that host is the deliberate exception, and it is why the
+description text is unchanged — the spec requires it, the hosts show it in
+their menus, and narrowing it would cost Hermes its only trigger.
+
+The 2026-09-18 checks (`docs/evidence.md`) ran every headless negative twice,
+before and after, and read the result from each host's own record. Two
+findings changed the documentation rather than the decision: Codex 0.155.0
+drops the skill from its catalog entirely and injects it on `$name`, and a
+Claude Code exec allowlist has to name the `node <path>/scripts/omb.mjs` form
+because that is what the model types. DSH could not run (no provider
+credential in this session) and the OpenClaw phone form needs the user's
+phone; both stay unverified, with the phone check tracked as its own bead.
+
+The skill directory also gained a `README.md`: only that directory ships, and
+a person who receives it had no entry point. It names the prerequisites, the
+install line and the explicit forms, links to `references/hosts.md` instead of
+repeating it, and `SKILL.md` never references it.

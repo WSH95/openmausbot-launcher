@@ -3,6 +3,24 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-18 — oml-c37: explicit invocation on every host, and a README in the skill
+`disable-model-invocation: true` in the SKILL.md frontmatter,
+`allow_implicit_invocation: false` in `agents/openai.yaml`, a routing
+paragraph in SKILL.md §1 for the request that arrives with the invocation,
+and a new `skills/openmausbot-launcher/README.md` for the person installing
+the directory. Four tests went red first — three new ones plus the credential
+scan, once the README joined its file list — while the fourth new test, the
+one that pins docs/design.md to the shipped frontmatter, passed before the
+edit and caught the drift during it. The host checks ran every
+headless negative twice, before and after the key, and read the result from
+each host's own record: Claude Code 2.1.276, Codex 0.155.0 and Grok 1.0.34
+stop offering the skill and each explicit form still runs exactly one
+`status` (exit 3, no team); Hermes v0.21.3 loads it either way, as intended.
+Zero OpenMausBot bot turns, isolation checked before and after. DSH could not
+run (`MISSING_CREDENTIAL: llm-deepseek`) and the OpenClaw phone form was not
+exercised — it needs the user's phone and is tracked separately. `main` at
+`4d166ec`; 520/520.
+
 ### 2026-09-17 — oml-0vr: the receipt-change drain test ends on its condition
 The one loaded failure the rescue saw in `tests/watch-drain.test.mjs:417` was
 a test that gave the watch 80 ms for an `fs.watch` notification and a re-read.
