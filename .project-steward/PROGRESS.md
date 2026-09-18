@@ -3,7 +3,9 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
-### 2026-09-18 — oml-c37: explicit invocation on every host, and a README in the skill
+### 2026-09-18 — oml-c37: explicit invocation on every host that reads the switch, and a README in the skill
+Hermes is implicit by design, DSH was not runnable and the OpenClaw phone
+form was not exercised.
 `disable-model-invocation: true` in the SKILL.md frontmatter,
 `allow_implicit_invocation: false` in `agents/openai.yaml`, a routing
 paragraph in SKILL.md §1 for the request that arrives with the invocation,

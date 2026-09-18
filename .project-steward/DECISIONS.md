@@ -361,7 +361,8 @@ session, and every bot turn it opens spends the user's subscriptions. Claude
 Code's own documentation reserves `disable-model-invocation: true` for
 "workflows with side effects or that you want to control timing", which is
 exactly this. The user chose the scope "explicit on every host" after the
-per-host facts were verified.
+per-host facts were verified; in practice that means every host that reads
+the switch, which is all of them but Hermes Agent.
 
 `disable-model-invocation: true` sits in the SKILL.md frontmatter and is read
 by Claude Code, Grok Build, OpenClaw and DeepSeek Harness. Codex does not read
@@ -379,6 +380,20 @@ Claude Code exec allowlist has to name the `node <path>/scripts/omb.mjs` form
 because that is what the model types. DSH could not run (no provider
 credential in this session) and the OpenClaw phone form needs the user's
 phone; both stay unverified, with the phone check tracked as its own bead.
+
+One deliberate deviation. The agentskills.io specification defines six
+top-level fields (`name`, `description`, `license`, `allowed-tools`,
+`metadata`, `compatibility`) and reserves client-specific properties for
+`metadata`; its reference validator reports anything else as an unexpected
+field. `disable-model-invocation` is therefore an extension, and it stays at
+the top level because that is the only place the four hosts that honour it
+look — under `metadata` the switch would simply be off everywhere. The claim
+"spec-valid" in `docs/design.md` is qualified accordingly, and
+`tests/size.test.mjs` now asserts the spec's constraints on the spec's fields
+and that the set of top-level keys outside those six is exactly
+{`disable-model-invocation`}, so a second stray key fails. The reference
+validator is not installed on this machine and nothing was installed to run
+it; that is recorded in `docs/evidence.md`.
 
 The skill directory also gained a `README.md`: only that directory ships, and
 a person who receives it had no entry point. It names the prerequisites, the
