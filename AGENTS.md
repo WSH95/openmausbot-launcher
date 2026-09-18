@@ -23,9 +23,10 @@ Stack: JavaScript (Node 24, ESM, no dependencies, `node:test`).
 - `skills/openmausbot-launcher/`: the installable unit. `SKILL.md` (the
   operator's instructions, under 500 lines), `scripts/omb.mjs` (the entry
   point, invoked by path), `scripts/lib/*.mjs` (one module per concern:
-  `cli`, `config`, `git`, `http`, `proc`, `report`, `server`, `session`,
-  `snapshot`, `state`, `team`, `watch`) and `scripts/lib/verbs/*.mjs` (the
-  verb handlers: `lifecycle`, `repo`, `run`, `report`, `state`, `team`),
+  `cli`, `config`, `git`, `http`, `package`, `proc`, `report`, `server`,
+  `session`, `snapshot`, `state`, `team`, `watch`) and
+  `scripts/lib/verbs/*.mjs` (the verb handlers: `lifecycle`, `repo`, `run`,
+  `report`, `state`, `team`, `validate`),
   `references/*.md` (loaded on demand), `agents/openai.yaml` (Codex
   metadata). Nothing outside this directory is installed on a host.
 - `tests/*.test.mjs`: `node:test` with `node:assert/strict`;

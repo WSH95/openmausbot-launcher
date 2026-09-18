@@ -11,6 +11,7 @@ import { defaultBranch, gitTopLevel } from "../git.mjs";
 import * as srv from "../server.mjs";
 import { parseEngineSpec, specString, sameSelection, findBot, isReviewer, sameName, parseFacts, renderFacts, replaceFactsBlock, FACTS_MARKER } from "../team.mjs";
 import { sameFolder, configuredOutside, outsideFolders, describeFolders, cap } from "../others.mjs";
+import { parseJsonFile } from "../package.mjs";
 
 const MAX_DESCRIPTION = 4000;
 const EXECUTABLE_FACTS = ["test", "setup"];
@@ -55,7 +56,7 @@ verb("import", {
       const file = positionals[0];
       if (!file) throw new Fail(EXIT.USAGE, "usage: import <package.json> [--lead NAME] | import --adopt <section-or-lead>");
       let pkg;
-      try { pkg = JSON.parse(fs.readFileSync(path.resolve(file), "utf8")); } catch (e) { throw new Fail(EXIT.USAGE, `cannot read ${file}: ${e.message}`); }
+      try { pkg = parseJsonFile(fs.readFileSync(path.resolve(file), "utf8")); } catch (e) { throw new Fail(EXIT.USAGE, `cannot read ${file}: ${e.message}`); }
       if (pkg?.format !== "openmaus.package") throw new Fail(EXIT.USAGE, `${file} is not an openmaus.package document`);
       const agentsIn = pkg.package?.agents ?? [];
       const chiefKey = pkg.package?.chiefOfStaff;

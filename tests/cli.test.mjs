@@ -8,8 +8,9 @@ import "../skills/openmausbot-launcher/scripts/lib/verbs/team.mjs";
 import "../skills/openmausbot-launcher/scripts/lib/verbs/run.mjs";
 import "../skills/openmausbot-launcher/scripts/lib/verbs/answer.mjs";
 import "../skills/openmausbot-launcher/scripts/lib/verbs/state.mjs";
+import "../skills/openmausbot-launcher/scripts/lib/verbs/validate.mjs";
 
-const REGISTERED = "answer, bind, cleanup, doctor, down, facts, import, interrupt, pair, reconcile, report, send, state, status, task, up, watch";
+const REGISTERED = "answer, bind, cleanup, doctor, down, facts, import, interrupt, pair, reconcile, report, send, state, status, task, up, validate, watch";
 
 test("no verb, an unknown verb, and an unknown option are usage errors (exit 2) naming the sorted verbs", async () => {
   let r = await run([]);

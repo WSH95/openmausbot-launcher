@@ -14,7 +14,7 @@ explicit, and the phone recipe's slash-command form was verified from the
 user's phone the same day (`docs/evidence.md`).
 
 This repository does not contain OpenMausBot. It is a launcher: a `SKILL.md`
-and a dependency-free Node driver (seventeen verbs, about 2,500 lines under
+and a dependency-free Node driver (eighteen verbs, about 2,500 lines under
 `skills/openmausbot-launcher/scripts/`) that drives a separately installed
 [OpenMausBot](https://github.com/milind-soni/OpenMausBot) 0.1.56 server over
 its HTTP API, CLI, and data-dir files. Install that package yourself, then
@@ -25,7 +25,7 @@ Supply a compatible team package with `omb import <package.json>`. The
 launcher reads its roster and lead from that input; `dev-team.openmaus.json`
 is an external test configuration, with no required package path or roster.
 
-Status: 0.1.0, M1 complete and reviewed. The driver has seventeen verbs and
+Status: 0.1.0, M1 complete and reviewed. The driver has eighteen verbs and
 the full `node:test` suite passes (`npm test`). The independent M1 review of
 2026-09-08 ([docs/review/2026-09-08-m1-review.md](docs/review/2026-09-08-m1-review.md))
 filed 26 findings, all fixed in the same pass, and ran real OpenMausBot

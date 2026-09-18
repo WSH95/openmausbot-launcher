@@ -31,10 +31,10 @@ test("state --show prints the document as read, without a lock or a request, and
   assert.equal(r.stdout, `state · ${paths.file} · rev 2 · server http://127.0.0.1:8899 (owned) · team Dev team · runs T10 dispatched, T11 preparing\n`);
 });
 
-test("usage names seventeen verbs, state among them", async () => {
+test("usage names eighteen verbs, state among them", async () => {
   const r = await runOmb([], { env });
   assert.equal(r.code, 2);
   const names = r.json.hint.replace(/^verbs: /, "").split(", ");
-  assert.equal(names.length, 17, r.json.hint);
+  assert.equal(names.length, 18, r.json.hint);
   assert.ok(names.includes("state"));
 });

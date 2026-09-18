@@ -74,6 +74,24 @@ test("import --lead when the package names no chief; --adopt recovers a team by 
   assert.equal(r.code, 3);
 });
 
+test("import never echoes the file it could not parse: the wrong file may be a token", async (t) => {
+  const f = await startFake(); t.after(() => f.close()); env.OMB_DATA_DIR = f.dataDir;
+  const { dir } = makeRepo();
+  const file = path.join(dir, "token.json");
+  fs.writeFileSync(file, "sk-SYNTHETIC-9f3a");
+  let native = null;
+  try { JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) { native = e.message; }
+  assert.match(native ?? "", /SYNTHET/, "the guard is only meaningful while Node quotes the input");
+  for (const extra of [[], ["--verbose"]]) {
+    const r = await runOmb(["import", file, "--project", dir, "--url", f.url, "--dry-run", ...extra], { env });
+    assert.equal(r.code, 2, r.stdout);
+    assert.equal(/SYNTHET/.test(r.stdout), false, `stdout leaked the file: ${r.stdout}`);
+    assert.equal(/SYNTHET/.test(r.stderr), false, `stderr leaked the file: ${r.stderr}`);
+  }
+  const r = await runOmb(["import", file, "--project", dir, "--url", f.url, "--dry-run"], { env });
+  assert.equal(r.json.error, `cannot read ${file}: not JSON`);
+});
+
 test("bind sets cwd, models, and approval only where they differ, skips grok auto, refuses busy bots, reports conflicts", async (t) => {
   const f = await startFake(); t.after(() => f.close()); env.OMB_DATA_DIR = f.dataDir;
   const { dir } = makeRepo();
