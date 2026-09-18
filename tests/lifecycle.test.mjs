@@ -217,9 +217,9 @@ async function reserveFreePair(t) {
     const sockets = [];
     const release = async () => { await Promise.all(sockets.map((s) => new Promise((r) => s.close(r)))); };
     try {
+      const port = await freePortPair(); // from the band, not listen(0): see tests/helpers.mjs
       const api = net.createServer(); sockets.push(api);
-      await new Promise((r, reject) => { api.once("error", reject); api.listen(0, "127.0.0.1", r); });
-      const port = api.address().port;
+      await new Promise((r, reject) => { api.once("error", reject); api.listen(port, "127.0.0.1", r); });
       const webhook = net.createServer(); sockets.push(webhook);
       await new Promise((r, reject) => { webhook.once("error", reject); webhook.listen(port + 1, "127.0.0.1", r); });
       t.after(release);

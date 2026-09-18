@@ -13,21 +13,60 @@ export const SKILL_DIR = path.join(ROOT, "skills", "openmausbot-launcher");
 export const OMB = path.join(SKILL_DIR, "scripts", "omb.mjs");
 export const FAKE = path.join(ROOT, "tests", "fixtures", "fake-omb.mjs");
 
-export function freePort() {
-  return new Promise((resolve, reject) => {
-    const s = net.createServer();
-    s.listen(0, "127.0.0.1", () => { const { port } = s.address(); s.close(() => resolve(port)); });
-    s.on("error", reject);
-  });
+// Test ports avoid the kernel's ephemeral range. A port measured with listen(0)
+// and released goes back to that range, where a parallel test file's fake
+// (listen(0)) or any HTTP request it makes (connect(), a client socket without
+// SO_REUSEADDR) can take it or its neighbour before the driver binds it (bead
+// oml-xml: "port 45566 is in use" where a lease refusal was expected). Outside
+// the range only an explicit bind competes. Each process starts its
+// sequential probe at a pid-based offset; there is no reservation, and the
+// bind check on every handout is what makes the offset safe.
+/** The band to pick from for an ephemeral range `lo..hi`: below it from 20000 (or 1024 when the floor is low),
+ * else above it, whichever is larger; when nothing unprivileged lies outside (`1024 65535`), the range itself. */
+export function portBand(lo, hi) {
+  const below = [lo - 2 >= 22000 ? 20000 : 1024, lo - 2];
+  const above = [hi + 1, 65533];
+  const width = ([a, b]) => b - a + 1;
+  const best = width(below) >= width(above) ? below : above;
+  const [floor, ceil] = width(best) >= 1000 ? best : [Math.max(lo, 1024), hi - 1];
+  if (!(floor >= 1024 && floor < ceil && ceil + 1 <= 65535)) throw new Error(`no usable test port band for ip_local_port_range ${lo} ${hi}`);
+  return { floor, ceil };
+}
+// The fallback constants are the Linux defaults; they are also conservative on
+// macOS, whose range starts at 49152 and has no /proc.
+const EPHEMERAL = (() => {
+  try { const [lo, hi] = fs.readFileSync("/proc/sys/net/ipv4/ip_local_port_range", "utf8").trim().split(/\s+/).map(Number); return { lo, hi }; }
+  catch { return { lo: 32768, hi: 60999 }; }
+})();
+const { floor: FLOOR, ceil: CEIL } = portBand(EPHEMERAL.lo, EPHEMERAL.hi);
+let nextPort = FLOOR + ((process.pid * 7919) % (CEIL - FLOOR));
+const advance = (from) => { nextPort = from > CEIL ? FLOOR : from; };
+// Only "address in use" means "try the next port"; EPERM, EMFILE and the like
+// would otherwise masquerade as a full band after a 12k-port sweep.
+const bindable = (port) => new Promise((resolve, reject) => {
+  const s = net.createServer();
+  s.once("error", (e) => (e.code === "EADDRINUSE" ? resolve(false) : reject(e)));
+  s.listen(port, "127.0.0.1", () => s.close(() => resolve(true)));
+});
+
+/** A port in the band that was bindable a moment ago. */
+export async function freePort() {
+  for (let tried = 0; tried <= CEIL - FLOOR; tried++) {
+    const port = nextPort; advance(port + 1);
+    if (await bindable(port)) return port;
+  }
+  throw new Error(`no free port between ${FLOOR} and ${CEIL}`);
 }
 
-/** A port whose neighbour is free too: OpenMausBot binds port+1 for its webhook receiver (server/index.ts:320). */
+/** A port whose neighbour is free too: OpenMausBot binds port+1 for its webhook receiver (server/index.ts:320).
+ * On the below-floor band `ceil` is two below the ephemeral floor, so the neighbour stays outside the range as well. */
 export async function freePortPair() {
-  for (;;) {
+  for (let tried = 0; tried <= CEIL - FLOOR; tried++) {
     const port = await freePort();
-    const ok = await new Promise((resolve) => { const s = net.createServer(); s.once("error", () => resolve(false)); s.listen(port + 1, "127.0.0.1", () => s.close(() => resolve(true))); });
-    if (ok) return port;
+    advance(port + 2); // claim the neighbour before probing it, so a concurrent freePort() is not handed it
+    if (await bindable(port + 1)) return port;
   }
+  throw new Error(`no free port pair between ${FLOOR} and ${CEIL}`);
 }
 
 const created = [];
