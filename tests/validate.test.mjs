@@ -23,6 +23,7 @@ const CASES = [
   { name: "another format is not this format", mutate: (d) => { d.format = "openmaus.backup"; }, errors: [["format", "This is not an OpenMaus package", "schema"]] },
   { name: "another version is refused", mutate: (d) => { d.version = 2; }, errors: [["version", "Package version is not supported", "schema"]] },
   { name: "a missing required text is not text", mutate: (d) => { delete d.package.name; }, errors: [["package.name", "must be text", "schema"]] },
+  { name: "an object with a non-numeric length fails the type check and both size checks, as zod runs them on any .length", mutate: (d) => { d.package.name = { length: "x" }; }, errors: [["package.name", "must be text", "schema"], ["package.name", "is required", "schema"], ["package.name", "is too long", "schema"]] },
   { name: "whitespace-only text is missing", mutate: (d) => { d.package.tagline = "  "; }, errors: [["package.tagline", "is required", "schema"]] },
   { name: "text over its limit is too long", mutate: (d) => { d.package.tagline = X(161); }, errors: [["package.tagline", "is too long", "schema"]] },
   { name: "the limit is measured after trimming", mutate: (d) => { d.package.tagline = `${X(160)}   `; }, errors: [] },
@@ -107,6 +108,12 @@ test("a package with no chief of staff warns that import needs --lead", () => {
   const out = warn((d) => { delete d.package.chiefOfStaff; });
   assert.deepEqual(out.errors, []);
   assert.deepEqual(at(out, "package.chiefOfStaff").map((w) => w.message), ["no chiefOfStaff: import will need --lead <name>"]);
+});
+
+test("a chiefOfStaff that is present but not text is a schema error, not the missing-chief advisory", () => {
+  const out = warn((d) => { d.package.chiefOfStaff = 5; });
+  assert.deepEqual(out.errors, [{ path: "package.chiefOfStaff", message: "must be text", kind: "schema" }]);
+  assert.deepEqual(at(out, "package.chiefOfStaff"), []);
 });
 
 test("a chief whose description plus its facts block passes 3900 warns about the facts budget", () => {

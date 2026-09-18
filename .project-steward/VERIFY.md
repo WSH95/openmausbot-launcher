@@ -775,5 +775,10 @@ Real-server parity comparison, run 2026-09-18 (`docs/evidence.md`,
 three bots, one room), and four broken copies POSTed — a bad colour, a
 161-character tagline, a missing `package.name`, a duplicate agent key — each
 400 `error` byte-equal to the validator's rendering of `errors[0]`. Zero bot
-turns. Host acceptance of the authoring section remains the user's step
-(`PLAN.md`).
+turns. Offline, the validator was also diffed against the pinned schema rebuilt
+on the real zod 4.4.3 twice — by the implementer (11,191 schema and 60,000
+cross-reference documents) and by the Fable 5.1 reviewer (180 documents,
+`errors[0]` equal in all, the full list in 176; the four gaps are closed in
+the review-fix commit) — with throwaway scripts that import zod from outside
+the repository and so are not part of the suite. Host acceptance of the
+authoring section remains the user's step (`PLAN.md`).

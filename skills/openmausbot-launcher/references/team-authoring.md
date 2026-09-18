@@ -225,7 +225,8 @@ words for the summary and the file.
    imported team. Otherwise start clean.
 8. **Which engine CLIs are installed and logged in?** Decides the `bind`
    commands you hand back, and warns the user that a Grok bot has no auto
-   approval level and will raise a card per tool call.
+   approval level and raises a card per tool call (`references/dev-team.md`,
+   run T13).
 9. **Where should the file live, and what is the team called?** Decides the
    path (default `<project>/<id>.openmaus.json`), `name`, `id` and
    `release` (`0.1.0` for a new team).
@@ -259,8 +260,10 @@ the runtime, the second is advice that a user may refuse.
   minutes (`room-post-budget.ts:89-90`). A task never starts there.
 - The lead is woken at most three times in five minutes and a fourth
   delegation outcome in that window is dropped (`delegations.ts:680-681`).
-- A Grok bot has no auto approval level (`store.ts:1303-1335`): `bind`
-  leaves it on `ask` and every tool call raises a card.
+- A Grok bot has no auto approval level (`shared/approval-mode.ts:13-15`,
+  `hasNativeAutoReview` names codex, claudeAgent and cursorAgent only): `bind`
+  leaves it on `ask`, and its approvals arrive as cards, one per tool call
+  (`references/dev-team.md`, run T13: seven cards for one review).
 - Routines ship disabled (`index.ts:9285-9291`); the user enables them.
 - A description over 4,000 characters is a 400 at import, not a truncation
   (`bot-package.ts:70`).
@@ -278,7 +281,7 @@ them.
 - Keep the lead's description at 3,900 characters or less **when the
   launcher's `facts` verb will fill its `Project facts` block**, which
   replaces everything from the marker to the end and refuses at 4,000
-  (`scripts/lib/verbs/team.mjs:262`). Without that block the whole 4,000 is
+  (`scripts/lib/verbs/team.mjs:263`). Without that block the whole 4,000 is
   available.
 - Keep a specialist's instructions under 1,000 characters **only when the
   agreed workflow has the lead recreating specialists with `create_bot`**,
@@ -355,10 +358,10 @@ Reply yes to write it, or tell me what to change.
   `Project facts (edit me): default branch: main. Test command: <fill in>. …`
   Everything from `Project facts` to the end is replaced by `omb facts`, so
   nothing the bot needs goes after it.
-- Rooms: one, with every bot as a member and the lead as
+- Rooms: unless the user asked otherwise, one, with every bot as a member and the lead as
   `defaultResponder`, so a stray message in the room reaches the lead
   instead of waking everybody.
-- Playbooks: none unless the same process text is needed by several bots and
+- Playbooks: unless the user asked for one, none — unless the same process text is needed by several bots and
   will not change.
 
 A complete minimal package — a lead, two specialists, one room, no playbook

@@ -45,7 +45,7 @@ export const SAFE_INT = [Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER]; // z
 /** Limits nobody enforces on a package, but that decide whether its text survives. */
 export const ADVISORY = {
   createBotInstructions: 1000, // index.ts:8201-8203 (create_bot refuses longer instructions)
-  leadDescriptionBudget: 3900, // agent-team-devpack scripts/check-pack.mjs:13; facts refuses at 4000 (verbs/team.mjs:262)
+  leadDescriptionBudget: 3900, // agent-team-devpack scripts/check-pack.mjs:13; facts refuses at 4000 (verbs/team.mjs:263)
   descriptionCap: 4000, // shared/bot-profile.ts:5
   playbookMountPerBot: 24000, // installed-playbooks.ts:3 (three matching playbooks), :4 (the instruction budget)
   fileSuffix: ".openmaus.json",
@@ -83,7 +83,7 @@ const received = (v) => {
 const quote = (v) => (typeof v === "string" ? `"${v}"` : String(v)); // zod util.stringifyPrimitive
 /** What a size check would measure on a value of the wrong type, or null when
  * there is nothing to measure and zod pushes no size issue at all. */
-const lengthOf = (v) => (typeof v?.length === "number" ? v.length : null);
+const lengthOf = (v) => (v?.length !== undefined ? v.length : null); // zod runs the size checks whenever `.length` is defined (checks.js:121-123,150-152), numeric or not
 
 class Walk {
   constructor() { this.errors = []; this.unknown = []; }
@@ -107,8 +107,8 @@ class Walk {
     if (t === null) this.bad(p, "must be text");
     const length = t === null ? lengthOf(v) : t.length;
     if (length !== null) {
-      if (length < 1) this.bad(p, "is required");
-      if (length > max) this.bad(p, "is too long");
+      if (!(length >= 1)) this.bad(p, "is required");   // a non-numeric length fails both comparisons, as it does in zod
+      if (!(length <= max)) this.bad(p, "is too long");
     }
     if (t !== null && re && !re.test(t)) this.bad(p, reMessage);
     return t ?? undefined;
@@ -165,8 +165,8 @@ class Walk {
     const origin = array ? "array" : typeof v === "string" ? "string" : "unknown";
     const unit = origin === "array" ? " items" : origin === "string" ? " characters" : null;
     const size = (adjective, bound) => (unit === null ? `expected ${origin} to be ${adjective}${bound}` : `expected ${origin} to have ${adjective}${bound}${unit}`);
-    if (min !== undefined && length < min) this.bad(p, `Too small: ${size(">=", min)}`);
-    if (max !== undefined && length > max) this.bad(p, `Too big: ${size("<=", max)}`);
+    if (min !== undefined && !(length >= min)) this.bad(p, `Too small: ${size(">=", min)}`); // a non-numeric length fails both, as in zod
+    if (max !== undefined && !(length <= max)) this.bad(p, `Too big: ${size("<=", max)}`);
   }
 
   /** `z.discriminatedUnion(key, …)`: a value that is not an object fails at the
@@ -350,7 +350,7 @@ function advise(doc, unknown, fileName) {
   const agents = pkg && Array.isArray(pkg.agents) ? pkg.agents.filter(isObject) : [];
   if (pkg) {
     const chief = typeof pkg.chiefOfStaff === "string" ? pkg.chiefOfStaff.trim() : null;
-    if (!chief) add("package.chiefOfStaff", "no chiefOfStaff: import will need --lead <name>"); // verbs/team.mjs:62
+    if (pkg.chiefOfStaff === undefined) add("package.chiefOfStaff", "no chiefOfStaff: import will need --lead <name>"); // verbs/team.mjs:63; a present but invalid value is a schema error, not this advisory
     const books = new Map((Array.isArray(pkg.playbooks) ? pkg.playbooks : []).filter(isObject).map((b) => [asText(b.key), asText(b.instructions).length]));
     agents.forEach((agent, i) => {
       const key = asText(agent.key);
@@ -359,7 +359,7 @@ function advise(doc, unknown, fileName) {
       if (chief && key === chief) {
         const marker = description.indexOf(FACTS_MARKER);
         if (marker < 0) add(path, `the chief's description has no "${FACTS_MARKER}" marker; facts will refuse (exit 3) unless run with --append, which adds the block after the text`); // team.mjs:55-57
-        else if (description.length > ADVISORY.leadDescriptionBudget) add(path, `the chief's description is ${description.length} characters (${marker} before the "${FACTS_MARKER}" marker); facts replaces the block from the marker and refuses at ${ADVISORY.descriptionCap}, so keep the description at ${ADVISORY.leadDescriptionBudget}`); // verbs/team.mjs:262
+        else if (description.length > ADVISORY.leadDescriptionBudget) add(path, `the chief's description is ${description.length} characters (${marker} before the "${FACTS_MARKER}" marker); facts replaces the block from the marker and refuses at ${ADVISORY.descriptionCap}, so keep the description at ${ADVISORY.leadDescriptionBudget}`); // verbs/team.mjs:263
       } else if (description.length > ADVISORY.createBotInstructions) {
         add(path, `agent ${key}'s description is ${description.length} characters, over create_bot's ${ADVISORY.createBotInstructions}-character instructions limit; only matters if the lead re-creates this specialist with create_bot`); // index.ts:8201-8203
       }
