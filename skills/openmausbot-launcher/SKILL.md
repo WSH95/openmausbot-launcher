@@ -34,19 +34,28 @@ team, and run before acting.
 `--dry-run` previews actions without HTTP, process, Git, or state mutations;
 it never runs the project's tests or creates a lock database.
 
-The user invokes this skill on purpose; it never loads itself, so the
-request arrives with the invocation. Claude Code appends the rest of the
-line after this file as `ARGUMENTS: …`; Codex passes the message that
+On every host except Hermes Agent the user invokes this skill on purpose,
+so the request arrives with the invocation: Claude Code appends the rest of
+the line after this file as `ARGUMENTS: …`; Codex passes the message that
 carried `$openmausbot-launcher`; OpenClaw, DeepSeek Harness and Grok Build
 pass the message that carried `/openmausbot_launcher` or
-`/openmausbot-launcher`. Route that request: a named verb means run that
-verb against the named project, or the current one, and stop; a task means
-§2 first when the project is not set up, then §3; nothing usable means ask
-the user rather than guess. The project and the task come from the
-conversation, never inferred from the repository you happen to be in. So
-"Show status using $openmausbot-launcher" is one `status --project <cwd>`
-and a stop, and "/openmausbot-launcher do T10 in ~/proj" is `doctor` in
-`~/proj`, then §2 when `status` exits 3, then `task`.
+`/openmausbot-launcher`. Hermes does not read the switch, so there the
+description can still load this file on an ordinary message; the request is
+then that message, routed exactly the same way.
+
+The project is the one the user names; when the user names none, omit
+`--project` and let the driver's own default apply. Never read the project
+out of the repository you happen to be in, and never take the task from it:
+the task always comes from the conversation. Then a named verb means run
+that verb for that project and stop; a task means §3, preceded by §2 when
+the project is not set up yet; nothing usable means ask the user rather
+than guess. So "Show status using $openmausbot-launcher" is one `status`
+with no `--project`, and a stop. "/openmausbot-launcher do T10 in ~/proj"
+starts with `status --project ~/proj`: exit 3 with
+`no team is recorded for this project` is the one result that means the
+project is not set up, so run §2, which begins with `doctor`; any other
+non-zero exit is its own problem — read `error` and `hint` and follow them
+instead of setting up; then `task`.
 
 Exit codes: 0 ok; 1 network or HTTP error (`cannot reach <url>: <cause>`
 names the cause: `ECONNREFUSED` means nothing listens there, `EPERM` means

@@ -2086,7 +2086,7 @@ single snapshot, still words an idle run whose verdict does not carry as "idle
 for 0 s, not yet settled" and gives no hint; the skill already says never to
 read settlement from `status`.
 
-## 2026-09-18 — Explicit invocation on every host (0 OMB bot turns)
+## 2026-09-18 — Explicit invocation on every host that reads the switch (0 OMB bot turns; Hermes implicit by design; DSH not runnable; the OpenClaw phone form not exercised)
 
 `disable-model-invocation: true` in the SKILL.md frontmatter and
 `policy.allow_implicit_invocation: false` in `agents/openai.yaml`, checked
@@ -2097,14 +2097,22 @@ inference: four Claude Code, five Codex, four Grok Build, two Hermes Agent.
 
 **Isolation, enforced rather than instructed.** A bot turn needs a reachable
 server with an imported team. Before the first probe and again after the
-last: `pgrep -fa openmausbot` empty (only this session's own shells, whose
-command lines contain the checkout path, matched the bare pattern),
-`openmausbot` not on `PATH`, no listener on the driver's default 8799 or on
-88xx/89xx (`ss -ltn`), and `curl http://127.0.0.1:8799/api/health` refused
-with `Failed to connect to 127.0.0.1 port 8799`. Every probe ran under
+last: `pgrep -fa openmausbot` was **not** empty — it matched the terminal
+window and this session's own shell pipeline (`bash -c …`, `tee`), because
+each of their command lines contains `openmausbot-launcher`, the checkout
+path, and none of them is an OpenMausBot process. Filtering that substring
+out (`pgrep -fa openmausbot | grep -v openmausbot-launcher`) left nothing, so
+no OpenMausBot server process was running. `openmausbot` was also not on
+`PATH` (`command -v` found nothing), no listener answered on the driver's
+default 8799 or on 88xx/89xx (`ss -ltn`), and
+`curl -sS -m 3 http://127.0.0.1:8799/api/health` returned
+`curl: (7) Failed to connect to 127.0.0.1 port 8799 after 0 ms: Couldn't
+connect to server`. Every probe ran under
 `env -u OMB_TOKEN -u OMB_TOKEN_FILE -u OMB_SECRET -u OMB_STATE -u OMB_URL
--u OMB_DATA_DIR -u OMB_PROJECT OMB_BIN=/nonexistent/cli.js` (the full list
-from `scripts/lib/config.mjs`). The project was a fresh `git init` directory
+-u OMB_DATA_DIR -u OMB_PROJECT OMB_BIN=/nonexistent/cli.js`: six of those
+seven are the ones `scripts/lib/config.mjs` resolves, and `OMB_SECRET` is
+read in `scripts/lib/verbs/answer.mjs:77` (and stripped from a spawned server
+by `scripts/lib/server.mjs:18`). The project was a fresh `git init` directory
 under the session scratchpad, one commit `0354953`, no `.omb`. Under that
 invariant `up` can neither attach nor spawn, and `status`/`send`/`task` exit
 3 at `requireTeam` (`scripts/lib/verbs/run.mjs:20`). Confirmed directly from
@@ -2130,8 +2138,27 @@ codex-cli 0.155.0, grok 1.0.34, dsh 0.1.5-rc.1, Hermes Agent v0.21.3
 Claude Code's transcript under `~/.claude/projects/`, Codex's rollout under
 `~/.codex/sessions/`, Grok's session directory under `~/.grok/sessions/`,
 Hermes's SQLite session — searched for a sentence unique to the skill body,
-"The bots in OpenMausBot run real coding CLIs" (`SKILL.md:16`), and for the
+"The bots in OpenMausBot run real coding CLIs" (`SKILL.md:17` after the
+frontmatter key was added; it was `SKILL.md:16` when the probes ran), and for the
 host's own catalog entry, "openmausbot-launcher: Operate a local".
+
+**The frontmatter key is an extension, and was not validated here.** The
+agentskills.io reference validator (`skills-ref`) reports any top-level field
+outside the specification's six as an unexpected field, so
+`disable-model-invocation` does not pass it; the key stays at the top level
+because that is the only place the hosts read it (Decision 0019). The
+validator could not be run on this machine and nothing was installed to run
+it. Verbatim:
+
+```
+$ command -v skills-ref
+(exit 1)
+$ command -v uvx
+(exit 1)
+$ skills-ref --version
+/bin/bash: line 7: skills-ref: command not found
+(exit 127)
+```
 
 | Check | Command | Result |
 |---|---|---|

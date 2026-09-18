@@ -12,7 +12,13 @@ function frontmatter(text) {
   return { fields, body: m[2] };
 }
 
-test("SKILL.md frontmatter follows the agentskills spec and the body stays small", () => {
+// The six top-level fields the agentskills.io specification defines. Its
+// reference validator (skills-ref `validator.py`) reports anything else as
+// "Unexpected fields in frontmatter"; the one extension below is deliberate
+// and is argued in .project-steward/DECISIONS.md 0019.
+const SPEC_FIELDS = ["name", "description", "license", "allowed-tools", "metadata", "compatibility"];
+
+test("SKILL.md meets the spec on the spec's fields, carries one host-read extension, and the body stays small", () => {
   const text = fs.readFileSync(path.join(SKILL_DIR, "SKILL.md"), "utf8");
   const { fields, body } = frontmatter(text);
   assert.equal(fields.name, path.basename(SKILL_DIR), "name equals the directory name");
@@ -20,6 +26,8 @@ test("SKILL.md frontmatter follows the agentskills spec and the body stays small
   assert.ok(fields.name.length <= 64);
   assert.ok(fields.description && fields.description.length > 0 && fields.description.length <= 1024, "description 1-1024 chars");
   assert.ok(!fields.compatibility || fields.compatibility.length <= 500);
+  const extensions = Object.keys(fields).filter((key) => !SPEC_FIELDS.includes(key));
+  assert.deepEqual(extensions, ["disable-model-invocation"], "the only field outside the specification's six is the invocation switch the hosts read at the top level");
   assert.ok(body.split("\n").length < 500, "body under 500 lines");
 });
 

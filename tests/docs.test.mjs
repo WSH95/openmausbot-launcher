@@ -125,8 +125,11 @@ test("the invocation switches are set on both sources of truth", () => {
   // key; Codex reads agents/openai.yaml. An operator mode that spends the
   // user's subscriptions starts when the user says so, on every host that asks.
   const frontmatter = skillFrontmatter();
-  const switches = frontmatter.split("\n").filter((line) => /^disable-model-invocation:\s*true$/.test(line));
-  assert.equal(switches.length, 1, "exactly one `disable-model-invocation: true` line in the frontmatter");
+  // Count every declaration, not only the true one: a second line saying
+  // `false` would be the value a host reads, and the switch would be off.
+  const switches = frontmatter.split("\n").filter((line) => /^disable-model-invocation:/.test(line));
+  assert.equal(switches.length, 1, "exactly one `disable-model-invocation` line in the frontmatter");
+  assert.equal(switches[0], "disable-model-invocation: true", "and it is the one that turns model invocation off");
   assert.doesNotMatch(frontmatter, /^user-invocable:/m, "no `user-invocable` line: the hosts that read it already default to true");
 
   const codex = read("skills/openmausbot-launcher/agents/openai.yaml");
@@ -143,12 +146,20 @@ test("the design mirrors the shipped frontmatter verbatim", () => {
   assert.equal(quoted[1].trimEnd(), skillFrontmatter(), "docs/design.md quotes the frontmatter the skill actually ships");
 });
 
-test("the routing paragraph precedes setup and covers each arrival form", () => {
+test("the routing paragraph precedes setup, covers each arrival form, and states what to do", () => {
   const skill = read("skills/openmausbot-launcher/SKILL.md");
   const opening = skill.slice(0, skill.indexOf("\n## 2."));
   assert.ok(opening.length > 0, "SKILL.md has a section before `## 2.`");
   for (const form of ["ARGUMENTS:", "$openmausbot-launcher", "/openmausbot_launcher"]) {
     assert.ok(opening.includes(form), `the routing paragraph names how the request arrives as ${form}`);
+  }
+  // The transport tokens alone would still pass with the rule deleted, so
+  // assert the outcomes: what a named verb does, when setup is entered, and
+  // what happens when nothing usable arrived. The file is hard-wrapped, so
+  // match against the text with its line breaks collapsed.
+  const flowed = opening.replace(/\s+/g, " ");
+  for (const rule of ["run that verb", "and stop", "no team is recorded for this project", "ask the user", "Hermes does not read the switch"]) {
+    assert.ok(flowed.includes(rule), `the routing paragraph states "${rule}"`);
   }
   for (const worked of ["Show status using $openmausbot-launcher", "/openmausbot-launcher do T10 in ~/proj"]) {
     assert.ok(opening.includes(worked), `the routing paragraph works through "${worked}"`);

@@ -769,9 +769,14 @@ changes its `result`.
 
 ## SKILL.md
 
-Frontmatter, spec-valid (`metadata` is a string map; the OpenClaw block is
-omitted and its requirements live in `hosts.md`; `allowed-tools` omitted
-because the exec pattern is host-specific). `disable-model-invocation: true`
+Frontmatter, spec-valid on the spec's own fields plus one host-read
+extension key, `disable-model-invocation`, which the agentskills.io
+reference validator reports as an unexpected field; accepted in Decision
+0019, because the four hosts that honour the switch read it only at the top
+level and `metadata` would not reach them (`metadata` is a string map; the
+OpenClaw block is omitted and its requirements live in `hosts.md`;
+`allowed-tools` omitted because the exec pattern is host-specific).
+`disable-model-invocation: true`
 because this is an operator mode, not a reference: loading it reshapes the
 session and every bot turn it opens spends the user's subscriptions, so the
 timing belongs to the user. Claude Code, Grok Build, OpenClaw and DeepSeek
@@ -1018,8 +1023,8 @@ not a shell variable. The Claude trigger-phrase row is history: since
 2026-09-18 the same phrase selects nothing.
 
 Invocation checks, 2026-09-18, 0 bot turns (`docs/evidence.md`, "Explicit
-invocation on every host"), each run twice against the same prompt, before
-and after the key, and read back from the host's own record: Claude Code
+invocation on every host that reads the switch"), each run twice against the
+same prompt, before and after the key, read back from the host's own record: Claude Code
 2.1.276, Codex 0.155.0 and Grok 1.0.34 all stop offering the skill to the
 model, and each explicit form — `/openmausbot-launcher`,
 `$openmausbot-launcher`, `/openmausbot-launcher` — still loads it and runs

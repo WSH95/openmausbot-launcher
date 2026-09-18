@@ -32,10 +32,11 @@ and the opt-in Codex permission profile are in `references/hosts.md`.
 
 ## Invoke
 
-Invocation is explicit: the skill starts when you ask for it, never on its
-own. Use `/openmausbot-launcher <request>` in Claude Code, Grok Build and
-DeepSeek Harness, `$openmausbot-launcher <request>` in Codex, and
-`/openmausbot_launcher <request>` in an OpenClaw chat channel; Hermes Agent
-still picks the skill up from its description. For example,
+On every host except Hermes the skill starts only when you ask for it: use
+`/openmausbot-launcher <request>` in Claude Code, Grok Build and DeepSeek
+Harness, `$openmausbot-launcher <request>` in Codex, and
+`/openmausbot_launcher <request>` in an OpenClaw chat channel. Hermes Agent
+does not read that switch and picks the skill up from its description, so
+there an ordinary message can still start it. For example,
 `/openmausbot-launcher status --project ~/proj`. Setting a project up
 starts with `doctor`; the operator's own instructions are `SKILL.md`.
