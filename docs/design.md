@@ -90,6 +90,7 @@ devpack, so the installed unit carries no steward or beads files.
 openmausbot-launcher/
 ├── skills/openmausbot-launcher/         # the installable unit (npx skills add discovers skills/)
 │   ├── SKILL.md                         # under 500 lines: operator model, loop, rules, verbs, hosts
+│   ├── README.md                        # for the person installing it; SKILL.md never references it
 │   ├── scripts/omb.mjs                  # entry point, #!/usr/bin/env node, chmod +x
 │   ├── scripts/lib/{cli,config,git,http,proc,report,server,session,snapshot,state,team,watch}.mjs
 │   ├── scripts/lib/verbs/{lifecycle,repo,run,report,state,team}.mjs   # verb handlers, one file per group

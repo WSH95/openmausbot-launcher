@@ -79,6 +79,8 @@ Invocation is explicit on every host that reads the switch: type
 Harness), `$openmausbot-launcher <request>` (Codex), or
 `/openmausbot_launcher <request>` in an OpenClaw channel; Hermes Agent does
 not read the switch and still triggers on the description.
+`skills/openmausbot-launcher/README.md` is the entry point for the person
+who receives the skill directory, and
 `skills/openmausbot-launcher/references/hosts.md` has the per-host notes.
 Codex users can opt into the bundled least-privilege loopback profile at
 `skills/openmausbot-launcher/assets/codex/omb-loopback.config.toml`; the host

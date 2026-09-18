@@ -63,7 +63,7 @@ test("every docs/upstream reference points at the dev pack, which owns that dire
 
 test("no shipped instruction asks the agent to compose a command that carries a credential", () => {
   const docs = fs.readdirSync(path.join(ROOT, "docs"), { recursive: true }).filter((f) => f.endsWith(".md")).map((f) => `docs/${f}`);
-  const files = ["skills/openmausbot-launcher/SKILL.md", ...docs, ...fs.readdirSync(path.join(SKILL_DIR, "references")).map((f) => `skills/openmausbot-launcher/references/${f}`)];
+  const files = ["skills/openmausbot-launcher/SKILL.md", "skills/openmausbot-launcher/README.md", ...docs, ...fs.readdirSync(path.join(SKILL_DIR, "references")).map((f) => `skills/openmausbot-launcher/references/${f}`)];
   for (const file of files) {
     const text = read(file);
     // `OMB_SECRET=` in an instruction is an invitation to substitute the value
@@ -155,3 +155,26 @@ test("the routing paragraph precedes setup and covers each arrival form", () => 
   }
 });
 
+test("the skill README states the prerequisites and its links resolve, and SKILL.md does not reference it", () => {
+  const readme = read("skills/openmausbot-launcher/README.md");
+  const version = /^\s+omb-version:\s*"([^"]+)"$/m.exec(skillFrontmatter());
+  assert.ok(version, "the frontmatter records metadata.omb-version");
+  assert.ok(readme.includes(version[1]), `the README names OpenMausBot ${version[1]}, the version the skill was written against`);
+
+  const targets = new Set();
+  for (const link of readme.matchAll(/\]\(([^)]+)\)/g)) if (!/^[a-z]+:/.test(link[1])) targets.add(link[1]);
+  // A backticked token with a slash is a path in this directory; `cli.js` and
+  // `.openmaus.json` name the user's own files and are not ours to resolve.
+  for (const quoted of readme.matchAll(/`([^`]+)`/g)) if (/^[\w.-]+(\/[\w.-]+)+$/.test(quoted[1])) targets.add(quoted[1]);
+  for (const named of ["SKILL.md", "references/hosts.md", "scripts/omb.mjs"]) {
+    assert.ok(readme.includes(named), `the README points at ${named}`);
+    targets.add(named);
+  }
+  for (const target of targets) assert.ok(fs.existsSync(path.join(SKILL_DIR, target)), `the README names ${target}, which does not exist in the skill directory`);
+
+  for (const form of ["OMB_BIN", "/openmausbot-launcher", "$openmausbot-launcher", "/openmausbot_launcher"]) {
+    assert.ok(readme.includes(form), `the README names ${form}`);
+  }
+  const body = read("skills/openmausbot-launcher/SKILL.md").split("\n---\n").slice(1).join("\n---\n");
+  assert.doesNotMatch(body, /README/, "SKILL.md is the operator's file and never sends the agent to the README");
+});
