@@ -769,9 +769,11 @@ commit:
   first fenced `json` block and validates with `errors: []` and
   `warnings: []`.
 
-Still to run: the real-server parity comparison (`docs/design.md`, "Package
-validation"). Four deliberately broken packages — a bad colour, a
-161-character tagline, a missing `package.name`, a duplicate agent key —
-imported against a real OpenMausBot 0.1.56, each 400 body compared with the
-validator's rendering of `errors[0]`. Zero bot turns; not yet run. Host
-acceptance of the authoring section is the user's step (`PLAN.md`).
+Real-server parity comparison, run 2026-09-18 (`docs/evidence.md`,
+"`validate` agrees with the server on a written package"): a fresh OpenMausBot
+0.1.56 on port 8931, the reference skeleton imported through the driver (201,
+three bots, one room), and four broken copies POSTed — a bad colour, a
+161-character tagline, a missing `package.name`, a duplicate agent key — each
+400 `error` byte-equal to the validator's rendering of `errors[0]`. Zero bot
+turns. Host acceptance of the authoring section remains the user's step
+(`PLAN.md`).

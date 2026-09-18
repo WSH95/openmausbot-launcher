@@ -2254,3 +2254,51 @@ Claude Code ×4, Codex ×5, Grok Build ×4, Hermes ×2, DeepSeek Harness ×2,
 OpenClaw ×5 threads —
 plus four `dsh` launches that failed before any inference. OpenMausBot bot
 turns: **0**. The saved probes were recorded without re-running a host CLI.
+
+## 2026-09-18 — `validate` agrees with the server on a written package (0 bot turns)
+
+**Question.** Does the offline `validate` verb report the text a real
+OpenMausBot 0.1.56 returns as its 400 when it refuses a team package, and does
+the skeleton shipped in `references/team-authoring.md` import as written?
+
+Bead `oml-i13`, commits `a04b6fd` (the verb) and `a163e28` (the skill section
+and the reference). Server: OpenMausBot 0.1.56 at
+`~/.cache/agent-team/openmausbot-cli/node_modules/openmausbot/cli.js`, started
+by `up --fresh --port 8931` with a scratch git repository as the project; data
+dir `/home/wsh/.openmausbot-20260918T233400-ttDip9-20260918T233455-2ItQID`,
+log `serve.20260918T233455.87401b77.log` in it, environment
+`49c52479-9be0-4244-abeb-8fd44eaaa7a2`; `doctor --server`: 10 checks, 0
+failed, engines grok, claude, codex, hermes. The package was the reference's
+skeleton, parsed out of its first fenced `json` block and written to
+`skeleton.openmaus.json` (`release-notes-team` 0.1.0, three agents `lead`,
+`writer`, `checker`, one room, SHA-256 prefix `6af91962ddaa0ba2`); `validate`
+on it: exit 0, no warnings. Four copies were then broken one way each and
+POSTed to `/api/teams/import?mode=add` from loopback by a node script, and
+each 400 body's `error` was compared with the validator's rendering of
+`errors[0]`.
+
+| Copy | `kind` | Validator `errors[0]`, rendered | Server 400 `error` | Equal |
+|---|---|---|---|---|
+| colour `black` on agent 0 | schema | `package.agents.0.appearance.color is not supported` | the same text | yes |
+| tagline of 161 characters | schema | `package.tagline is too long` | the same text | yes |
+| `package.name` deleted | schema | `package.name must be text` | the same text | yes |
+| agent 0 pushed again | reference | `Duplicate agent key: lead` | the same text | yes |
+
+Then `import skeleton.openmaus.json` through the driver: 201; section
+"Release notes team"; chief Atlas (`lead`); bots Atlas / Team Lead
+(`d0bc634c…`), Juno / Notes Writer (`f12f3a0f…`), Cairn / Notes Reviewer
+(`9a12af3f…`); room "Notes Room" — the roster the skeleton declares. `status`:
+no run, team idle. `down`: stopped, and both ports were free afterwards. No
+`bind`, no `task`, no message to any bot.
+
+**Conclusion.** For the four refusals tried, the validator's first error is
+byte-equal to the server's 400 text — with the path for a schema issue and
+without one for a cross-reference error — and the skeleton the reference
+ships imports as written. This run does not cover every schema path; the
+offline comparison of the validator against the pinned schema rebuilt on the
+real zod 4.4.3 (11,191 schema documents and 60,000 cross-reference documents,
+0 mismatches) was done in checkpoint (a) with throwaway scripts that are not
+in the repository, and is not a real run. Bot turns: **0**. Host inference:
+none; the driver and one node script only. The two `--fresh` data
+directories from this check (`/home/wsh/.openmausbot-20260918T233400-ttDip9`,
+an aborted first attempt with no import, and the one above) were left in place.
