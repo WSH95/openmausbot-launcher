@@ -27,7 +27,7 @@ async function sharedServer(client, cfg, environmentId) {
   // cannot read, leaves an incomplete list: that is unknown, never an empty
   // server, and never an exception out of an observation.
   try { fleet = fleetOf(await client.get("/api/bots?messages=0")); } catch { return { otherConfiguredFoldersKnown: false }; }
-  if (fleet.dropped) return { otherConfiguredFoldersKnown: false };
+  if (fleet.dropped || fleet.unreadable.length) return { otherConfiguredFoldersKnown: false };
   const { ours } = membership(cfg.state, environmentId);
   const folders = foreignFolders(fleet, { projectDir: cfg.projectDir, ours });
   return { otherConfiguredFoldersKnown: true, otherConfiguredFolders: cap(folders), otherConfiguredFolderCount: folders.length };

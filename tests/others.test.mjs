@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { tmpDir } from "./helpers.mjs";
-import { observeOthers, readForeignState, fleetOf, canonical } from "../skills/openmausbot-launcher/scripts/lib/others.mjs";
+import { observeOthers, readForeignState, fleetOf, edgesOf, canonical } from "../skills/openmausbot-launcher/scripts/lib/others.mjs";
 
 const ENV = "environment-one";
 const OTHER = "environment-two";
@@ -45,20 +45,34 @@ test("a delegation blocks on the endpoint the fleet does know, and says the othe
 });
 
 test("the foreign state read is bounded by what it reads, not by what fstat said, and a failed close stays inside", () => {
-  let closed = false;
+  let closed = 0; let requested = 0;
   const io = {
     constants: fs.constants,
     openSync: () => 7,
     fstatSync: () => ({ isFile: () => true, size: 10 }),
-    readSync: (fd, buf, offset, length) => { buf.fill(0x20, offset, offset + length); return length; },
-    closeSync: () => { closed = true; throw Object.assign(new Error("close failed"), { code: "EIO" }); },
+    readSync: (fd, buf, offset, length) => { requested += length; buf.fill(0x20, offset, offset + length); return length; },
+    closeSync: () => { closed++; throw Object.assign(new Error("close failed"), { code: "EIO" }); },
   };
   const r = readForeignState("/nowhere/.omb/state.json", io);
   assert.match(r.why, /larger than/);
-  assert.equal(closed, true, "the descriptor is closed and its failure never escapes");
+  assert.equal(closed, 1, "the descriptor is closed exactly once and its failure never escapes");
+  assert.equal(requested, 8 * 1024 * 1024 + 1, "only the byte past 8 MiB is requested before refusing growth");
   const big = folder({ version: 2, rev: 1, runs: {} });
   fs.writeFileSync(path.join(big, ".omb", "state.json"), Buffer.alloc(9 * 1024 * 1024, 0x20));
   assert.match(readForeignState(path.join(big, ".omb", "state.json")).why, /larger than/);
+});
+
+test("an exactly 8 MiB state needs only the one-byte EOF probe and closes exactly once", () => {
+  const raw = Buffer.alloc(8 * 1024 * 1024, 0x20); raw.write('{"version":2,"runs":{}}');
+  let at = 0; let requested = 0; let closed = 0;
+  const io = {
+    openSync: () => 7, fstatSync: () => ({ isFile: () => true, size: 1 }), closeSync: () => { closed++; },
+    readSync: (_fd, buf, offset, length) => { requested += length; const read = raw.copy(buf, offset, at, at + length); at += read; return read; },
+  };
+  assert.equal(readForeignState("/nowhere/.omb/state.json", io).doc.version, 2);
+  assert.equal(at, raw.length);
+  assert.equal(requested, raw.length + 1);
+  assert.equal(closed, 1);
 });
 
 test("a foreign state is read in its own version's shape, and contradictory identity is never trusted", async () => {
@@ -92,9 +106,87 @@ test("malformed fleet data is dropped and counted, never thrown past the guard",
   assert.equal(blocking, true);
   assert.deepEqual(others.busyBots, ["Stranger"], "what the same answer proved is kept");
   assert.ok(others.unknown.some((u) => u.source === "fleet"), JSON.stringify(others.unknown));
-  const shapes = [{ bots: {} }, [], null, { bots: [], groups: 7 }];
+  const shapes = [[], null];
   for (const body of shapes) assert.throws(() => fleetOf(body), Error, JSON.stringify(body));
-  assert.deepEqual(fleetOf({ bots: [bot("f1", "S")] }), { bots: [bot("f1", "S")], groups: [], dropped: 0 });
+  assert.deepEqual(fleetOf({ bots: [bot("f1", "S")], groups: [] }).bots, [bot("f1", "S")]);
+});
+
+for (const state of ["queued", "running"]) for (const side of ["sourceBotId", "targetBotId"]) {
+  test(`${state} work with only a valid ${side} blocks and records the unknown bot`, async () => {
+    const { cfg } = project();
+    for (const missing of [undefined, null, 42, ""]) {
+      const other = side === "sourceBotId" ? "targetBotId" : "sourceBotId";
+      const { others, blocking } = await look({ "/api/bots": { bots: [bot("foreign", "Stranger")], groups: [] }, "/api/team-map": { queued: [], running: [], [state]: [{ [side]: "foreign", [other]: missing }] } }, cfg);
+      assert.equal(blocking, true, "one valid foreign endpoint is positive evidence");
+      assert.deepEqual(others.delegations, [{ state, source: side === "sourceBotId" ? "Stranger" : "unknown bot", target: side === "targetBotId" ? "Stranger" : "unknown bot" }]);
+      assert.equal(others.counts.unknown, 1);
+    }
+  });
+  test(`${state} work with a foreign ${side} survives an unreadable sibling array`, async () => {
+    const { cfg } = project({ team: { environmentId: ENV, bots: [{ id: "ours" }] } });
+    const sibling = state === "queued" ? "running" : "queued";
+    const other = side === "sourceBotId" ? "targetBotId" : "sourceBotId";
+    const { others, blocking } = await look({ "/api/bots": { bots: [bot("foreign", "Stranger"), bot("ours", "Ours")], groups: [] }, "/api/team-map": { [state]: [{ [side]: "foreign", [other]: "ours" }], [sibling]: {} } }, cfg);
+    assert.equal(blocking, true, "the readable component's evidence survives");
+    assert.equal(others.delegations.length, 1);
+    assert.ok(others.unknown.some((u) => u.why.includes(sibling)), JSON.stringify(others));
+  });
+}
+
+test("fleetOf and edgesOf mark absent required arrays unreadable", () => {
+  assert.deepEqual(fleetOf({}).unreadable, ["bots", "groups"]);
+  assert.deepEqual(edgesOf({}).unreadable, ["queued", "running"]);
+});
+
+test("absent, null and non-array components stay unknown while valid fleet siblings keep their evidence", async () => {
+  const { cfg } = project();
+  for (const bad of [undefined, null, {}]) {
+    const all = await look({ "/api/bots": { bots: bad, groups: bad }, "/api/team-map": { queued: bad, running: bad } }, cfg);
+    assert.equal(all.blocking, false);
+    assert.equal(all.others.counts.unknown, 4, "each required component is unreadable, never known-empty");
+    for (const field of ["bots", "groups", "queued", "running"]) assert.ok(all.others.unknown.some((u) => u.why.includes(field)), field);
+    const busy = await look({ "/api/bots": { bots: [bot("foreign", "Stranger", { busy: true })], groups: bad }, "/api/team-map": { queued: [], running: [] } }, cfg);
+    assert.equal(busy.blocking, true); assert.deepEqual(busy.others.busyBots, ["Stranger"]);
+    const room = await look({ "/api/bots": { bots: bad, groups: [{ id: "room", name: "Room", working: true }] }, "/api/team-map": { queued: [], running: [] } }, cfg);
+    assert.equal(room.blocking, true); assert.deepEqual(room.others.workingRooms, ["Room"]);
+  }
+});
+
+for (const kind of ["fleet", "edges"]) test(`the budget expires inside ${kind} decoding and aggregates skipped candidates`, async (t) => {
+  const { cfg } = project();
+  let now = 0; let visited = 0;
+  t.mock.method(performance, "now", () => now);
+  const count = 10_000;
+  const entries = Array.from({ length: count }, (_, i) => {
+    const entry = kind === "fleet" ? bot(String(i), "Stranger") : { sourceBotId: "foreign", targetBotId: "foreign" };
+    const key = kind === "fleet" ? "id" : "sourceBotId";
+    const value = entry[key];
+    Object.defineProperty(entry, key, { get() { if (++visited === 8) now = 2; return value; } });
+    return entry;
+  });
+  const { others } = await look({ "/api/bots": { bots: kind === "fleet" ? entries : [bot("foreign", "Stranger")], groups: [] }, "/api/team-map": { queued: kind === "edges" ? entries : [], running: [] } }, cfg, { budgetMs: 1 });
+  assert.ok(visited >= 8 && visited < count, `decoding stops inside the loop, visited ${visited}`);
+  const exhausted = others.unknown.filter((u) => u.source === (kind === "fleet" ? "fleet" : "team-map") && /were not inspected/.test(u.why));
+  assert.equal(exhausted.length, 1, "one aggregate for the skipped decode and observation work");
+  assert.match(exhausted[0].why, /^10000 (?:bot|delegation)\(s\) were not inspected/);
+});
+
+test("the team-map deadline is checked after the await and inside edge observation", async (t) => {
+  const { cfg } = project();
+  let now = 0; let names = 0;
+  t.mock.method(performance, "now", () => now);
+  const foreign = bot("foreign", "Stranger");
+  Object.defineProperty(foreign, "name", { get() { names++; now = 2; return "Stranger"; } });
+  const map = { queued: Array.from({ length: 100 }, () => ({ sourceBotId: "foreign", targetBotId: "foreign" })), running: [] };
+  const routes = { "/api/bots": { bots: [foreign], groups: [] }, "/api/team-map": map };
+  const observed = await look(routes, cfg, { budgetMs: 1 });
+  assert.equal(observed.others.counts.delegations, 1, "stop before the next edge after expiry inside observation");
+  assert.equal(names, 2);
+  assert.ok(observed.others.unknown.some((u) => /^99 delegation\(s\) were not inspected/.test(u.why)));
+  now = 0;
+  const awaited = await look({ ...routes, "/api/team-map": () => { now = 2; return map; } }, cfg, { budgetMs: 1 });
+  assert.equal(awaited.others.counts.delegations, 0, "a late response starts no edge observation");
+  assert.ok(awaited.others.unknown.some((u) => /^100 delegation\(s\) were not inspected/.test(u.why)));
 });
 
 test("the inspection budget stops the loops and reports one aggregated unknown", async () => {

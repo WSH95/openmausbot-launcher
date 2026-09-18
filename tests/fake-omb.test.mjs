@@ -28,6 +28,38 @@ const post = (url, body, headers = {}) => fetch(url, { method: "POST", headers: 
 const patch = (url, body, headers = {}) => fetch(url, { method: "PATCH", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
 const put = (url, body, headers = {}) => fetch(url, { method: "PUT", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
 
+test("replyRoute cannot intercept fake snapshot, release or reset controls", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  await f.control({ op: "hold", route: "^/api/bots" });
+  t.after(() => f.apply({ op: "release" }));
+  await f.control({ op: "replyRoute", route: ".*", body: { intercepted: true }, count: 5 });
+  assert.equal((await f.snapshot()).intercepted, undefined, "scenario replies never intercept /__fake/state");
+  assert.equal((await f.control({ op: "release" })).released, 0);
+  assert.equal((await f.control({ op: "reset" })).intercepted, undefined);
+  assert.equal((await (await fetch(`${f.url}/api/bots`, { signal: AbortSignal.timeout(10_000) })).json()).intercepted, true, "the ordinary route still receives the scenario reply");
+});
+
+test("a second hold is refused and release wakes the original waiters", async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  await f.control({ op: "hold", route: "^/api/bots" });
+  const pending = fetch(`${f.url}/api/bots`, { signal: AbortSignal.timeout(10_000) });
+  pending.catch(() => {});
+  t.after(async () => { f.apply({ op: "release" }); await pending.catch(() => {}); });
+  const stop = Date.now() + 10_000;
+  while ((await f.snapshot()).holdWaiting !== 1) { assert.ok(Date.now() < stop, "the first request reached its hold"); await sleep(10); }
+  await assert.rejects(f.control({ op: "hold", route: "^/api/team-map" }), /already.*held|hold.*pending/, "a second hold cannot orphan the first waiters");
+  assert.equal((await f.control({ op: "release" })).released, 1);
+  assert.equal((await pending).status, 200);
+});
+
+for (const method of ["control", "snapshot"]) test(`the fixture ${method} fetch aborts at its timeout`, async (t) => {
+  const f = await startFake(); t.after(() => f.close());
+  const timeouts = [];
+  t.mock.method(AbortSignal, "timeout", (ms) => { timeouts.push(ms); return AbortSignal.abort(new DOMException("fixture deadline", "TimeoutError")); });
+  await assert.rejects(method === "control" ? f.control({ op: "reset" }) : f.snapshot(), { name: "TimeoutError" }, "the direct fetch must carry its abort signal");
+  assert.deepEqual(timeouts, [10_000]);
+});
+
 async function importTeam(f) {
   const { status, body } = await j(await post(`${f.url}/api/teams/import?mode=add`, PKG));
   assert.equal(status, 201);

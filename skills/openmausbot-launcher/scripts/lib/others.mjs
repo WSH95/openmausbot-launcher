@@ -87,34 +87,43 @@ export const botName = (bot) => text(bot?.name) ?? "unnamed bot";
  * data must not throw past a guard and erase what the same answer proved. A
  * body that is not the documented shape at all is a read that failed.
  */
-export function fleetOf(body) {
+export function fleetOf(body, deadline = Infinity) {
   if (!isObject(body)) throw new Error("the fleet answer is not an object");
-  const list = (value, what) => {
-    if (value === undefined || value === null) return [];
-    if (!Array.isArray(value)) throw new Error(`the fleet answer's ${what} are not a list`);
-    return value;
-  };
-  const bots = list(body.bots, "bots");
-  const groups = list(body.groups, "rooms");
-  const usable = (x) => isObject(x) && text(x.id) !== null;
-  const kept = { bots: bots.filter(usable), groups: groups.filter(usable) };
-  return { ...kept, dropped: bots.length - kept.bots.length + (groups.length - kept.groups.length) };
+  const kept = { bots: [], groups: [], dropped: 0, unreadable: [], skipped: { bots: 0, groups: 0 } };
+  for (const key of ["bots", "groups"]) {
+    const value = body[key];
+    if (!Array.isArray(value)) { kept.unreadable.push(key); continue; }
+    let i = 0;
+    for (; i < value.length; i++) {
+      if (performance.now() >= deadline) break;
+      const entry = value[i];
+      if (isObject(entry) && text(entry.id)) kept[key].push(entry);
+      else kept.dropped++;
+    }
+    kept.skipped[key] = value.length - i;
+  }
+  return kept;
 }
 
 /** The queued and running edges a `/api/team-map` answer carries, by id. */
-export function edgesOf(body) {
+export function edgesOf(body, deadline = Infinity) {
   if (!isObject(body)) throw new Error("the team map is not an object");
-  const edges = []; let dropped = 0;
+  const edges = []; const unreadable = []; let dropped = 0; let skipped = 0;
   for (const state of ["queued", "running"]) {
     const value = body[state];
-    if (value === undefined || value === null) continue;
-    if (!Array.isArray(value)) throw new Error(`the team map's ${state} work is not a list`);
-    for (const edge of value) {
-      if (isObject(edge) && text(edge.sourceBotId) && text(edge.targetBotId)) edges.push({ state, source: edge.sourceBotId, target: edge.targetBotId });
+    if (!Array.isArray(value)) { unreadable.push(state); continue; }
+    let i = 0;
+    for (; i < value.length; i++) {
+      if (performance.now() >= deadline) break;
+      const edge = value[i];
+      const source = isObject(edge) ? text(edge.sourceBotId) : null;
+      const target = isObject(edge) ? text(edge.targetBotId) : null;
+      if (source || target) edges.push({ state, source, target });
       else dropped += 1;
     }
+    skipped += value.length - i;
   }
-  return { edges, dropped };
+  return { edges, dropped, unreadable, skipped };
 }
 
 /** The distinct folders foreign bots are configured for, this project's excluded. */
@@ -148,7 +157,7 @@ export function readForeignState(file, io = fs) {
     const chunks = []; let total = 0;
     for (;;) {
       const buf = Buffer.allocUnsafe(CHUNK_BYTES);
-      const read = io.readSync(fd, buf, 0, CHUNK_BYTES, null);
+      const read = io.readSync(fd, buf, 0, Math.min(CHUNK_BYTES, MAX_STATE_BYTES + 1 - total), null);
       if (!read) break;
       total += read;
       if (total > MAX_STATE_BYTES) return { why: `the state file is larger than ${MAX_STATE_BYTES} bytes` };
@@ -212,9 +221,10 @@ export async function observeOthers({ client, cfg, environmentId, budgetMs = 5_0
 
   let fleet = null;
   if (left() <= 0) note("fleet", "the inspection budget ran out");
-  else try { fleet = fleetOf(await client.get("/api/bots?messages=0", request())); }
+  else try { fleet = fleetOf(await client.get("/api/bots?messages=0", request()), deadline); }
   catch (e) { note("fleet", e.message); }
   if (fleet?.dropped) note("fleet", `${fleet.dropped} entr${fleet.dropped === 1 ? "y" : "ies"} in the fleet answer could not be read`);
+  for (const key of fleet?.unreadable ?? []) note("fleet", `the fleet answer's ${key} are not a list`);
 
   const byId = new Map();
   const foreign = [];
@@ -229,23 +239,29 @@ export async function observeOthers({ client, cfg, environmentId, budgetMs = 5_0
       if (bot.activity === "waiting-on-you") waitingBots.push(botName(bot));
       else if (bot.busy === true) busyBots.push(botName(bot));
     }
-    if (index < fleet.bots.length) ranOut("fleet", fleet.bots.length - index, "bot(s)");
+    const skippedBots = fleet.skipped.bots + fleet.bots.length - index;
+    if (skippedBots) ranOut("fleet", skippedBots, "bot(s)");
     let room = 0;
     for (; room < fleet.groups.length; room++) {
       if (left() <= 0) break;
       const group = fleet.groups[room];
       if (group.working === true && !ourRoom(group)) workingRooms.push(botName(group));
     }
-    if (room < fleet.groups.length) ranOut("fleet", fleet.groups.length - room, "room(s)");
+    const skippedRooms = fleet.skipped.groups + fleet.groups.length - room;
+    if (skippedRooms) ranOut("fleet", skippedRooms, "room(s)");
   }
 
   if (!fleet) note("team-map", "the fleet could not be read, so no delegation has a side");
   else if (left() <= 0) note("team-map", "the inspection budget ran out");
   else {
     try {
-      const { edges, dropped } = edgesOf(await client.get("/api/team-map", request()));
+      const { edges, dropped, unreadable, skipped } = edgesOf(await client.get("/api/team-map", request()), deadline);
       if (dropped) note("team-map", `${dropped} delegation(s) named no source or target`);
-      for (const edge of edges) {
+      for (const key of unreadable) note("team-map", `the team map's ${key} work is not a list`);
+      let i = 0;
+      for (; i < edges.length; i++) {
+        if (left() <= 0) break;
+        const edge = edges[i];
         const ends = [byId.get(edge.source) ?? null, byId.get(edge.target) ?? null];
         // A delegation with one known foreign end is observed work whether or
         // not the other end was in the fleet snapshot; only an edge with no
@@ -253,6 +269,7 @@ export async function observeOthers({ client, cfg, environmentId, budgetMs = 5_0
         if (ends.some((b) => b && !ours(b))) delegations.push({ state: edge.state, source: ends[0] ? botName(ends[0]) : "unknown bot", target: ends[1] ? botName(ends[1]) : "unknown bot" });
         if (ends.some((b) => !b)) note("team-map", `a ${edge.state} delegation names a bot the fleet does not list`);
       }
+      if (skipped + edges.length - i) ranOut("team-map", skipped + edges.length - i, "delegation(s)");
     } catch (e) { note("team-map", e.message); }
   }
 

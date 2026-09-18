@@ -88,7 +88,7 @@ than none: the hook fires in a degenerate state (dev pack `HANDOFF.md`,
   `code: 'EPERM'`, `syscall: 'listen'`, `port: <port>` (this repository's
   `docs/evidence.md`, 2026-09-08; review fixture
   `codex-ww-data-20260908T110446-DLKtHf/serve.log`, 25 lines). `up` scans that
-  spawn's own log for the signature and names the first matching line in its
+  spawn's own log (the last 256 KiB) for the signature and names the first matching line in its
   hint; the 12-line `log` field is display only. This is the default sandbox mode's
   behaviour, not a requirement to grant full access: the skill ships an
   opt-in `assets/codex/omb-loopback.config.toml` profile that extends
@@ -178,11 +178,11 @@ says what was seen and, under `unknown`, what could not be read; `cleanup
 --down` stops there too. What the folder lists report is configuration, not
 activity; `down`'s busy, waiting, delegation and room evidence is activity,
 observed once, with the race between that look and the signal accepted. Each
-has its blind spots: a bot with no configured folder and two projects that
-adopted the same ids are invisible to every folder comparison, while a project
-whose state `--state` moved elsewhere, and a bot configured for a sub-folder of
-its project, are missed only by the state-file check — that bot's own busy,
-waiting and delegation activity is still seen. A
+has its blind spots: a bot with no configured folder supplies no folder evidence,
+and `up` and `down` cannot distinguish projects that adopted the same team ids.
+A project whose state `--state` moved elsewhere, and a bot configured for a
+sub-folder of its project, are missed only by the state-file check — that bot's
+own busy, waiting and delegation activity is still seen. A
 pending credential card on a foreign thread is seen only when it also left that
 bot `waiting-on-you` (`index.ts:8263`); conversely an unanswered foreign card
 keeps refusing `down` until someone answers it or passes `--stop-others`. Two writable

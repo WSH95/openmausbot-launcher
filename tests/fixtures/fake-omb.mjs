@@ -308,7 +308,7 @@ export async function createFake(opts = {}) {
     if (state.dropNext > 0 && !p.startsWith("/__fake")) { state.dropNext--; res.dropped = true; }
     // A named route answered by the scenario for the next N calls: a failure a
     // reader must tell apart from an empty answer, or a body it cannot read.
-    if (state.replyRoute?.count > 0 && state.replyRoute.re.test(p)) { state.replyRoute.count--; return json(res, state.replyRoute.status, state.replyRoute.body); }
+    if (state.replyRoute?.count > 0 && !p.startsWith("/__fake") && state.replyRoute.re.test(p)) { state.replyRoute.count--; return json(res, state.replyRoute.status, state.replyRoute.body); }
     // A named route held until the test releases it: the barrier a scenario
     // needs to act while a verb is between two of its own requests.
     if (state.hold && !p.startsWith("/__fake") && state.hold.re.test(p)) {
@@ -1027,7 +1027,7 @@ export async function createFake(opts = {}) {
       case "delay": state.delay = { count: op.count ?? 1, ms: op.ms ?? 1000 }; return;
       case "dropNext": state.dropNext = op.count ?? 1; return;
       case "replyRoute": state.replyRoute = { re: new RegExp(op.route), status: op.status ?? (op.body === undefined ? 503 : 200), body: op.body ?? { error: "the fake was told to fail this route" }, count: op.count ?? 1 }; return;
-      case "hold": state.hold = { re: new RegExp(op.route), waiting: 0, waiters: [] }; return;
+      case "hold": if (state.hold) throw Object.assign(new Error("a hold is already pending; release it first"), { status: 409 }); state.hold = { re: new RegExp(op.route), waiting: 0, waiters: [] }; return;
       case "release": { const held = state.hold; state.hold = null; for (const resolve of held?.waiters ?? []) resolve(); return { released: held?.waiters.length ?? 0 }; }
       case "steer": state.steer = op.enabled !== false; state.lateSteerConflict = op.lateConflict === true; return;
       case "autoWork": state.autoWork = op.enabled !== false; return;
@@ -1080,8 +1080,8 @@ export async function createFake(opts = {}) {
     url, port, dataDir, server, webhookPort: webhook ? opts.webhookPort : null,
     get environmentId() { return environmentId; },
     apply: (op) => apply(op),
-    control: async (op) => { const r = await fetch(`${url}/__fake`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(op) }); const b = await r.json(); if (!r.ok) throw new Error(b.error); return b; },
-    snapshot: async () => (await fetch(`${url}/__fake/state`)).json(),
+    control: async (op) => { const r = await fetch(`${url}/__fake`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(op), signal: AbortSignal.timeout(10_000) }); const b = await r.json(); if (!r.ok) throw new Error(b.error); return b; },
+    snapshot: async () => (await fetch(`${url}/__fake/state`, { signal: AbortSignal.timeout(10_000) })).json(),
     close: () => new Promise((resolve) => { for (const c of [...sse]) { try { c.res.end(); } catch {} } webhook?.close(); webhook?.closeAllConnections?.(); server.close(() => resolve()); server.closeAllConnections?.(); }),
   };
 }
@@ -1129,23 +1129,30 @@ function acquireLease(dataDir) {
   const file = path.join(dataDir, LEASE_NAME);
   const invalid = "The OpenMausBot data-directory lease is invalid; refusing to start to protect its state."; // S: :69
   const owner = { version: 1, pid: process.pid, host: os.hostname(), token: randomUUID(), createdAt: Date.now() };
-  const read = () => {
+  const same = (a, b) => a && a.pid === b.pid && a.host === b.host && a.token === b.token;
+  // Fixture-only publication: an exclusive link exposes the complete record,
+  // never the empty file between open and write. No token appears in a name.
+  const prepared = path.join(dataDir, `.fake-owner-${owner.pid}`);
+  fs.writeFileSync(prepared, `${JSON.stringify(owner)}\n`, { mode: 0o600 });
+  const read = (target = file, message = invalid) => {
     let raw;
-    try { raw = fs.readFileSync(file, "utf8"); } catch (e) { if (e.code === "ENOENT") return null; throw e; }
+    try { raw = fs.readFileSync(target, "utf8"); } catch (e) { if (e.code === "ENOENT") return null; throw e; }
     let record;
-    try { record = JSON.parse(raw); } catch { throw new Error(invalid); }
-    if (!validLeaseOwner(record)) throw new Error(invalid);
+    try { record = JSON.parse(raw); } catch { throw new Error(message); }
+    if (!validLeaseOwner(record)) throw new Error(message);
     return record;
   };
-  for (;;) {
-    try { fs.writeFileSync(file, `${JSON.stringify(owner)}\n`, { flag: "wx", mode: 0o600 }); return release; }
-    catch (e) { if (e.code !== "EEXIST") throw e; }
-    const current = read();
-    if (!current) continue;
-    if (current.host !== owner.host) throw new Error(`This OpenMausBot data directory is already owned by a process on another machine. Lease record: ${JSON.stringify(file)}.`); // S: :323-326
-    if (leaseOwnerAlive(current.pid)) throw new Error(`OpenMausBot is already using this data directory (process ${current.pid}). Close the other instance first.`); // S: :328-331
-    retire(current);
-  }
+  try {
+    for (;;) {
+      try { fs.linkSync(prepared, file); return release; }
+      catch (e) { if (e.code !== "EEXIST") throw e; }
+      const current = read();
+      if (!current) continue;
+      if (current.host !== owner.host) throw new Error(`This OpenMausBot data directory is already owned by a process on another machine. Lease record: ${JSON.stringify(file)}.`); // S: :323-326
+      if (leaseOwnerAlive(current.pid)) throw new Error(`OpenMausBot is already using this data directory (process ${current.pid}). Close the other instance first.`); // S: :328-331
+      retire(current);
+    }
+  } finally { fs.unlinkSync(prepared); }
   /**
    * Retire one dead owner, and only one contender at a time: the recovery
    * claim is created exclusively, so a second contender that saw the same dead
@@ -1157,15 +1164,28 @@ function acquireLease(dataDir) {
    */
   function retire(dead) {
     const claim = `${file}.recovery`;
-    try { fs.writeFileSync(claim, `${owner.pid}\n`, { flag: "wx", mode: 0o600 }); }
-    catch (e) { throw e.code === "EEXIST" ? new Error("A stale OpenMausBot data-directory lease is already being recovered; try again shortly.") : e; }
+    const invalidClaim = "The OpenMausBot stale-lease recovery record is invalid; refusing to start to protect its state."; // S: :77
+    // The fixture's claim uses the validated owner shape too. A crashed
+    // claimant can be superseded; a live or other-host claimant is left alone.
+    // Re-read before unlinking a dead claim, then compete by exclusive create
+    // again: losing that create always re-evaluates the new owner.
+    for (;;) {
+      try { fs.linkSync(prepared, claim); break; }
+      catch (e) { if (e.code !== "EEXIST") throw e; }
+      const current = read(claim, invalidClaim);
+      if (!current) continue;
+      if (current.host !== owner.host || leaseOwnerAlive(current.pid)) throw new Error("A stale OpenMausBot data-directory lease is already being recovered; try again shortly."); // S: :333-335
+      if (same(read(claim, invalidClaim), current) && !leaseOwnerAlive(current.pid)) {
+        try { fs.unlinkSync(claim); } catch (e) { if (e.code !== "ENOENT") throw e; }
+      }
+    }
     try {
       const current = read();
-      if (current && current.token === dead.token && !leaseOwnerAlive(current.pid)) fs.unlinkSync(file);
-    } finally { try { fs.unlinkSync(claim); } catch {} }
+      if (same(current, dead) && !leaseOwnerAlive(current.pid)) fs.unlinkSync(file);
+    } finally { try { if (same(read(claim, invalidClaim), owner)) fs.unlinkSync(claim); } catch {} }
   }
   function release() { // S: :346-359 — a lease another process owns is never released
-    try { if (read()?.token === owner.token) fs.unlinkSync(file); } catch {}
+    try { if (same(read(), owner)) fs.unlinkSync(file); } catch {}
   }
 }
 
