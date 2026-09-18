@@ -335,7 +335,7 @@ the exact command to run and told to print its stdout and stop.
 | Codex skill listing | `codex exec --sandbox read-only … "list the names of the skills available to you"` | 0; `openmausbot-launcher` listed; no command executed |
 | Codex state writability | `codex exec --sandbox workspace-write` running `accessSync(state.json, 2)` | 0; printed `state writable` |
 | Codex `status` in the sandbox | same session, `status --project <project2>` | **exit 3**, "the server identity could not be verified"; the same command exits 0 from an unsandboxed shell |
-| Claude trigger phrase | `claude -p "run T10 through the team" --output-format stream-json --verbose --max-turns 2 --allowedTools Skill --add-dir <project>` | first tool call was `Skill` with `{"skill":"openmausbot-launcher"}`; session `8c6b77b4-7f71-4295-847c-6836c399995d`; ended `error_max_turns`; the repository was unchanged |
+| Claude trigger phrase | `claude -p "run T10 through the team" --output-format stream-json --verbose --max-turns 2 --allowedTools Skill --add-dir <project>` | first tool call was `Skill` with `{"skill":"openmausbot-launcher"}`; session `8c6b77b4-7f71-4295-847c-6836c399995d`; ended `error_max_turns`; the repository was unchanged **Superseded by 2026-09-18**: the skill now sets `disable-model-invocation: true`, and the same prompt no longer selects it; the row records what implicit invocation did while it was on. |
 
 In both survival cases the server process's parent was its supervisor and the
 supervisor's parent was `systemd --user` (pid 1987, a child of pid 1), not the
@@ -823,6 +823,12 @@ The send returned message `8004203b-6416-4305-99ab-25b517702a66` (nonce `396649b
 at 15:22:23.925Z; Sudo answered `396649b2` as `49c62479-285a-4ed2-b67e-b71f522dfade`
 at 15:22:32.060Z, 8.1 s later, in OMB turn
 `50518f2e-25e6-4c19-93ef-a57a4beb314c`.
+
+*Superseded in part by 2026-09-18*: the run below is the last real phone run,
+and it was made while the skill was still implicitly invocable. Since 2026-09-18
+the first message of a session has to carry `/openmausbot_launcher`; that form is
+**not exercised** and stays pending. Everything else — the gateway, the approval
+card, the relay — is unchanged.
 
 **Phone proof.** A Telegram DM asking for the project's status line (inbound
 15:09:52.611Z, 139 characters, `telegram:7724282441 -> @OMBLauncherCheckBot`)
@@ -2079,3 +2085,83 @@ that boundary protects. One thing seen and left alone: `status`, which is a
 single snapshot, still words an idle run whose verdict does not carry as "idle
 for 0 s, not yet settled" and gives no hint; the skill already says never to
 read settlement from `status`.
+
+## 2026-09-18 — Explicit invocation on every host (0 OMB bot turns)
+
+`disable-model-invocation: true` in the SKILL.md frontmatter and
+`policy.allow_implicit_invocation: false` in `agents/openai.yaml`, checked
+on the installed hosts before and after the edit. **No OpenMausBot bot turn
+was spent**: no `task`, `send`, `answer`, `import`, `bind` or `up` ran, and
+no server was started. The host sessions below spent those hosts' own
+inference: four Claude Code, five Codex, four Grok Build, two Hermes Agent.
+
+**Isolation, enforced rather than instructed.** A bot turn needs a reachable
+server with an imported team. Before the first probe and again after the
+last: `pgrep -fa openmausbot` empty (only this session's own shells, whose
+command lines contain the checkout path, matched the bare pattern),
+`openmausbot` not on `PATH`, no listener on the driver's default 8799 or on
+88xx/89xx (`ss -ltn`), and `curl http://127.0.0.1:8799/api/health` refused
+with `Failed to connect to 127.0.0.1 port 8799`. Every probe ran under
+`env -u OMB_TOKEN -u OMB_TOKEN_FILE -u OMB_SECRET -u OMB_STATE -u OMB_URL
+-u OMB_DATA_DIR -u OMB_PROJECT OMB_BIN=/nonexistent/cli.js` (the full list
+from `scripts/lib/config.mjs`). The project was a fresh `git init` directory
+under the session scratchpad, one commit `0354953`, no `.omb`. Under that
+invariant `up` can neither attach nor spawn, and `status`/`send`/`task` exit
+3 at `requireTeam` (`scripts/lib/verbs/run.mjs:20`). Confirmed directly from
+this session's shell before any host ran:
+`status --project <tmp>` → exit 3,
+`{"ok":false,"verb":"status","error":"no team is recorded for this project",…}`.
+Afterwards: no `openmausbot` process, no listener, no `.omb` in the probe
+project or anywhere under `~/Documents`.
+
+**What was compared.** Before: `git rev-parse HEAD` `ff2b7dd`, SHA-256
+`d62ace1ad6081a71f32501dcbb745f2746a1abb56bba07cf9643edc56b07fde3`
+(`SKILL.md`) and
+`dd6ca3fadc821982b67e166270d47144e42ec6ffe551b90db6acec966c9d94e7`
+(`agents/openai.yaml`). After: HEAD `049c6e1`,
+`1eba91547e81dd00ab3f736c4a4c7d97f84941f6aaa917332b05fbd1550c1de5` and
+`9d6dbe1bd1e1de874801599f618ef14ada2f99f83b35123d5bb5d75b8bf4c4bd`.
+`readlink -f` of `~/.claude/skills/openmausbot-launcher` and
+`~/.agents/skills/openmausbot-launcher` both resolve to
+`/home/wsh/Documents/openmausbot-launcher/skills/openmausbot-launcher`, so
+every host read this checkout. Versions at check time: Claude Code 2.1.276,
+codex-cli 0.155.0, grok 1.0.34, dsh 0.1.5-rc.1, Hermes Agent v0.21.3
+(2026.9.14), OpenClaw 2026.9.4. The evidence is each host's own record —
+Claude Code's transcript under `~/.claude/projects/`, Codex's rollout under
+`~/.codex/sessions/`, Grok's session directory under `~/.grok/sessions/`,
+Hermes's SQLite session — searched for a sentence unique to the skill body,
+"The bots in OpenMausBot run real coding CLIs" (`SKILL.md:16`), and for the
+host's own catalog entry, "openmausbot-launcher: Operate a local".
+
+| Check | Command | Result |
+|---|---|---|
+| Claude Code, ordinary language, **before** | `claude -p "run T10 through the team" --output-format stream-json --verbose --max-turns 1 --tools Skill --strict-mcp-config --mcp-config <empty>` in the probe project | the model's first tool call was `Skill` `{"skill":"openmausbot-launcher","args":"run T10 through the team"}`; the transcript (session `11111111-1111-4111-8111-000000000001`) holds the catalog entry once and the skill body once; ended `error_max_turns` |
+| Claude Code, ordinary language, **after** | same command, session `…0002` | no `Skill` call for this skill, catalog entry absent, skill body absent (0 occurrences of either string); the model chose `superpowers:subagent-driven-development` instead; `/openmausbot-launcher` is still offered (134 slash commands, the skill among them) |
+| Claude Code, explicit, **after** | `claude -p "/openmausbot-launcher run status for <tmp> and report its output; if a precondition fails, report it and stop; do not repair" --output-format stream-json --verbose --max-turns 4 --tools Bash --allowedTools "Bash(<symlink>/scripts/omb.mjs status:*)" "Bash(<resolved>/…)" "Bash(node <symlink>/…)" "Bash(node <resolved>/…)" "Bash(echo:*)" --permission-prompts none --strict-mcp-config --mcp-config <empty>`, session `…0004` | the slash command loaded the body with **no `Skill` tool call**, and the host appended `ARGUMENTS: run status for /tmp/…/project and report its output; …`; exactly one driver command, `status --project <tmp>`, exit 3, `no team is recorded for this project`; the model then reported and stopped (`success`, 2 turns of a permitted 4) |
+| Claude Code, allowlist form | first attempt, session `…0003`, without the `node …` rules | the model runs the driver as `node <path>/scripts/omb.mjs status …; echo "exit=$?"`, which the path-only rules do not match: denied automatically, nothing executed. An allowlist has to name the `node` form; recorded in `references/hosts.md` |
+| Codex, ordinary language, **before** | `codex exec --sandbox read-only --json -C <tmp> "run T10 through the team" < /dev/null` | thread `01a0b598-eadb-7a60-96ae-ce5fb4bd54ca`; the session prompt's skill catalog carried `openmausbot-launcher: Operate a local …`; the model read `SKILL.md` and `hosts.md`, ran `state --show` and `doctor` (exit 3 each), asked for the project and stopped. No bot verb |
+| Codex, skill listing, **before** | `codex exec --sandbox read-only --json -C <tmp> "list the names of the skills available to you"` | thread `01a0b59b-001a-7622-bb2f-306480934796`; `openmausbot-launcher` listed among 26 skills |
+| Codex, skill listing, **after** | same command | thread `01a0b5bc-f171-7033-9904-42d515457c4f`; `openmausbot-launcher` is **no longer listed**: 0.155.0 drops a skill with `allow_implicit_invocation: false` from the catalog entirely |
+| Codex, ordinary language, **after** | same command as the before row | thread `01a0b5b9-cf73-7752-bcdd-1ae485b52096`; no catalog entry in the prompt and no `<skill>` injection. The model said the skill "isn't registered as an installed skill in this session", then found the checkout on disk by itself (`rg --files /home/wsh/Documents …`), read `SKILL.md`, ran `state --show`, and ended by telling the user to resend as `$openmausbot-launcher do T10 in …`. The host no longer offers it; a neighbouring checkout is still readable, which is a property of this machine, not of the switch |
+| Codex, explicit, **after** | `codex exec --sandbox read-only --json -C <tmp> '$openmausbot-launcher run status for <tmp> and report its output; if a precondition fails, report it and stop; do not repair' < /dev/null` | thread `01a0b5bd-6b41-7d33-aa45-489928dd56d1`, rollout `rollout-2026-09-18T14-18-05-…`: the host injected `<skill><name>openmausbot-launcher</name><path>…/SKILL.md</path>` with the full body right after the user message, so `$name` still works with the catalog gone; one driver command, `status --project <tmp>` → exit 3, `no team is recorded for this project`; stopped without repairing |
+| Grok Build, ordinary language, **before** | `grok -p "run T10 through the team" --cwd <tmp> --max-turns 1 --no-subagents --disable-web-search --output-format streaming-json` | session `22222222-2222-4222-8222-000000000001`; the session's own `chat_history.jsonl` carries the catalog entry and the skill body (one occurrence each) after the model read `~/.agents/skills/openmausbot-launcher/SKILL.md` on its own; stopped at the turn limit |
+| Grok Build, ordinary language, **after** | same command, session `…0002` | catalog entry and skill body both absent from `chat_history.jsonl`; the model read two unrelated skills and grepped the project for T10. `/openmausbot-launcher` stays in the session's command list (106 commands, before and after) |
+| Grok Build, explicit, **after** | same flags with `/openmausbot-launcher run status for <tmp> …`, `--max-turns 4`, plus four `--allow 'Bash(… omb.mjs status *)'` rules, session `…0004` | the slash command injected the skill body into `chat_history.jsonl` (once) with the catalog still absent; exactly one driver command, `status --project <tmp>`, `exit_code: 3`, `no team is recorded for this project`, then `end_turn`. The slash form does work in `-p` |
+| Grok Build, without an allow rule | the same prompt, session `…0003`, no `--allow` | the model composed the same single `status` command; headless `-p` has no approval surface, so it was refused with "User cancelled the execution for tool `run_terminal_command`". Nothing ran |
+| Hermes Agent, ordinary language, **before** and **after** | `hermes -z "run T10 through the team" --in <tmp>` | sessions `20260918_134328_ec4fb8` and `20260918_142350_d2ac27` (model `gpt-5.6-sol`): **both** loaded the skill through Hermes's own `skill_view` tool and both hold the body once. Hermes does not read the key, so this host is the deliberate exception and the description still triggers it. Neither run reached a bot: only `state --show` and `doctor` ran, each against repositories the model chose itself, and no `.omb` was created anywhere |
+| DeepSeek Harness | `dsh --profile headless "run T10 through the team"` and the `/openmausbot-launcher …` form, before and after | **could not run**, four times, exit 1 with the same line verbatim: `dsh: MISSING_CREDENTIAL: llm-deepseek: no API key for provider route "deepseek-official"; store DEEPSEEK_API_KEY through the credentials service (the web Models page writes it), or export DEEPSEEK_API_KEY in the launching environment`. The 2026-09-16 runs exported that key into the launching environment; it is not stored in `~/.dsh/storages`, and reading a credential file is out of scope for this session. The DSH row of `references/hosts.md` therefore keeps its 2026-09-16 wording and its invocation form remains unverified |
+| OpenClaw (phone) | — | **not exercised**: the check needs three messages typed on the user's phone and one approval card resolved there. The 2026-09-16 phone proof stands as the last real phone run, under implicit invocation; the root `README.md` says the slash-command form is pending, and the follow-up is tracked in beads |
+
+**What the before/after pairs prove.** For Claude Code, Codex and Grok Build
+the negative differs between the two runs on the host's own record: the
+catalog entry and the skill body are present before and absent after, from
+the same prompt under the same restrictions. For Hermes the negative does
+**not** differ, which is the point: that host never reads the key. For DSH
+neither run happened, so nothing is claimed. The positives show the explicit
+form still reaching the skill and the driver, and stopping after one
+`status`: a named verb is one command, as `SKILL.md` §1 now says.
+
+**Host inference, counted separately.** Fifteen host sessions in total —
+Claude Code ×4, Codex ×5, Grok Build ×4, Hermes ×2 — each spending that
+host's own subscription, plus four `dsh` launches that failed before any
+inference. OpenMausBot bot turns: **0**.

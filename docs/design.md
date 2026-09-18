@@ -1014,7 +1014,20 @@ listen/connect plus public-network denial); Grok (discovered through
 `~/.claude/skills`, one `status` and one `send`). All five were evidenced on
 2026-09-08 (`docs/evidence.md`, "M1 review, tier 2" and "tier 3");
 `${CLAUDE_SKILL_DIR}` is substituted into the skill text at load time and is
-not a shell variable.
+not a shell variable. The Claude trigger-phrase row is history: since
+2026-09-18 the same phrase selects nothing.
+
+Invocation checks, 2026-09-18, 0 bot turns (`docs/evidence.md`, "Explicit
+invocation on every host"), each run twice against the same prompt, before
+and after the key, and read back from the host's own record: Claude Code
+2.1.276, Codex 0.155.0 and Grok 1.0.34 all stop offering the skill to the
+model, and each explicit form — `/openmausbot-launcher`,
+`$openmausbot-launcher`, `/openmausbot-launcher` — still loads it and runs
+exactly one `status` (exit 3, no team). Codex drops it from the skill
+catalog altogether and injects it on `$name`. Hermes v0.21.3 loads it either
+way, the exception this design accepts. DSH could not run (its provider
+credential was absent), and the OpenClaw phone form was not exercised; both
+stay unverified in `hosts.md`.
 
 ## Implementation and validation tracking
 
