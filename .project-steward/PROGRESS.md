@@ -3,6 +3,9 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-19T00:50:12Z — cli
+Both README files rewritten around loading the .openmaus.json team package (validate, doctor, up, import, bind, facts), 80 and 74 lines; PR #6 still carries the previous skill README
+
 ### 2026-09-19T00:33:54Z — cli
 Distribution: dist build tooling with 8 tests, public repo WSH95/openmausbot-launcher pushed with v0.1.0, registry PR agent-skills#6 opened (not merged); 598 tests green; two local commits unpushed pending permission
 
