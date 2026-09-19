@@ -209,8 +209,11 @@ def publish(a, args):
         else:
             tmp = tempfile.mkdtemp(prefix="publish-%s-" % name)
             checkout = os.path.join(tmp, "repo")
-            log("cloning", target_repo)
-            run(["git", "clone", "--depth", "1", "--branch", base, target_repo, checkout],
+            # `gh repo clone` follows the user's configured git protocol (ssh here),
+            # so the push that follows needs no credential helper of its own.
+            slug = target_repo.rstrip("/").removesuffix(".git").split("github.com/")[-1]
+            log("cloning", slug)
+            run(["gh", "repo", "clone", slug, checkout, "--", "--depth", "1", "--branch", base],
                 cwd=None)
 
         ver = version()
