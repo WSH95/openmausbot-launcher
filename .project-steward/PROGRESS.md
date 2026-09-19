@@ -3,6 +3,9 @@
 Add new entries at the top when the project reaches a meaningful checkpoint.
 Do not record every edit.
 
+### 2026-09-19T00:57:18Z — cli
+Registry README entry rewritten around loading the package; publish script gained --branch to add a commit to an open PR (single-branch clone needs an explicit fetch refspec); PR #6 updated with the new skill README and entry
+
 ### 2026-09-19T00:50:12Z — cli
 Both README files rewritten around loading the .openmaus.json team package (validate, doctor, up, import, bind, facts), 80 and 74 lines; PR #6 still carries the previous skill README
 

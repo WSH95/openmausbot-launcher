@@ -13,6 +13,7 @@ and its `#### <name> Use Case` block are ever written: see merge_skill_into_read
     python3 tools/publish_agent_artifact_pr.py --dry-run          # safe preview (no network)
     python3 tools/publish_agent_artifact_pr.py --skill NAME       # open a real PR (needs gh auth)
     python3 tools/publish_agent_artifact_pr.py --checkout DIR     # reuse an existing local clone
+    python3 tools/publish_agent_artifact_pr.py --branch NAME      # add a commit to an open PR's branch
 
 Guardrails: opens a PR but never merges; exits without a PR when the payload is
 byte-identical to what's already published; requires an authenticated `gh`.
@@ -217,8 +218,15 @@ def publish(a, args):
                 cwd=None)
 
         ver = version()
-        branch = "publish/%s-%s" % (name, ver)
-        run(["git", "checkout", "-b", branch], cwd=checkout)
+        branch = args.branch or "publish/%s-%s" % (name, ver)
+        if args.branch:
+            # Update the branch behind an open PR: fetch it and commit on top.
+            # The clone is single-branch, so name the remote-tracking ref explicitly.
+            run(["git", "fetch", "--depth", "1", "origin",
+                 "%s:refs/remotes/origin/%s" % (branch, branch)], cwd=checkout)
+            run(["git", "checkout", "-b", branch, "origin/" + branch], cwd=checkout)
+        else:
+            run(["git", "checkout", "-b", branch], cwd=checkout)
         copy_payload(source_path, os.path.join(checkout, target_path))
         if section:
             merge_skill_into_readme(os.path.join(checkout, "README.md"), name, section)
@@ -233,6 +241,13 @@ def publish(a, args):
                 "Do not merge without review." % (name, ver, build_command))
         run(["git", "commit", "-m", title], cwd=checkout)
         run(["git", "push", "-u", "origin", branch], cwd=checkout)
+        existing = subprocess.run(["gh", "pr", "list", "--repo", target_repo, "--head", branch,
+                                   "--state", "open", "--json", "number,url"],
+                                  capture_output=True, text=True, check=True).stdout
+        prs = json.loads(existing or "[]")
+        if prs:
+            log("PR #%s updated with the new commit (not merged): %s" % (prs[0]["number"], prs[0]["url"]))
+            return
         run(["gh", "pr", "create", "--repo", target_repo, "--base", base,
              "--head", branch, "--title", title, "--body", body], cwd=checkout)
         log("PR opened (not merged).")
@@ -250,6 +265,8 @@ def main():
     ap.add_argument("--checkout",
                     help="use an existing local clone of the target repo instead of cloning")
     ap.add_argument("--base", help="override the base branch")
+    ap.add_argument("--branch", help="update this existing publish branch (the one behind an open PR) "
+                                     "instead of creating a new one")
     args = ap.parse_args()
     for a in load_artifacts(args.skill):
         publish(a, args)
