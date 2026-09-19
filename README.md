@@ -47,6 +47,28 @@ define launcher acceptance. The design is [docs/design.md](docs/design.md).
 - `tests/`: `node:test` suites against `tests/fixtures/fake-omb.mjs`, an
   in-memory OpenMausBot that encodes the 0.1.56 HTTP contract.
 
+## Build and publish
+
+The canonical source is `skills/openmausbot-launcher/`; the payload that
+ships is a generated copy. `node tools/build-dist.mjs` copies it into
+`dist/openmausbot-launcher/` (gitignored), prunes runtime junk, checks the
+required files and fails loudly when one is missing; `tests/dist.test.mjs`
+pins that the payload equals the tracked skill tree byte for byte.
+`agent-artifacts.json` names the destination,
+[WSH95/agent-skills](https://github.com/WSH95/agent-skills) at
+`skills/openmausbot-launcher`, and the registry README entry kept in
+`docs/registry/openmausbot-launcher.md`. The version is `package.json`'s and
+the SKILL.md metadata mirrors it.
+
+```
+node tools/build-dist.mjs                               # skills/ -> dist/
+python3 tools/publish_agent_artifact_pr.py --dry-run    # build and print the plan, no network
+python3 tools/publish_agent_artifact_pr.py              # opens the PR with gh; never merges
+```
+
+The repository itself lives at
+[github.com/WSH95/openmausbot-launcher](https://github.com/WSH95/openmausbot-launcher).
+
 ## Run the tests
 
 ```
@@ -68,6 +90,14 @@ codex sandbox -C "$PWD" --permission-profile omb-loopback-dev -- \
 ```
 
 ## Install the skill
+
+From the registry, once the publish PR is merged:
+
+```
+npx skills add WSH95/agent-skills@openmausbot-launcher
+```
+
+From this checkout:
 
 ```
 ln -s "$PWD/skills/openmausbot-launcher" ~/.claude/skills/openmausbot-launcher   # Claude Code, Grok Build

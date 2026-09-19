@@ -34,6 +34,10 @@ Stack: JavaScript (Node 24, ESM, no dependencies, `node:test`).
   0.1.56 HTTP contract (routes, 409 texts, SSE frames, receipts pruning) and
   a `POST /__fake` control route for scenarios.
 - `docs/design.md`, `docs/evidence.md`.
+- `tools/build-dist.mjs` builds `dist/openmausbot-launcher/` (gitignored) from
+  the skill directory; `tools/publish_agent_artifact_pr.py` with
+  `agent-artifacts.json` opens the publish PR into `WSH95/agent-skills`;
+  `docs/registry/` holds the skill's entry for that registry's README.
 
 ## Conventions
 

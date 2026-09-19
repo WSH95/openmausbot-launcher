@@ -110,10 +110,28 @@ openmausbot-launcher/
 ├── tests/*.test.mjs                     # node:test; explicit discovery: node --test 'tests/**/*.test.mjs'
 ├── tests/fixtures/fake-omb.mjs          # contract fake; `serve` spawns a child that answers health with its own pid
 ├── docs/design.md (authoritative, as in agent-team-cli), docs/evidence.md
+├── docs/registry/openmausbot-launcher.md   # this skill's entry in the agent-skills README (bullet + use case)
+├── tools/build-dist.mjs                 # skills/openmausbot-launcher -> dist/openmausbot-launcher, junk pruned, required files checked
+├── tools/publish_agent_artifact_pr.py   # opens the publish PR into WSH95/agent-skills from agent-artifacts.json; never merges
+├── agent-artifacts.json                 # release manifest: name, build command, dist path, target repo and path, README entry
+├── dist/                                # generated payload, gitignored; tests/dist.test.mjs pins it to the tracked skill tree
 ├── AGENTS.md, CLAUDE.md (adapter), README.md, LICENSE (MIT), package.json, .gitignore
 ├── .project-steward/ (auto_handoff_mode = "off", commit_policy = "auto", never_push = true)
 ├── .beads/ (prefix oml), .claude/settings.json (bd prime hook), .codex/, .agents/skills/beads/
 ```
+
+**Distribution.** The skill directory is the only source; nothing under
+`dist/` is hand-edited or committed. `node tools/build-dist.mjs` produces the
+payload the registry ships (a byte-identical copy of the tracked skill tree,
+with `.omb/`, `node_modules/`, logs and editor cruft left behind, and a
+refusal when a required file is absent), and
+`python3 tools/publish_agent_artifact_pr.py` opens a pull request into
+`WSH95/agent-skills` that places it at `skills/openmausbot-launcher` and
+upserts only this skill's bullet and use-case block in that README. The
+version is `package.json`'s (0.1.0), mirrored by `metadata.version` in the
+SKILL.md frontmatter; a test pins the two together. The development
+repository is public at `https://github.com/WSH95/openmausbot-launcher`
+(Decision 0021).
 
 ## Driver: `scripts/omb.mjs`
 

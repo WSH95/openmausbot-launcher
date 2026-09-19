@@ -790,3 +790,18 @@ authoring section remains the user's step (`PLAN.md`).
 Build review fixes (`79ea8ad`). The real-server parity check of the same day
 is in `docs/evidence.md` (0 bot turns). Host acceptance of the authoring
 section is still the user's step (`oml-i13`).
+
+## Distribution payload (2026-09-18)
+
+`tests/dist.test.mjs`, 8 tests: the payload built into a temp directory
+equals `git ls-files skills/openmausbot-launcher` byte for byte and keeps the
+entry point executable; `.omb/`, `node_modules/`, a `serve.*.log`, `.DS_Store`,
+`__pycache__` and a `.swp` planted in a copy of the source do not reach the
+payload; a copy missing `references/team-authoring.md` fails the build with
+that path on stderr and leaves no partial payload; a stale file in the output
+directory is removed; `agent-artifacts.json` names this skill, its build
+command, `dist/openmausbot-launcher`, `WSH95/agent-skills` at
+`skills/openmausbot-launcher` and an existing registry entry with the bullet
+and the use-case heading; `package.json` and the SKILL.md metadata both say
+0.1.0; `dist/` is ignored; the publish dry run lists the payload under the
+target path and opens no PR.

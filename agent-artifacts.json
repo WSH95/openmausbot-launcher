@@ -1,0 +1,15 @@
+{
+  "$comment": "Release manifest. `node tools/build-dist.mjs` copies skills/openmausbot-launcher/ into dist/openmausbot-launcher/; `python3 tools/publish_agent_artifact_pr.py` opens a PR that places that payload at <target_repo>/<target_path>/ and upserts this skill's entry in the target README from <readme_entry>. The version is package.json's, mirrored in SKILL.md metadata.",
+  "artifacts": [
+    {
+      "name": "openmausbot-launcher",
+      "kind": "skill",
+      "build_command": "node tools/build-dist.mjs",
+      "source_path": "dist/openmausbot-launcher",
+      "target_repo": "https://github.com/WSH95/agent-skills",
+      "target_path": "skills/openmausbot-launcher",
+      "base_branch": "main",
+      "readme_entry": "docs/registry/openmausbot-launcher.md"
+    }
+  ]
+}

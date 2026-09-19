@@ -14,3 +14,6 @@ node_modules/
 .worktrees/
 .superpowers/
 .omb/
+
+# Built distribution payload (node tools/build-dist.mjs)
+dist/

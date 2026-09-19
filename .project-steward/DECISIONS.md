@@ -459,3 +459,38 @@ edited to name the new `package` module and the `validate` verb handler,
 because that bullet enumerates the modules and would otherwise go stale. The
 user approved that single edit by approving this plan (the precedent is
 Decision 0008). No other line of `AGENTS.md` or `CLAUDE.md` changed.
+
+## 0021 — 2026-09-18 — Publish through GitHub: a public repository and agent-skills pull requests; the payload is generated
+
+The user asked for a distribution of the skill into `WSH95/agent-skills`, a
+public GitHub repository for this project under the MIT license, a push, and
+a registry pull request, at version 0.1.0.
+
+The canonical source stays `skills/openmausbot-launcher/`; the layout was
+already clean, so no `skill-src/` rename. `tools/build-dist.mjs` (Node,
+built-ins only, like the driver) generates `dist/openmausbot-launcher/`,
+which is gitignored: the registry ships a generated copy that
+`tests/dist.test.mjs` pins to the tracked skill tree byte for byte, with
+junk pruned and a loud failure on a missing required file.
+`tools/publish_agent_artifact_pr.py` is the publish script the sibling
+projects already use, adapted to read the version from `package.json` and to
+title the pull request `Publish openmausbot-launcher <version>`; it opens a
+PR and never merges. `agent-artifacts.json` is the manifest;
+`docs/registry/openmausbot-launcher.md` is the entry the script upserts into
+the registry README, in that README's existing style, and nothing else there
+changes. The version is `package.json`'s, mirrored by the SKILL.md metadata;
+a test keeps them equal.
+
+The development repository is `https://github.com/WSH95/openmausbot-launcher`,
+public, with the repository's existing MIT `LICENSE`. A scan of every tracked
+file found no credential; the Tailscale MagicDNS hostname in
+`docs/validation/2026-09-16-remote-tailscale.json` and `PROGRESS.md` is a
+name, not a secret, and is published knowingly. The push that creates the
+repository and the branch push behind the registry PR are the two pushes
+the user authorized in this instruction; any later push needs its own
+permission, as Decision 0005 says.
+
+`AGENTS.md`'s Layout section gained one bullet for `tools/`,
+`agent-artifacts.json` and `docs/registry/`, outside a managed block: the
+same exception as Decisions 0008 and 0020, made because the section
+enumerates the tree. Tracked in `oml-2k0`.

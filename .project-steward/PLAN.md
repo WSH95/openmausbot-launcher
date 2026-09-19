@@ -94,6 +94,15 @@ and checking that the first reply is a question, that the summary precedes any
 file, and that the written file validates — which is the user's step, and the
 bead stays open until it is run or waived.
 
+## Distribution (2026-09-18)
+
+Bead `oml-2k0`. `tools/build-dist.mjs` builds the registry payload into
+`dist/` (gitignored) and `tools/publish_agent_artifact_pr.py` opens the PR
+into `WSH95/agent-skills` from `agent-artifacts.json` and
+`docs/registry/openmausbot-launcher.md`; `tests/dist.test.mjs` pins the
+payload. The project is public at `github.com/WSH95/openmausbot-launcher`
+(Decision 0021), version 0.1.0.
+
 ## Later
 
 Done on 2026-09-17: `oml-fg8`, the two report attribution gaps of `oml-j4r`,
